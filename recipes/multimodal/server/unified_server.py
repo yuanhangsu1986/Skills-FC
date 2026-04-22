@@ -331,8 +331,10 @@ def create_app(
         BackendClass = get_backend(backend_type)
         backend_instance = BackendClass(config)
 
-        # Load model
-        backend_instance.load_model()
+        # Load model — run in a thread so that synchronous code inside (e.g.
+        # loop.run_until_complete) doesn't conflict with the running async loop.
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, backend_instance.load_model)
 
         # Create batcher
         request_batcher = RequestBatcher(backend_instance, batch_size, batch_timeout)
