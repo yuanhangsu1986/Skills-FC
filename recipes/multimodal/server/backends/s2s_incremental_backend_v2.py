@@ -248,6 +248,15 @@ class S2SIncrementalBackendV2(InferenceBackend):
     # Model loading -- delegates entirely to the wrapper
     # ------------------------------------------------------------------
     def load_model(self) -> None:
+        import shutil
+        src = "/nemo_run/code/asset/nemotron_h.py"
+        dst = "/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
+        try:
+            shutil.copy2(src, dst)
+            print(f"[S2SIncrementalV2] Copied {src} -> {dst}")
+        except Exception as e:
+            print(f"[S2SIncrementalV2] Warning: could not copy nemotron_h.py: {e}")
+
         from nemo.collections.speechlm2.inference.model_wrappers.nemotron_voicechat_inference_wrapper import (
             NemotronVoicechatInferenceWrapper,
         )
