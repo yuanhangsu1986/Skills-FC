@@ -564,7 +564,8 @@ class NemotronHForCausalLM(
             if self._has_asr
             else None
         )
-        self._has_fc = _get_stt_model_cfg(config).get('use_function_head', False)
+        _custom_outputs = getattr(config, 'custom_outputs', None) or []
+        self._has_fc = "function_tokens" in _custom_outputs or _get_stt_model_cfg(config).get('use_function_head', False)
         self.function_head = (
             ParallelLMHead(
                 config.vocab_size,
