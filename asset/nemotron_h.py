@@ -588,8 +588,9 @@ class NemotronHForCausalLM(
                     asr_logits[:, token_id] += boost
             asr_tokens = torch.argmax(asr_logits, dim=1)
         else:
-            asr_logits = None
-            asr_tokens = None
+            n = hidden_states.shape[0]
+            asr_tokens = torch.zeros(n, dtype=torch.long, device=hidden_states.device)
+            asr_logits = torch.zeros(n, self.config.vocab_size, dtype=hidden_states.dtype, device=hidden_states.device)
         return hidden_states, self.compute_logits(hidden_states), asr_tokens, asr_logits
 
     def compute_logits(
