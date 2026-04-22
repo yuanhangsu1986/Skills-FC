@@ -1,0 +1,42 @@
+executor: slurm
+
+# Running directly from cluster — no ssh_tunnel needed
+job_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/code/nemo-run-fc
+
+account: llmservice_nemo_speechlm
+# account: llmservice_nemo_reasoning
+partition: batch_block1,batch_block3,batch_block4
+cpu_partition: cpu
+job_name_prefix: ""
+
+containers:
+  trtllm: /lustre/fsw/portfolios/llmservice/users/igitman/llm/images/nemo-skills-trtllm-0.7.0.sqsh
+  vllm: /lustre/fsw/portfolios/llmservice/users/igitman/llm/images/nemo-skills-vllm-0.7.0.sqsh
+  sglang: /lustre/fsw/portfolios/llmservice/users/igitman/llm/images/nemo-skills-sglang-0.7.0.sqsh
+  nemo: /lustre/fsw/portfolios/llmservice/users/igitman/llm/images/nemo-skills-nemo-0.7.0.sqsh
+  nemo-rl: /lustre/fsw/portfolios/llmservice/users/igitman/llm/images/nemo-skills-nemo-rl-0.7.0.sqsh
+  megatron: /lustre/fsw/portfolios/llmservice/users/igitman/llm/images/nemo-skills-megatron-0.7.0.sqsh
+  sandbox: /lustre/fsw/portfolios/llmservice/users/igitman/llm/images/nemo-skills-sandbox-0.7.1.sqsh
+  nemo-skills: /lustre/fsw/portfolios/llmservice/users/igitman/llm/images/nemo-skills-0.7.0.sqsh
+  verl: /lustre/fsw/portfolios/llmservice/users/igitman/llm/images/nemo-skills-verl-0.7.0.sqsh
+
+mounts:
+  - /lustre:/lustre
+  - /lustre/fs12/portfolios/llmservice/projects/llmservice_nemo_speechlm/data/nemo_skills/dataset:/dataset
+
+required_env_vars:
+  - NV_INFERENCE_KEY
+
+env_vars:
+  - HF_HOME=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
+  - AUDIO_SAVE_DIR=/lustre/fsw/portfolios/llmservice/users/yuanhangs/nemo_skills_fc/audio_save_dir
+  - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+timeouts:
+  batch_block1,batch_block3,batch_block4: 04:00:00
+  interactive: 04:00:00
+  interactive_singlenode: 04:00:00
+  cpu: 04:00:00
+
+mail_type: FAIL
+mail_user: # <your email goes here>
