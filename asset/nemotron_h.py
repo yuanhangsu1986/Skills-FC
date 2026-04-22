@@ -71,6 +71,14 @@ from vllm.sequence import IntermediateTensors
 from vllm.transformers_utils.configs import NemotronHConfig
 
 
+def _get_stt_model_cfg(config) -> dict:
+    """Extract the stt.model sub-config from the nested NeMo training config."""
+    model_field = getattr(config, 'model', None)
+    if isinstance(model_field, dict):
+        return model_field.get('stt', {}).get('model', {})
+    return {}
+
+
 class NemotronHMLP(nn.Module):
     def __init__(
         self,
@@ -344,13 +352,16 @@ class NemotronHModel(nn.Module):
             org_num_embeddings=config.vocab_size,
         )
 
-        self._has_asr_weights = getattr(config, 'has_asr_head', False)
-        if self._has_asr_weights:
-            self.embed_asr_tokens = VocabParallelEmbedding(
+        self._has_asr = getattr(config, 'has_asr_head', False)
+        self.embed_asr_tokens = (
+            VocabParallelEmbedding(
                 config.vocab_size,
                 config.hidden_size,
-                org_num_embeddings=config.vocab_size
+                org_num_embeddings=config.vocab_size,
             )
+            if self._has_asr
+            else None
+        )
 
         def get_layer(prefix: str):
             layer_idx = int(prefix.rsplit(".", 1)[1])
@@ -376,9 +387,10 @@ class NemotronHModel(nn.Module):
         self.norm_f = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def get_input_embeddings(self, input_ids: torch.Tensor, input_asr_ids: torch.Tensor) -> torch.Tensor:
-        if not self._has_asr_weights or input_asr_ids is None:
-            return self.embed_tokens(input_ids)
-        return self.embed_tokens(input_ids) + self.embed_asr_tokens(input_asr_ids)
+        emb = self.embed_tokens(input_ids)
+        if self.embed_asr_tokens is not None and input_asr_ids is not None:
+            emb = emb + self.embed_asr_tokens(input_asr_ids)
+        return emb
 
     def forward(
         self,
@@ -462,6 +474,7 @@ class NemotronHForCausalLM(
             "stt_model.embed_asr_tokens": "model.embed_asr_tokens",
             "stt_model.lm_head": "lm_head",
             "stt_model.asr_head": "asr_head",
+            "stt_model.function_head": "function_head",
         },
         orig_to_new_substr={"A_log": "A", "embeddings": "embed_tokens"},
     )
@@ -539,30 +552,50 @@ class NemotronHForCausalLM(
             else lora_config.lora_vocab_padding_size,
             prefix=maybe_prefix(prefix, "lm_head"),
         )
-        if getattr(config, 'has_asr_head', False):
-            self.asr_head = ParallelLMHead(
+        self._has_asr = getattr(config, 'has_asr_head', False)
+        self.asr_head = (
+            ParallelLMHead(
                 config.vocab_size,
                 config.hidden_size,
                 org_num_embeddings=config.vocab_size,
                 padding_size=DEFAULT_VOCAB_PADDING_SIZE,
                 prefix=maybe_prefix(prefix, "asr_head"),
             )
-        else:
-            self.asr_head = None
+            if self._has_asr
+            else None
+        )
+        self._has_fc = _get_stt_model_cfg(config).get('use_function_head', False)
+        self.function_head = (
+            ParallelLMHead(
+                config.vocab_size,
+                config.hidden_size,
+                org_num_embeddings=config.vocab_size,
+                padding_size=DEFAULT_VOCAB_PADDING_SIZE,
+                prefix=maybe_prefix(prefix, "function_head"),
+            )
+            if self._has_fc
+            else None
+        )
 
         self.logits_processor = LogitsProcessor(
             self.unpadded_vocab_size, config.vocab_size
         )
 
-        # Read ASR logit boosts from environment variables (set by NeMo wrapper
-        # before engine fork).  Format: VLLM_ASR_BOOST_<TOKEN_ID>=<value>
+        # Read logit boosts from environment variables (set by NeMo wrapper
+        # before engine fork).  Format: VLLM_{ASR,TEXT}_BOOST_<TOKEN_ID>=<value>
         self.asr_logit_boosts: dict[int, float] = {}
+        self.text_logit_boosts: dict[int, float] = {}
         for key, val in os.environ.items():
             if key.startswith("VLLM_ASR_BOOST_"):
                 token_id = int(key[len("VLLM_ASR_BOOST_"):])
                 boost = float(val)
                 if boost != 0.0:
                     self.asr_logit_boosts[token_id] = boost
+            elif key.startswith("VLLM_TEXT_BOOST_"):
+                token_id = int(key[len("VLLM_TEXT_BOOST_"):])
+                boost = float(val)
+                if boost != 0.0:
+                    self.text_logit_boosts[token_id] = boost
 
         self.make_empty_intmd_tensors = self.model.make_empty_intmd_tensors
 
@@ -581,6 +614,12 @@ class NemotronHForCausalLM(
         hidden_states = self.model(
             input_ids, positions, intermediate_tensors, inputs_embeds, input_asr_ids=None
         )
+
+        text_logits = self.compute_logits(hidden_states)
+        for token_id, boost in self.text_logit_boosts.items():
+            if boost != 0.0 and token_id < text_logits.shape[-1]:
+                text_logits[:, token_id] += boost
+
         if self.asr_head is not None:
             asr_logits = self.logits_processor(self.asr_head, hidden_states)
             for token_id, boost in self.asr_logit_boosts.items():
@@ -591,7 +630,15 @@ class NemotronHForCausalLM(
             n = hidden_states.shape[0]
             asr_tokens = torch.zeros(n, dtype=torch.long, device=hidden_states.device)
             asr_logits = torch.zeros(n, self.config.vocab_size, dtype=hidden_states.dtype, device=hidden_states.device)
-        return hidden_states, self.compute_logits(hidden_states), asr_tokens, asr_logits
+
+        results = [hidden_states, text_logits, asr_tokens, asr_logits]
+
+        if self._has_fc and self.function_head is not None:
+            function_logits = self.logits_processor(self.function_head, hidden_states)
+            function_tokens = torch.argmax(function_logits, dim=1)
+            results.extend([function_tokens, function_logits])
+
+        return tuple(results)
 
     def compute_logits(
         self,
@@ -601,6 +648,24 @@ class NemotronHForCausalLM(
         return logits
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
+        skip_keys = set()
+        if not self._has_asr:
+            skip_keys.update(("asr_head", "embed_asr_tokens"))
+        if not self._has_fc:
+            skip_keys.add("function_head")
+
+        if skip_keys:
+            mapper = WeightsMapper(
+                orig_to_new_prefix={
+                    k: v
+                    for k, v in self.hf_to_vllm_mapper.orig_to_new_prefix.items()
+                    if not any(sk in k for sk in skip_keys)
+                },
+                orig_to_new_substr=self.hf_to_vllm_mapper.orig_to_new_substr,
+            )
+        else:
+            mapper = self.hf_to_vllm_mapper
+
         loader = AutoWeightsLoader(self)
-        return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
+        return loader.load_weights(weights, mapper=mapper)
 
