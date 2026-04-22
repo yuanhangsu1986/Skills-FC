@@ -37,6 +37,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
@@ -248,9 +249,9 @@ class S2SIncrementalBackendV2(InferenceBackend):
     # Model loading -- delegates entirely to the wrapper
     # ------------------------------------------------------------------
     def load_model(self) -> None:
-        import shutil
+        import vllm.model_executor.models as _vllm_models
         src = "/nemo_run/code/asset/nemotron_h.py"
-        dst = "/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
+        dst = str(Path(_vllm_models.__file__).parent / "nemotron_h.py")
         try:
             shutil.copy2(src, dst)
             print(f"[S2SIncrementalV2] Copied {src} -> {dst}")
