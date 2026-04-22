@@ -3,8 +3,8 @@ executor: slurm
 ssh_tunnel:
   host: draco-oci-login-01.draco-oci-iad.nvidia.com
   # ------------------------------- Fill this up! -------------------------------
-  user: mmkrtchyan
-  job_dir: /lustre/fsw/portfolios/llmservice/users/mmkrtchyan/workspace/code/nemo-run
+  user: yuanhangs
+  job_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/code/nemo-run-fc
   identity: ""
   # -----------------------------------------------------------------------------
 
@@ -37,8 +37,8 @@ required_env_vars:
 
 env_vars:
   # ------------------------------- Fill this up! -------------------------------
-  - HF_HOME=/lustre/fsw/portfolios/llmservice/users/mmkrtchyan/.cache/huggingface
-  - AUDIO_SAVE_DIR=/lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/fullduplexbench_audio_outputs
+  - HF_HOME=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
+  - AUDIO_SAVE_DIR=/lustre/fsw/portfolios/llmservice/users/yuanhangs/nemo_skills_fc/audio_save_dir
   - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
   # -----------------------------------------------------------------------------
 
