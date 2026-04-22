@@ -70,6 +70,9 @@ from vllm.model_executor.models.utils import (
 from vllm.sequence import IntermediateTensors
 from vllm.transformers_utils.configs import NemotronHConfig
 
+from vllm.logger import init_logger
+logger = init_logger(__name__)
+
 
 def _get_stt_model_cfg(config) -> dict:
     """Extract the stt.model sub-config from the nested NeMo training config."""
@@ -577,6 +580,8 @@ class NemotronHForCausalLM(
             if self._has_fc
             else None
         )
+        if self._has_fc:
+            logger.info("NemotronH: function_head enabled and loaded")
 
         self.logits_processor = LogitsProcessor(
             self.unpadded_vocab_size, config.vocab_size
