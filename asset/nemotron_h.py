@@ -344,12 +344,13 @@ class NemotronHModel(nn.Module):
             org_num_embeddings=config.vocab_size,
         )
 
-        self.embed_asr_tokens = VocabParallelEmbedding(
-            config.vocab_size,
-            config.hidden_size,
-            org_num_embeddings=config.vocab_size
-        )
-        self._has_asr_weights = True  # may be set to False in load_weights
+        self._has_asr_weights = getattr(config, 'has_asr_head', False)
+        if self._has_asr_weights:
+            self.embed_asr_tokens = VocabParallelEmbedding(
+                config.vocab_size,
+                config.hidden_size,
+                org_num_embeddings=config.vocab_size
+            )
 
         def get_layer(prefix: str):
             layer_idx = int(prefix.rsplit(".", 1)[1])
@@ -538,13 +539,16 @@ class NemotronHForCausalLM(
             else lora_config.lora_vocab_padding_size,
             prefix=maybe_prefix(prefix, "lm_head"),
         )
-        self.asr_head = ParallelLMHead(
-            config.vocab_size,
-            config.hidden_size,
-            org_num_embeddings=config.vocab_size,
-            padding_size=DEFAULT_VOCAB_PADDING_SIZE,
-            prefix=maybe_prefix(prefix, "asr_head"),
-        )
+        if getattr(config, 'has_asr_head', False):
+            self.asr_head = ParallelLMHead(
+                config.vocab_size,
+                config.hidden_size,
+                org_num_embeddings=config.vocab_size,
+                padding_size=DEFAULT_VOCAB_PADDING_SIZE,
+                prefix=maybe_prefix(prefix, "asr_head"),
+            )
+        else:
+            self.asr_head = None
 
         self.logits_processor = LogitsProcessor(
             self.unpadded_vocab_size, config.vocab_size
@@ -596,18 +600,6 @@ class NemotronHForCausalLM(
         return logits
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
-        weights_list = list(weights)
-        has_asr = any(
-            'asr_head' in name or 'embed_asr_tokens' in name
-            for name, _ in weights_list
-        )
-        if not has_asr:
-            self.asr_head = None
-            self.model._has_asr_weights = False
         loader = AutoWeightsLoader(self)
-        not_loaded = loader.load_weights(iter(weights_list), mapper=self.hf_to_vllm_mapper)
-        if not has_asr:
-            not_loaded.discard('asr_head.weight')
-            not_loaded.discard('model.embed_asr_tokens.weight')
-        return not_loaded
+        return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
 
