@@ -10,7 +10,7 @@
 #     --config nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_mcq_config_fc.yaml
 
 # Cluster settings
-cluster: s2s_eval_oci_iad
+cluster: s2s_eval_oci_iad_oncluster
 partition: batch_block1,batch_block3,batch_block4
 cpu_partition: cpu
 
@@ -18,7 +18,7 @@ model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_
 
 server_type: vllm
 server_gpus: 1
-num_chunks: 48
+num_chunks: 12
 
 server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
 server_args: >-
@@ -38,9 +38,9 @@ server_args: >-
   --vllm_max_model_len 8192
   --force_turn_taking
   --inference_user_pad_boost 0.8
-  --top_p 0.5
-  --repetition_penalty 1.1
-  --temperature 0.3
+  --top_p 1.0
+  --repetition_penalty 1.0
+  --temperature 0.0
   --system_prompt "Answer the following multiple choice question with an explanation for the answer."
   --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/vb_mcq_artifacts
   --batch_size 2

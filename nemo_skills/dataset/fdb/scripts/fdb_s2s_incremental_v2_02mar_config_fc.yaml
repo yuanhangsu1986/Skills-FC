@@ -5,7 +5,7 @@
 #   python nemo_skills/dataset/fdb/scripts/run_eval.py \
 #     --config nemo_skills/dataset/fdb/scripts/fdb_s2s_incremental_v2_02mar_config_fc.yaml
 
-cluster: s2s_eval_oci_iad
+cluster: s2s_eval_oci_iad_oncluster
 partition: batch_block1,batch_block3,batch_block4
 cpu_partition: cpu
 
@@ -27,9 +27,9 @@ server_args: >-
   --use_codec_cache
   --buffer_size_frames 21
   --codec_token_history_size 60
-  --top_p 0.5
-  --repetition_penalty 1.1
-  --temperature 0.3
+  --top_p 1.0
+  --repetition_penalty 1.0
+  --temperature 0.0
   --matmul_precision medium
   --vllm_gpu_memory_utilization 0.35
   --vllm_max_model_len 8192
@@ -46,7 +46,7 @@ server_server_type: vllm_multimodal
 
 fdb_version: v1.0
 
-data_dir: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/Skills/nemo_skills/dataset/fdb
+data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/fdb_fc
 fdb_repo_path: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/Full-Duplex-Bench
 fdb_data_path: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/Full-Duplex-Bench-data
