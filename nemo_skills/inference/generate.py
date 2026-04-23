@@ -94,6 +94,9 @@ class GenerateSolutionsConfig:
     # Deprecated, please use endpoint_type in the InferenceConfig instead
     use_completions_api: bool = False
 
+    # Legacy field: some older benchmark configs set ++enable_audio=true; accepted but unused here
+    enable_audio: bool = False
+
     # path or name of the tokenizer to use for completions API. By default uses server.model
     tokenizer: str | None = None
     # extra parameters to pass to the tokenizer's apply_chat_template method
