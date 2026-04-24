@@ -40,7 +40,7 @@ from nemo_skills.pipeline.verl.ppo import ppo_verl
 typer.main.get_command_name = lambda name: name
 
 
-def wrap_arguments(arguments: str):
+def wrap_arguments(arguments: str | list):
     """Returns a mock context object to allow using the cli entrypoints as functions."""
 
     class MockContext:
@@ -48,8 +48,8 @@ def wrap_arguments(arguments: str):
             self.args = args
             self.obj = None
 
-    # first one is the cli name
-    return MockContext(args=arguments.split(" "))
+    args = arguments if isinstance(arguments, list) else arguments.split(" ")
+    return MockContext(args=args)
 
 
 def maybe_merge_before_scoring(

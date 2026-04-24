@@ -80,7 +80,7 @@ def run_bba_eval(config: dict):
     if config.get("server_server_type"):
         base_extra_args.append(f"++server.server_type={config['server_server_type']}")
     if config.get("system_message"):
-        base_extra_args.append(f"++system_message='{config['system_message']}'")
+        base_extra_args.append(f"++system_message={config['system_message']}")
 
     for category in categories:
         print(f"\n{'=' * 60}")
@@ -110,7 +110,7 @@ def run_bba_eval(config: dict):
                 server_gpus = config.get("server_gpus", 1)
                 partition = config.get("cpu_partition") if server_gpus == 0 else config.get("partition")
                 nemo_eval(
-                    ctx=wrap_arguments(" ".join(base_extra_args)),
+                    ctx=wrap_arguments(base_extra_args),
                     cluster=config["cluster"],
                     output_dir=config["output_dir"],
                     benchmarks=benchmark,
