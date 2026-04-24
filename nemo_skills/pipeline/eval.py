@@ -14,6 +14,7 @@
 import enum
 import logging
 import os
+import shlex
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
@@ -389,7 +390,7 @@ def eval(
     (need to be prefixed with ++, since we use Hydra for that script).
     """
     setup_logging(disable_hydra_logs=False, use_rich=True)
-    extra_arguments = f"{' '.join(ctx.args)}"
+    extra_arguments = " ".join(shlex.quote(a) for a in ctx.args)
     LOG.info("Starting evaluation job")
     LOG.info("Extra arguments that will be passed to the underlying script: %s", extra_arguments)
 
