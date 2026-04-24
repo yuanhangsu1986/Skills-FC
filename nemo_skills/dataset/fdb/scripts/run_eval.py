@@ -28,6 +28,7 @@ import yaml
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
 from nemo_skills.pipeline.cli import run_cmd, wrap_arguments
+from nemo_skills.pipeline.utils.cluster import isolate_job_dir
 
 ALL_SUBTESTS = [
     "pause_candor",
@@ -226,6 +227,7 @@ def main():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         config["output_dir"] = f"{output_dir}_{timestamp}"
 
+    isolate_job_dir(config)
     run_fdb_eval(config)
 
 

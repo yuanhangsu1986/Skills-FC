@@ -27,6 +27,7 @@ from convert_to_voicebench_format import REQUIRES_GPT_JUDGE, SUBTEST_TO_EVALUATO
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
 from nemo_skills.pipeline.cli import run_cmd, wrap_arguments
+from nemo_skills.pipeline.utils.cluster import isolate_job_dir
 
 ALL_SUBTESTS = [
     "advbench",
@@ -284,6 +285,7 @@ def main():
     if args.scoring_only:
         config["scoring_only"] = True
 
+    isolate_job_dir(config)
     run_voicebench_eval(config)
 
 

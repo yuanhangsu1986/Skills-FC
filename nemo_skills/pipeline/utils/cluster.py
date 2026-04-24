@@ -19,7 +19,7 @@ import sys
 import tarfile
 from collections import defaultdict
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -366,6 +366,23 @@ def get_cluster_config(cluster=None, config_dir=None):
     cluster_config = read_config(config_file)
 
     return cluster_config
+
+
+def isolate_job_dir(config):
+    """Give each run its own job_dir subdirectory so code packages don't collide across runs.
+
+    Modifies config['cluster'] in-place, replacing the cluster name string with a dict
+    that has job_dir scoped to this run. No-op when scoring_only=True.
+    """
+    if config.get("scoring_only"):
+        return
+    run_id = f"{config.get('expname', 'run')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    cluster = get_cluster_config(config["cluster"])
+    if "ssh_tunnel" in cluster:
+        cluster["ssh_tunnel"]["job_dir"] = f"{cluster['ssh_tunnel']['job_dir']}/{run_id}"
+    elif "job_dir" in cluster:
+        cluster["job_dir"] = f"{cluster['job_dir']}/{run_id}"
+    config["cluster"] = cluster
 
 
 def update_ssh_tunnel_config(cluster_config: dict):

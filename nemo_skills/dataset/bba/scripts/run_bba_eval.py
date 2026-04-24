@@ -27,6 +27,7 @@ import yaml
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
 from nemo_skills.pipeline.cli import run_cmd, wrap_arguments
+from nemo_skills.pipeline.utils.cluster import isolate_job_dir
 
 ALL_CATEGORIES = ["formal_fallacies", "navigate", "object_counting", "web_of_lies"]
 
@@ -173,6 +174,7 @@ def main():
     if args.scoring_force:
         config["scoring_force"] = True
 
+    isolate_job_dir(config)
     run_bba_eval(config)
 
 
