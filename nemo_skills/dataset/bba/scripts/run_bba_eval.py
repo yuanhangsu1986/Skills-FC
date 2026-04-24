@@ -38,7 +38,7 @@ def load_config(config_path: str) -> dict:
 
 
 def build_score_command(config: dict, category: str, force: bool = False) -> str:
-    eval_results_dir = f"{config['output_dir']}/eval-results/bba.{category}"
+    eval_results_dir = f"{config['output_dir']}/eval-results/{category}"
     scoring_script = "nemo_skills/dataset/bba/scripts/run_bba_scoring.py"
     cmd_args = [
         f"python {scoring_script}",
@@ -81,9 +81,9 @@ def run_bba_eval(config: dict):
         print(f"Processing category: {category}")
         print(f"{'=' * 60}")
 
-        benchmark = f"bba.{category}"
+        benchmark = category
         expname = f"{config.get('expname', 'bba')}_{category}"
-        eval_results_path = f"{config['output_dir']}/eval-results/{benchmark}"
+        eval_results_path = f"{config['output_dir']}/eval-results/{category}"
         eval_dir = Path(eval_results_path)
         output_jsonl = eval_dir / "output.jsonl"
         output_jsonl_done = eval_dir / "output.jsonl.done"

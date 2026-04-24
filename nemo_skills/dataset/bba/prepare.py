@@ -124,7 +124,7 @@ def main():
         init_path.write_text(INIT_TEMPLATE)
 
     print(f"\nDone. Audio saved to {audio_dir}, JSONL files written per category.")
-    print("Run `python prepare.py` once; afterwards point data_dir in your eval config to the output_dir parent.")
+    print("Run `python prepare.py` once; afterwards point data_dir in your eval config to the output_dir.")
 
 
 if __name__ == "__main__":
