@@ -27,7 +27,7 @@ from convert_to_voicebench_format import REQUIRES_GPT_JUDGE, SUBTEST_TO_EVALUATO
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
 from nemo_skills.pipeline.cli import maybe_merge_before_scoring, run_cmd, wrap_arguments
-from nemo_skills.pipeline.utils.cluster import isolate_job_dir
+from nemo_skills.pipeline.utils.cluster import get_git_commit_hash, isolate_job_dir
 
 ALL_SUBTESTS = [
     "advbench",
@@ -141,6 +141,8 @@ def run_voicebench_eval(config: dict):
         base_extra_args.append(f"++server.server_type={config['server_server_type']}")
     if config.get("api_key_env_var"):
         base_extra_args.append(f"++server.api_key_env_var={config['api_key_env_var']}")
+    if config.get("inference_overrides"):
+        base_extra_args.extend(config["inference_overrides"].strip().split())
 
     for subtest in subtests:
         extra_args_str = " ".join(base_extra_args)
@@ -257,7 +259,7 @@ def run_voicebench_eval(config: dict):
                     command=score_command_asr,
                     container=scoring_container,
                     partition=config.get("cpu_partition") or config.get("partition"),
-                    run_after=[agent_audio_expname, score_generated_expname],
+                    run_after=[agent_audio_expname],
                     expname=f"{expname}_score_asr",
                     installation_command=config.get("scoring_installation_command"),
                     log_dir=f"{eval_results_path}/summarized-results",
@@ -298,6 +300,12 @@ def main():
         config["generation_only"] = True
     if args.scoring_only:
         config["scoring_only"] = True
+
+    output_dir = config.get("output_dir", "")
+    if output_dir:
+        commit_hash = get_git_commit_hash()
+        if not output_dir.endswith(f"_{commit_hash}"):
+            config["output_dir"] = f"{output_dir}_{commit_hash}"
 
     isolate_job_dir(config)
     run_voicebench_eval(config)

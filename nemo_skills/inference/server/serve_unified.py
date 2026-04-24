@@ -202,19 +202,19 @@ def main():
     parser.add_argument(
         "--inference_pad_boost",
         type=float,
-        default=0.0,
+        default=None,
         help="Boost for PAD token logits during inference",
     )
     parser.add_argument(
         "--inference_bos_boost",
         type=float,
-        default=0.0,
+        default=None,
         help="Boost for BOS token logits during inference",
     )
     parser.add_argument(
         "--inference_eos_boost",
         type=float,
-        default=0.0,
+        default=None,
         help="Boost for EOS token logits during inference",
     )
     parser.add_argument(
@@ -534,11 +534,11 @@ def main():
             extra_config["speaker_reference"] = args.speaker_reference
         if args.code_path:
             extra_config["code_path"] = args.code_path
-        if args.inference_pad_boost:
+        if args.inference_pad_boost is not None:
             extra_config["inference_pad_boost"] = args.inference_pad_boost
-        if args.inference_bos_boost:
+        if args.inference_bos_boost is not None:
             extra_config["inference_bos_boost"] = args.inference_bos_boost
-        if args.inference_eos_boost:
+        if args.inference_eos_boost is not None:
             extra_config["inference_eos_boost"] = args.inference_eos_boost
 
     # s2s_voicechat backend specific options
@@ -553,11 +553,11 @@ def main():
             extra_config["speaker_reference"] = args.speaker_reference
         if args.code_path:
             extra_config["code_path"] = args.code_path
-        if args.inference_pad_boost:
+        if args.inference_pad_boost is not None:
             extra_config["inference_pad_boost"] = args.inference_pad_boost
-        if args.inference_bos_boost:
+        if args.inference_bos_boost is not None:
             extra_config["inference_bos_boost"] = args.inference_bos_boost
-        if args.inference_eos_boost:
+        if args.inference_eos_boost is not None:
             extra_config["inference_eos_boost"] = args.inference_eos_boost
         if args.decode_audio:
             extra_config["decode_audio"] = True
@@ -612,11 +612,11 @@ def main():
         extra_config["repetition_penalty"] = args.repetition_penalty
         extra_config["top_p"] = args.top_p
         extra_config["temperature"] = args.temperature
-        if args.inference_pad_boost:
+        if args.inference_pad_boost is not None:
             extra_config["inference_pad_boost"] = args.inference_pad_boost
-        if args.inference_bos_boost:
+        if args.inference_bos_boost is not None:
             extra_config["inference_bos_boost"] = args.inference_bos_boost
-        if args.inference_eos_boost:
+        if args.inference_eos_boost is not None:
             extra_config["inference_eos_boost"] = args.inference_eos_boost
         if args.inference_user_pad_boost is not None:
             extra_config["inference_user_pad_boost"] = args.inference_user_pad_boost

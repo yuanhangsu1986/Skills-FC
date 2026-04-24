@@ -31,11 +31,14 @@ server_args: >-
   --matmul_precision medium
   --vllm_gpu_memory_utilization 0.35
   --vllm_max_model_len 8192
-  --force_turn_taking
   --inference_user_pad_boost 0.8
-  --top_p 1.0
-  --repetition_penalty 1.0
-  --temperature 0.0
+  --inference_pad_boost 0
+  --inference_bos_boost 0
+  --inference_eos_boost 0
+  --top_p 0.9
+  --repetition_penalty 1.2
+  --temperature 0.8
+  --max_new_tokens 4500
   --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bba_fc_artifacts
   --batch_size 2
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_FC
@@ -69,6 +72,8 @@ api_type: nvidia
 judge_base_url: "https://inference-api.nvidia.com/v1"
 
 system_message: "Answer the question with a single word."
+
+inference_overrides: "++inference.tokens_to_generate=4500"
 
 expname: bba_fc
 # max_samples: 50

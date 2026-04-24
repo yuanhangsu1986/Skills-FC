@@ -15,11 +15,12 @@
 import json
 import logging
 import os
+import subprocess
 import sys
 import tarfile
 from collections import defaultdict
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -368,15 +369,27 @@ def get_cluster_config(cluster=None, config_dir=None):
     return cluster_config
 
 
+def get_git_commit_hash() -> str:
+    """Return the short git commit hash of HEAD, or 'unknown' if not in a git repo."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "unknown"
+
+
 def isolate_job_dir(config):
     """Give each run its own job_dir subdirectory so code packages don't collide across runs.
 
-    Modifies config['cluster'] in-place, replacing the cluster name string with a dict
-    that has job_dir scoped to this run. No-op when scoring_only=True.
+    Uses the git commit hash so the same code version reuses the same job_dir (and thus
+    cached code packages), while a new commit gets a fresh directory.
+    Modifies config['cluster'] in-place. No-op when scoring_only=True.
     """
     if config.get("scoring_only"):
         return
-    run_id = f"{config.get('expname', 'run')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_id = f"{config.get('expname', 'run')}_{get_git_commit_hash()}"
     cluster = get_cluster_config(config["cluster"])
     if "ssh_tunnel" in cluster:
         cluster["ssh_tunnel"]["job_dir"] = f"{cluster['ssh_tunnel']['job_dir']}/{run_id}"

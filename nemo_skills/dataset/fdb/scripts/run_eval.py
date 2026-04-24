@@ -21,14 +21,13 @@ Usage:
 
 import argparse
 import shlex
-from datetime import datetime
 from pathlib import Path
 
 import yaml
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
 from nemo_skills.pipeline.cli import maybe_merge_before_scoring, run_cmd, wrap_arguments
-from nemo_skills.pipeline.utils.cluster import isolate_job_dir
+from nemo_skills.pipeline.utils.cluster import get_git_commit_hash, isolate_job_dir
 
 ALL_SUBTESTS = [
     "pause_candor",
@@ -58,7 +57,7 @@ def _benchmark_name(subtest: str, fdb_version: str) -> str:
     return f"fdb_v1.{subtest}"
 
 
-def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
+def build_score_command(config: dict, subtest: str) -> str:
     """Build the scoring command to run via run_cmd.
 
     Uses run_fdb_scoring.py to create output compatible with nemo-skills:
@@ -78,8 +77,6 @@ def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
         f"--subtest {subtest}",
         f"--fdb_version {fdb_version}",
     ]
-    if force:
-        cmd_args.append("--force")
     fdb_data_path = config.get("fdb_data_path")
     if fdb_data_path:
         cmd_args.append(f"--fdb_data_path {shlex.quote(str(fdb_data_path))}")
@@ -173,7 +170,7 @@ def run_fdb_eval(config: dict):
                 dry_run=dry_run,
             )
             print("\n--- Running scoring ---")
-            score_command = build_score_command(config, subtest, force=config.get("scoring_force", False))
+            score_command = build_score_command(config, subtest)
             # FDB scoring runs get_transcript/asr.py which requires NeMo + CUDA; use GPU partition and 1 GPU
             scoring_container = config.get("scoring_container") or config.get("server_container") or "nemo-skills"
             scoring_gpus = config.get("scoring_gpus", 1)  # ASR needs GPU; default 1
@@ -230,11 +227,14 @@ def main():
     if getattr(args, "scoring_force", False):
         config["scoring_force"] = True
 
-    # Add timestamp to output_dir for new runs (so each run has a unique dir). Skip when scoring_only so we use the existing dir.
+    # Append commit hash to output_dir so each code version gets its own directory.
+    # Same commit reuses the same directory (outputs cached); new commit gets a fresh one.
+    # Skip when scoring_only so we operate on the existing directory.
     output_dir = config.get("output_dir", "")
-    if output_dir and not config.get("scoring_only") and not any(char.isdigit() for char in Path(output_dir).name):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        config["output_dir"] = f"{output_dir}_{timestamp}"
+    if output_dir:
+        commit_hash = get_git_commit_hash()
+        if not output_dir.endswith(f"_{commit_hash}"):
+            config["output_dir"] = f"{output_dir}_{commit_hash}"
 
     isolate_job_dir(config)
     run_fdb_eval(config)

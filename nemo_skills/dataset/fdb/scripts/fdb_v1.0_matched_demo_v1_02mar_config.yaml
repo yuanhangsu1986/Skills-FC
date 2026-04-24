@@ -31,6 +31,7 @@ server_args: >-
   --buffer_size_frames 21
   --codec_token_history_size 60
   --repetition_penalty 1.0
+  --max_new_tokens 4500
   --matmul_precision medium
   --vllm_gpu_memory_utilization 0.35
   --vllm_max_model_len 8192
@@ -63,6 +64,8 @@ subtests:
 
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
 scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile"
+
+inference_overrides: "++inference.tokens_to_generate=4500"
 
 expname: fdb_v1.0_matched_demo_v1_02mar
 

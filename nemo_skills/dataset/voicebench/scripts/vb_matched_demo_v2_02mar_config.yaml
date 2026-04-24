@@ -41,6 +41,7 @@ server_args: >-
   --top_p 0.5
   --repetition_penalty 1.1
   --temperature 0.3
+  --max_new_tokens 4500
   --output_dir /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/MAR_02_FIXED/matched_demo_v2/vb_artifacts
   --batch_size 2
   --code_path /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/NeMo
@@ -72,6 +73,8 @@ agent_audio_asr_model: nvidia/parakeet-tdt-1.1b
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
 agent_audio_installation_command: "ln -sf $(which python3) /usr/local/bin/python"
 scoring_installation_command: "pip install sacrebleu qa_metrics"
+
+inference_overrides: "++inference.tokens_to_generate=4500"
 
 expname: vb_matched_demo_v2_02mar
 generation_only: false

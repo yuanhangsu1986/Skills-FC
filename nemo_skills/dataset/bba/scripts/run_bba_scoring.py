@@ -134,8 +134,10 @@ def score(
         from anthropic import Anthropic
         client = Anthropic()
     else:
+        import os
         from openai import OpenAI
-        client = OpenAI(base_url=judge_base_url)
+        api_key = os.environ.get("NVIDIA_API_KEY") if api_type == "nvidia" else os.environ.get("OPENAI_API_KEY")
+        client = OpenAI(base_url=judge_base_url, api_key=api_key)
 
     entries = [json.loads(line) for line in open(output_jsonl) if line.strip()]
     if not entries:

@@ -40,7 +40,7 @@ import yaml
 from nemo_skills.pipeline.cli import eval as nemo_eval
 from nemo_skills.pipeline.cli import maybe_merge_before_scoring, run_cmd, wrap_arguments
 from nemo_skills.pipeline.transcribe import transcribe_audio
-from nemo_skills.pipeline.utils.cluster import isolate_job_dir
+from nemo_skills.pipeline.utils.cluster import get_git_commit_hash, isolate_job_dir
 
 ALL_CATEGORIES = ["formal_fallacies", "navigate", "object_counting", "web_of_lies"]
 
@@ -194,6 +194,8 @@ def run_bba_eval(config: dict):
         base_extra_args.append(f"++server.server_type={config['server_server_type']}")
     if config.get("system_message"):
         base_extra_args.append(f"++system_message='{config['system_message']}'")
+    if config.get("inference_overrides"):
+        base_extra_args.extend(config["inference_overrides"].strip().split())
 
     for category in categories:
         print(f"\n{'=' * 60}")
@@ -258,6 +260,12 @@ def main():
         config["scoring_only"] = True
     if args.scoring_force:
         config["scoring_force"] = True
+
+    output_dir = config.get("output_dir", "")
+    if output_dir:
+        commit_hash = get_git_commit_hash()
+        if not output_dir.endswith(f"_{commit_hash}"):
+            config["output_dir"] = f"{output_dir}_{commit_hash}"
 
     isolate_job_dir(config)
     run_bba_eval(config)
