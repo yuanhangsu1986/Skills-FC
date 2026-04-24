@@ -52,9 +52,6 @@ GENERATION_ARGS = "++prompt_format=openai"
 EVAL_ARGS = "++eval_type=null"
 """
 
-SYSTEM_MESSAGE = {"role": "system", "content": "Answer the question with a single word."}
-
-
 def save_audio(audio_data: dict, audio_path: Path) -> None:
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(audio_path), audio_data["array"], audio_data["sampling_rate"])
@@ -70,7 +67,7 @@ def format_entry(entry: dict, audio_path_relative: str) -> dict:
         "category": entry["category"],
         "expected_answer": entry["official_answer"],
         "audio_path": audio_path_relative,
-        "messages": [SYSTEM_MESSAGE.copy(), user_message],
+        "messages": [user_message],
     }
 
 

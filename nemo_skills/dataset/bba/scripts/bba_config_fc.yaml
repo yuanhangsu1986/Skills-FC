@@ -61,6 +61,8 @@ scoring_installation_command: ""
 judge_model: azure/openai/gpt-4o-mini
 api_type: nvidia
 
+system_message: "Answer the question with a single word."
+
 expname: bba_fc
 # max_samples: 50
 

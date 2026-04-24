@@ -79,6 +79,8 @@ def run_bba_eval(config: dict):
         base_extra_args.append(f"++max_samples={config['max_samples']}")
     if config.get("server_server_type"):
         base_extra_args.append(f"++server.server_type={config['server_server_type']}")
+    if config.get("system_message"):
+        base_extra_args.append(f"++system_message='{config['system_message']}'")
 
     for category in categories:
         print(f"\n{'=' * 60}")
