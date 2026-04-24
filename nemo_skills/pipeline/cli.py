@@ -72,6 +72,10 @@ def maybe_merge_before_scoring(
     num_chunks = int(config.get("num_chunks", 1) or 1)
     if num_chunks <= 1:
         return run_after
+    # When run_after is provided, generation was just submitted and eval.py already
+    # added a merge job inside that pipeline — no need for a second one.
+    if run_after is not None:
+        return run_after
     output_jsonl_done = Path(eval_results_path) / "output.jsonl.done"
     if output_jsonl_done.exists():
         return run_after

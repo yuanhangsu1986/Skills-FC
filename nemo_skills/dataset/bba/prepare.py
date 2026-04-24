@@ -104,7 +104,7 @@ def main():
         audio_path = audio_dir / f"{audio_id}.wav"
         save_audio(entry["audio"], audio_path)
 
-        audio_path_relative = f"bba/data/{audio_id}.wav"
+        audio_path_relative = f"data/{audio_id}.wav"
         formatted = format_entry(entry, audio_path_relative)
         per_category[category].append(formatted)
 
