@@ -27,7 +27,6 @@ import json
 from pathlib import Path
 
 import soundfile as sf
-from datasets import Audio as HFAudio
 from datasets import load_dataset
 from tqdm import tqdm
 
@@ -91,7 +90,6 @@ def main():
 
     print("Loading ArtificialAnalysis/big_bench_audio from HuggingFace...")
     ds = load_dataset("ArtificialAnalysis/big_bench_audio", split="train")
-    ds = ds.cast_column("file_name", HFAudio())
 
     # Collect entries per category
     per_category: dict[str, list] = {cat: [] for cat in CATEGORIES}
@@ -104,7 +102,7 @@ def main():
 
         audio_id = f"bba_{entry['id']}"
         audio_path = audio_dir / f"{audio_id}.wav"
-        save_audio(entry["file_name"], audio_path)
+        save_audio(entry["audio"], audio_path)
 
         audio_path_relative = f"bba/data/{audio_id}.wav"
         formatted = format_entry(entry, audio_path_relative)
