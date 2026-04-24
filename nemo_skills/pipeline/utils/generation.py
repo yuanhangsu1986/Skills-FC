@@ -256,7 +256,7 @@ def separate_hydra_args(extra_arguments: str) -> tuple[str, str]:
 
         if not is_with_value_flag:
             # Not a recognized hydra flag → treat as override
-            override_args += f" {arg}"
+            override_args += f" {shlex.quote(arg)}"
 
         i += 1
 
