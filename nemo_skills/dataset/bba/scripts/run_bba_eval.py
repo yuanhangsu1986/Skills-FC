@@ -51,6 +51,8 @@ def build_score_command(config: dict, category: str, force: bool = False) -> str
         cmd_args.append(f"--judge_model {config['judge_model']}")
     if config.get("api_type"):
         cmd_args.append(f"--api_type {config['api_type']}")
+    if config.get("judge_base_url"):
+        cmd_args.append(f"--judge_base_url {config['judge_base_url']}")
     return " ".join(cmd_args)
 
 

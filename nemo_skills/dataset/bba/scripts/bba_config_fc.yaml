@@ -60,6 +60,7 @@ scoring_installation_command: ""
 # LLM-as-judge for semantic equivalence fallback
 judge_model: azure/openai/gpt-4o-mini
 api_type: nvidia
+judge_base_url: "https://inference-api.nvidia.com/v1"
 
 system_message: "Answer the question with a single word."
 

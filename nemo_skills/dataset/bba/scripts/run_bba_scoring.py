@@ -76,6 +76,7 @@ def score(
     judge_model: str = None,
     api_type: str = "nvidia",
     api_key_env_var: str = "NV_INFERENCE_KEY",
+    judge_base_url: str = "https://inference-api.nvidia.com/v1",
 ) -> int:
     eval_results_dir = Path(eval_results_dir)
     output_jsonl = eval_results_dir / input_jsonl
@@ -107,7 +108,7 @@ def score(
             print(f"Error: {api_key_env_var} not set.", file=sys.stderr)
             return 1
         if api_type == "nvidia":
-            client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key)
+            client = OpenAI(base_url=judge_base_url, api_key=api_key)
         else:
             client = OpenAI(api_key=api_key)
 
@@ -169,6 +170,7 @@ def main():
     parser.add_argument("--judge_model", default=None, help="LLM judge model (e.g. azure/openai/gpt-4o-mini). If not set, exact match only.")
     parser.add_argument("--api_type", default="nvidia", choices=["nvidia", "openai"], help="API type for judge")
     parser.add_argument("--api_key_env_var", default="NV_INFERENCE_KEY", help="Env var holding the API key")
+    parser.add_argument("--judge_base_url", default="https://inference-api.nvidia.com/v1", help="Base URL for the judge API")
     args = parser.parse_args()
 
     sys.exit(score(
@@ -179,6 +181,7 @@ def main():
         judge_model=args.judge_model,
         api_type=args.api_type,
         api_key_env_var=args.api_key_env_var,
+        judge_base_url=args.judge_base_url,
     ))
 
 
