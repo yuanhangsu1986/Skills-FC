@@ -112,6 +112,9 @@ def score(
         else:
             client = OpenAI(api_key=api_key)
 
+    num_entries = sum(1 for line in open(output_jsonl) if line.strip())
+    print(f"Scoring {num_entries} entries in {output_jsonl}" + (f" with LLM judge ({judge_model})" if client else ""), flush=True)
+
     total = correct = judge_calls = 0
     with open(output_jsonl) as f:
         for line in f:
@@ -126,8 +129,12 @@ def score(
                 correct += 1
             elif client and first_word(generation):
                 judge_calls += 1
+                print(f"  [{total + 1}] judge call #{judge_calls}: gen={generation!r:.60} exp={expected!r}", flush=True)
                 if llm_judge(generation, expected, client, judge_model):
                     correct += 1
+                    print(f"  [{total + 1}] judge: correct", flush=True)
+                else:
+                    print(f"  [{total + 1}] judge: wrong", flush=True)
             total += 1
 
     if total == 0:
