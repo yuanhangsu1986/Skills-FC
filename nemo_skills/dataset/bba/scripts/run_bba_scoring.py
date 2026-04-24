@@ -32,7 +32,9 @@ from pathlib import Path
 
 
 def normalize(text: str) -> str:
-    """Lowercase, strip whitespace, remove trailing punctuation."""
+    """Lowercase, strip whitespace, remove trailing punctuation, strip S2S timing tokens."""
+    text = re.sub(r'<\$[^$]*\$>', '', text)  # strip <$0.72$> style tokens
+    text = re.sub(r'<\|[^|]*\|>', '', text)  # strip <|18.64|> style tokens
     return text.lower().strip().rstrip(".!?,;:")
 
 
