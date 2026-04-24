@@ -128,8 +128,6 @@ def run_voicebench_eval(config: dict):
         agent_audio_stage_enabled = "--decode_audio" in (config.get("server_args") or "")
     else:
         agent_audio_stage_enabled = bool(agent_audio_stage_enabled_cfg)
-    # With 4-stage scoring (generated + ASR), ASR stage must run.
-    agent_audio_stage_enabled = True
 
     print(f"Processing {len(subtests)} subtests: {', '.join(subtests)}")
     print(f"Output directory: {config['output_dir']}")
@@ -230,6 +228,8 @@ def run_voicebench_eval(config: dict):
 
         # Scoring phase (Stage 3: generated text, Stage 4: agent ASR transcript)
         if not generation_only:
+            scoring_container = config.get("scoring_container") or "nemo-skills"
+
             # Stage 3: VoiceBench scoring on generated text (output.jsonl)
             print("\n--- Running scoring (generated text) ---")
             score_command_generated = f"{build_score_command(config, subtest)} --input_jsonl output.jsonl --metrics_variant generated"
@@ -238,6 +238,7 @@ def run_voicebench_eval(config: dict):
                 ctx=wrap_arguments(""),
                 cluster=config["cluster"],
                 command=score_command_generated,
+                container=scoring_container,
                 partition=config.get("cpu_partition") or config.get("partition"),
                 run_after=pre_scoring_run_after,
                 expname=score_generated_expname,
@@ -247,19 +248,21 @@ def run_voicebench_eval(config: dict):
             )
 
             # Stage 4: VoiceBench scoring on agent ASR transcript (output_asr.jsonl)
-            print("\n--- Running scoring (agent ASR) ---")
-            score_command_asr = f"{build_score_command(config, subtest)} --input_jsonl output_asr.jsonl --metrics_variant asr"
-            run_cmd(
-                ctx=wrap_arguments(""),
-                cluster=config["cluster"],
-                command=score_command_asr,
-                partition=config.get("cpu_partition") or config.get("partition"),
-                run_after=[agent_audio_expname, score_generated_expname],
-                expname=f"{expname}_score_asr",
-                installation_command=config.get("scoring_installation_command"),
-                log_dir=f"{eval_results_path}/summarized-results",
-                dry_run=dry_run,
-            )
+            if agent_audio_stage_enabled:
+                print("\n--- Running scoring (agent ASR) ---")
+                score_command_asr = f"{build_score_command(config, subtest)} --input_jsonl output_asr.jsonl --metrics_variant asr"
+                run_cmd(
+                    ctx=wrap_arguments(""),
+                    cluster=config["cluster"],
+                    command=score_command_asr,
+                    container=scoring_container,
+                    partition=config.get("cpu_partition") or config.get("partition"),
+                    run_after=[agent_audio_expname, score_generated_expname],
+                    expname=f"{expname}_score_asr",
+                    installation_command=config.get("scoring_installation_command"),
+                    log_dir=f"{eval_results_path}/summarized-results",
+                    dry_run=dry_run,
+                )
 
     print(f"\n{'=' * 60}")
     print("Done!")

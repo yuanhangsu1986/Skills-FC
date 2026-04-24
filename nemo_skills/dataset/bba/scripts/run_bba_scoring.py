@@ -13,70 +13,97 @@
 # limitations under the License.
 
 """
-Score BigBench Audio generation output with exact-match accuracy, with LLM-as-judge fallback.
+Score BigBench Audio generation output following the official BBA evaluation methodology.
 
-Reads output.jsonl produced by nemo-skills inference, compares each
-`generation` against `expected_answer` using case-insensitive exact match first.
-On mismatch, falls back to LLM-as-judge for semantic equivalence.
+Reads output_asr.jsonl (produced by the ASR stage), passes each entry to an LLM judge
+using the exact official prompt template. Runs the full evaluation 3 independent times
+and reports the average accuracy, matching the official "averages across three independent
+evaluation runs" methodology.
+
+The question context comes from the question_asr field (Whisper transcript of the input
+question audio), which is written by nemo_skills/inference/transcribe_audio.py when
+--data_dir is provided.
 
 Usage:
     python run_bba_scoring.py --eval_results_dir <path/to/eval-results/category>
                               --category formal_fallacies
-                              [--judge_model azure/openai/gpt-4o-mini]
+                              --judge_model aws/anthropic/bedrock-claude-sonnet-4-6
                               [--api_type nvidia]
-                              [--api_key_env_var NVIDIA_API_KEY]
+                              [--api_key_env_var NV_INFERENCE_KEY]
 """
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
+# Official BBA judge prompt template (verbatim from the BBA evaluation methodology)
+JUDGE_PROMPT = """\
+Assess whether the following CANDIDATE ANSWER is CORRECT or INCORRECT.
+For the CANDIDATE ANSWER to be correct, it must be consistent with the OFFICIAL ANSWER.
+If the CANDIDATE ANSWER contradicts itself, assess the first proposed answer.
+If the CANDIDATE ANSWER provides a final answer and working, assess the final answer only.
+If the CANDIDATE ANSWER includes irrelevant information, assess only the relevant information.
+If the CANDIDATE ANSWER includes a numeric value it is ok if it is spelled e.g. 7 or seven
+It is ok if the CANDIDATE ANSWER involves a misspelling of a person's name e.g. Leda or Lida, Autry or Audrie.
 
-def first_word(text: str) -> str:
-    """Extract first word, lowercase."""
-    words = text.split()
-    return words[0].lower().strip(".!?,;:") if words else ""
+The question, for reference only: START QUESTION {question} \n\nEND QUESTION
+
+The OFFICIAL ANSWER:{official_answer}
+
+BEGIN CANDIDATE ANSWER TO ASSESS
+
+{candidate_answer}
+
+END CANDIDATE ANSWER TO ASSESS
+
+Reply only with CORRECT or INCORRECT."""
+
+NUM_EVAL_RUNS = 3  # Official methodology: average accuracy across 3 independent evaluation runs
 
 
-def exact_match(generation: str, expected: str) -> bool:
-    """Compare first word of generation against expected answer (case-insensitive)."""
-    return first_word(generation) == expected.lower().strip()
-
-
-def llm_judge(generation: str, expected: str, client, model: str) -> bool:
-    """Ask an LLM if the generation is semantically equivalent to the expected answer."""
-    gen = generation
-    exp = expected
-
-    prompt = (
-        f"Expected answer: {exp}\n"
-        f"Model response: {gen}\n\n"
-        "Does the model response convey the same answer as the expected answer? "
-        "Consider number words (e.g. 'three' = '3'), capitalization, and minor phrasing variations. "
-        "Answer only 'yes' or 'no'."
+def llm_judge(generation: str, expected: str, question: str, client, model: str) -> bool:
+    """Call the LLM judge once and return True if CORRECT."""
+    prompt = JUDGE_PROMPT.format(
+        question=question or "",
+        official_answer=expected,
+        candidate_answer=generation,
     )
-
-    response = client.chat.completions.create(
+    text = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=5,
-        temperature=0.0,
-    )
-    verdict = response.choices[0].message.content.strip().lower()
-    return verdict.startswith("yes")
+        max_tokens=10,
+        temperature=1.0,
+    ).choices[0].message.content.strip().upper()
+    return text == "CORRECT"
+
+
+def _score_one_run(entries: list, client, judge_model: str, run_idx: int) -> tuple[int, int]:
+    """Run one complete evaluation pass. Returns (correct, total)."""
+    correct = total = 0
+    for entry in entries:
+        expected = entry.get("expected_answer", "")
+        generation = entry.get("generation", "")
+        question = entry.get("question_asr", "")
+
+        print(f"  [run {run_idx + 1}, entry {total + 1}] gen={generation!r:.60} exp={expected!r}", flush=True)
+        is_correct = llm_judge(generation, expected, question, client, judge_model)
+        if is_correct:
+            correct += 1
+        print(f"  [run {run_idx + 1}, entry {total + 1}] judge: {'CORRECT' if is_correct else 'INCORRECT'}", flush=True)
+        total += 1
+
+    return correct, total
 
 
 def score(
     eval_results_dir: str,
     category: str,
-    input_jsonl: str = "output.jsonl",
+    input_jsonl: str = "output_asr.jsonl",
     force: bool = False,
     judge_model: str = None,
     api_type: str = "nvidia",
-    api_key_env_var: str = "NV_INFERENCE_KEY",
-    judge_base_url: str = "https://inference-api.nvidia.com/v1",
+    judge_base_url: str = None,
 ) -> int:
     eval_results_dir = Path(eval_results_dir)
     output_jsonl = eval_results_dir / input_jsonl
@@ -99,53 +126,43 @@ def score(
         print(f"Error: {output_jsonl} not found.", file=sys.stderr)
         return 1
 
-    # Set up LLM judge client if model specified
-    client = None
-    if judge_model:
-        from openai import OpenAI
-        api_key = os.environ.get(api_key_env_var)
-        if not api_key:
-            print(f"Error: {api_key_env_var} not set.", file=sys.stderr)
-            return 1
-        if api_type == "nvidia":
-            client = OpenAI(base_url=judge_base_url, api_key=api_key)
-        else:
-            client = OpenAI(api_key=api_key)
-
-    num_entries = sum(1 for line in open(output_jsonl) if line.strip())
-    print(f"Scoring {num_entries} entries in {output_jsonl}" + (f" with LLM judge ({judge_model})" if client else ""), flush=True)
-
-    total = correct = judge_calls = 0
-    with open(output_jsonl) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            entry = json.loads(line)
-            expected = entry.get("expected_answer", "")
-            generation = entry.get("generation", "")
-
-            if exact_match(generation, expected):
-                correct += 1
-            elif client and first_word(generation):
-                judge_calls += 1
-                print(f"  [{total + 1}] judge call #{judge_calls}: gen={generation!r:.60} exp={expected!r}", flush=True)
-                if llm_judge(generation, expected, client, judge_model):
-                    correct += 1
-                    print(f"  [{total + 1}] judge: correct", flush=True)
-                else:
-                    print(f"  [{total + 1}] judge: wrong", flush=True)
-            total += 1
-
-    if total == 0:
-        print("Error: no entries found in output.jsonl", file=sys.stderr)
+    if not judge_model:
+        print("Error: --judge_model is required (official BBA methodology uses LLM judge for all entries).", file=sys.stderr)
         return 1
 
-    if judge_calls:
-        print(f"LLM judge called for {judge_calls}/{total} entries.")
+    if api_type == "anthropic":
+        from anthropic import Anthropic
+        client = Anthropic()
+    else:
+        from openai import OpenAI
+        client = OpenAI(base_url=judge_base_url)
 
-    accuracy = round(100.0 * correct / total, 2)
-    metrics = {"accuracy": accuracy, "correct": correct, "total": total}
+    entries = [json.loads(line) for line in open(output_jsonl) if line.strip()]
+    if not entries:
+        print("Error: no entries found in output file.", file=sys.stderr)
+        return 1
+
+    print(
+        f"Scoring {len(entries)} entries in {output_jsonl} "
+        f"with judge {judge_model} ({NUM_EVAL_RUNS} independent runs, averaged)",
+        flush=True,
+    )
+
+    # Official methodology: run full evaluation NUM_EVAL_RUNS times, average the accuracy scores
+    run_accuracies = []
+    for run_idx in range(NUM_EVAL_RUNS):
+        print(f"\n--- Evaluation run {run_idx + 1}/{NUM_EVAL_RUNS} ---", flush=True)
+        correct, total = _score_one_run(entries, client, judge_model, run_idx)
+        run_acc = correct / total
+        run_accuracies.append(run_acc)
+        print(f"  Run {run_idx + 1} accuracy: {round(100.0 * run_acc, 2)}% ({correct}/{total})", flush=True)
+
+    accuracy = round(100.0 * sum(run_accuracies) / NUM_EVAL_RUNS, 2)
+    metrics = {
+        "accuracy": accuracy,
+        "run_accuracies": [round(100.0 * a, 2) for a in run_accuracies],
+        "total": len(entries),
+    }
 
     existing_metrics = {}
     if metrics_file.exists():
@@ -160,8 +177,9 @@ def score(
     print("\n" + "=" * 60)
     print(f"RESULTS for {benchmark_key}")
     print("=" * 60)
-    print(f"  accuracy : {accuracy}%")
-    print(f"  correct  : {correct} / {total}")
+    print(f"  accuracy (avg of {NUM_EVAL_RUNS} runs) : {accuracy}%")
+    print(f"  per-run accuracies : {metrics['run_accuracies']}")
+    print(f"  total entries      : {len(entries)}")
     print("=" * 60)
     print(f"Metrics saved to {metrics_file}")
 
@@ -169,15 +187,14 @@ def score(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Score BigBench Audio output with exact-match + LLM-as-judge")
+    parser = argparse.ArgumentParser(description="Score BigBench Audio output using official BBA evaluation methodology")
     parser.add_argument("--eval_results_dir", required=True, help="Path to eval-results/{category}/ directory")
     parser.add_argument("--category", required=True, choices=["formal_fallacies", "navigate", "object_counting", "web_of_lies"])
-    parser.add_argument("--input_jsonl", default="output.jsonl", help="JSONL file to score (default: output.jsonl)")
+    parser.add_argument("--input_jsonl", default="output_asr.jsonl", help="JSONL file to score (default: output_asr.jsonl)")
     parser.add_argument("--force", action="store_true", help="Re-run scoring even if metrics.json exists")
-    parser.add_argument("--judge_model", default=None, help="LLM judge model (e.g. azure/openai/gpt-4o-mini). If not set, exact match only.")
-    parser.add_argument("--api_type", default="nvidia", choices=["nvidia", "openai"], help="API type for judge")
-    parser.add_argument("--api_key_env_var", default="NV_INFERENCE_KEY", help="Env var holding the API key")
-    parser.add_argument("--judge_base_url", default="https://inference-api.nvidia.com/v1", help="Base URL for the judge API")
+    parser.add_argument("--judge_model", required=True, help="LLM judge model (e.g. aws/anthropic/bedrock-claude-sonnet-4-6)")
+    parser.add_argument("--api_type", default="nvidia", help="API type for judge")
+    parser.add_argument("--judge_base_url", default=None, help="Base URL for the judge API (nvidia/openai only)")
     args = parser.parse_args()
 
     sys.exit(score(
@@ -187,7 +204,6 @@ def main():
         force=args.force,
         judge_model=args.judge_model,
         api_type=args.api_type,
-        api_key_env_var=args.api_key_env_var,
         judge_base_url=args.judge_base_url,
     ))
 

@@ -55,10 +55,16 @@ categories:
   - web_of_lies
 
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
+asr_installation_command: ""
 scoring_installation_command: ""
 
-# LLM-as-judge for semantic equivalence fallback
-judge_model: azure/openai/gpt-4o-mini
+# ASR settings (following official BBA evaluation methodology)
+asr_model: openai/whisper-large-v3
+asr_server_args: "--task transcribe"
+asr_server_gpus: 1
+
+# LLM-as-judge (Claude Sonnet via NVIDIA inference API, following official BBA evaluation methodology)
+judge_model: aws/anthropic/bedrock-claude-sonnet-4-6
 api_type: nvidia
 judge_base_url: "https://inference-api.nvidia.com/v1"
 

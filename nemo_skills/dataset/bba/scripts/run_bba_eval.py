@@ -13,7 +13,19 @@
 # limitations under the License.
 
 """
-Run BigBench Audio evaluation: generate responses with nemo-skills, then score with exact match.
+Run BigBench Audio evaluation.
+
+Pipeline stages (each independently re-runnable):
+  1. generation  — nemo-skills inference, produces output.jsonl
+  2. merge       — merge output chunks into output.jsonl (if num_chunks > 1)
+  3. asr         — Whisper transcription via vLLM server, produces output_asr.jsonl
+  4. scoring     — exact-match + LLM-as-judge, produces metrics.json
+
+Stage control flags:
+  --generation_only   run stage 1 only
+  --asr_only          run stage 3 only (requires output.jsonl)
+  --scoring_only      run stage 4 only (requires output_asr.jsonl)
+  (default)           run all stages end-to-end
 
 Usage:
     python nemo_skills/dataset/bba/scripts/run_bba_eval.py \
@@ -27,6 +39,7 @@ import yaml
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
 from nemo_skills.pipeline.cli import maybe_merge_before_scoring, run_cmd, wrap_arguments
+from nemo_skills.pipeline.transcribe import transcribe_audio
 from nemo_skills.pipeline.utils.cluster import isolate_job_dir
 
 ALL_CATEGORIES = ["formal_fallacies", "navigate", "object_counting", "web_of_lies"]
@@ -39,9 +52,8 @@ def load_config(config_path: str) -> dict:
 
 def build_score_command(config: dict, category: str, force: bool = False) -> str:
     eval_results_dir = f"{config['output_dir']}/eval-results/{category}"
-    scoring_script = "nemo_skills/dataset/bba/scripts/run_bba_scoring.py"
     cmd_args = [
-        f"python {scoring_script}",
+        f"python nemo_skills/dataset/bba/scripts/run_bba_scoring.py",
         f"--eval_results_dir {eval_results_dir}",
         f"--category {category}",
     ]
@@ -54,6 +66,104 @@ def build_score_command(config: dict, category: str, force: bool = False) -> str
     if config.get("judge_base_url"):
         cmd_args.append(f"--judge_base_url {config['judge_base_url']}")
     return " ".join(cmd_args)
+
+
+def run_generation_stage(config: dict, category: str, expname: str, base_extra_args: list, dry_run: bool) -> bool:
+    """Stage 1: Submit generation job. Returns True if a job was submitted."""
+    eval_dir = Path(f"{config['output_dir']}/eval-results/{category}")
+    output_jsonl = eval_dir / "output.jsonl"
+
+    num_chunks = int(config.get("num_chunks", 1) or 1)
+    if num_chunks > 1:
+        chunk_done_ok = all((eval_dir / f"output_chunk_{i}.jsonl.done").exists() for i in range(num_chunks))
+    else:
+        chunk_done_ok = (eval_dir / "output_chunk_0.jsonl.done").exists() or (eval_dir / "output.jsonl.done").exists()
+
+    if output_jsonl.exists() and chunk_done_ok:
+        print(f"\n--- Stage 1: Skipping generation (found {output_jsonl} and done markers) ---")
+        return False
+
+    print("\n--- Stage 1: Running generation ---")
+    server_gpus = config.get("server_gpus", 1)
+    partition = config.get("cpu_partition") if server_gpus == 0 else config.get("partition")
+    nemo_eval(
+        ctx=wrap_arguments(base_extra_args),
+        cluster=config["cluster"],
+        output_dir=config["output_dir"],
+        benchmarks=category,
+        model=config["model"],
+        server_type=config.get("server_type", "vllm"),
+        server_gpus=server_gpus,
+        server_address=config.get("server_address"),
+        num_chunks=config.get("num_chunks", 1),
+        server_container=config.get("server_container"),
+        server_entrypoint=config.get("server_entrypoint"),
+        data_dir=config.get("data_dir"),
+        server_args=config.get("server_args", ""),
+        installation_command=config.get("installation_command"),
+        partition=partition,
+        expname=expname,
+        auto_summarize_results=False,
+        dry_run=dry_run,
+    )
+    return True
+
+
+def run_merge_stage(config: dict, eval_results_path: str, expname: str, generation_submitted: bool, dry_run: bool):
+    """Stage 2: Merge output chunks if needed. Returns run_after list for downstream stages."""
+    return maybe_merge_before_scoring(
+        config, eval_results_path, expname,
+        run_after=[expname] if generation_submitted else None,
+        dry_run=dry_run,
+    )
+
+
+def run_asr_stage(config: dict, category: str, expname: str, eval_results_path: str, run_after, dry_run: bool):
+    """Stage 3: Submit Whisper ASR job via vLLM server. Returns run_after list for scoring."""
+    output_asr_jsonl = Path(eval_results_path) / "output_asr.jsonl"
+    force = config.get("scoring_force", False)
+
+    if output_asr_jsonl.exists() and not force:
+        print(f"\n--- Stage 3: Skipping ASR (found {output_asr_jsonl}) ---")
+        return run_after
+
+    print("\n--- Stage 3: Running ASR (Whisper via vLLM) ---")
+    asr_expname = f"{expname}_asr"
+    transcribe_audio(
+        cluster=config["cluster"],
+        input_jsonl=f"{eval_results_path}/output.jsonl",
+        output_jsonl=f"{eval_results_path}/output_asr.jsonl",
+        asr_model=config["asr_model"],
+        asr_server_args=config.get("asr_server_args", ""),
+        data_dir=config.get("data_dir"),
+        server_gpus=config.get("asr_server_gpus", 1),
+        server_container=config.get("server_container"),
+        partition=config.get("partition"),
+        expname=asr_expname,
+        run_after=run_after,
+        installation_command=config.get("asr_installation_command"),
+        log_dir=f"{eval_results_path}/summarized-results",
+        force=force,
+        dry_run=dry_run,
+    )
+    return [asr_expname]
+
+
+def run_scoring_stage(config: dict, category: str, expname: str, eval_results_path: str, run_after, dry_run: bool):
+    """Stage 4: Submit scoring job."""
+    print("\n--- Stage 4: Running scoring ---")
+    run_cmd(
+        ctx=wrap_arguments(""),
+        cluster=config["cluster"],
+        command=build_score_command(config, category, force=config.get("scoring_force", False)),
+        container=config.get("scoring_container") or "nemo-skills",
+        partition=config.get("cpu_partition") or config.get("partition"),
+        run_after=run_after,
+        expname=f"{expname}_score",
+        installation_command=config.get("scoring_installation_command"),
+        log_dir=f"{eval_results_path}/summarized-results",
+        dry_run=dry_run,
+    )
 
 
 def run_bba_eval(config: dict):
@@ -70,6 +180,7 @@ def run_bba_eval(config: dict):
         raise ValueError("No valid categories specified")
 
     generation_only = config.get("generation_only", False)
+    asr_only = config.get("asr_only", False)
     scoring_only = config.get("scoring_only", False)
     dry_run = config.get("dry_run", False)
 
@@ -89,69 +200,27 @@ def run_bba_eval(config: dict):
         print(f"Processing category: {category}")
         print(f"{'=' * 60}")
 
-        benchmark = category
         expname = f"{config.get('expname', 'bba')}_{category}"
         eval_results_path = f"{config['output_dir']}/eval-results/{category}"
-        eval_dir = Path(eval_results_path)
-        output_jsonl = eval_dir / "output.jsonl"
-        output_jsonl_done = eval_dir / "output.jsonl.done"
 
-        num_chunks = int(config.get("num_chunks", 1) or 1)
-        if num_chunks > 1:
-            chunk_done_ok = all((eval_dir / f"output_chunk_{i}.jsonl.done").exists() for i in range(num_chunks))
-        else:
-            chunk_done_ok = (eval_dir / "output_chunk_0.jsonl.done").exists() or output_jsonl_done.exists()
-        generation_complete = output_jsonl.exists() and chunk_done_ok
         generation_submitted = False
+        if not (scoring_only or asr_only):
+            generation_submitted = run_generation_stage(config, category, expname, base_extra_args, dry_run)
+            if generation_only:
+                continue
+
+        merge_run_after = None
+        if not (asr_only or scoring_only):
+            merge_run_after = run_merge_stage(config, eval_results_path, expname, generation_submitted, dry_run)
 
         if not scoring_only:
-            if generation_complete:
-                print(f"\n--- Skipping generation (found {output_jsonl} and done markers) ---")
-            else:
-                print("\n--- Running generation ---")
-                server_gpus = config.get("server_gpus", 1)
-                partition = config.get("cpu_partition") if server_gpus == 0 else config.get("partition")
-                nemo_eval(
-                    ctx=wrap_arguments(base_extra_args),
-                    cluster=config["cluster"],
-                    output_dir=config["output_dir"],
-                    benchmarks=benchmark,
-                    model=config["model"],
-                    server_type=config.get("server_type", "vllm"),
-                    server_gpus=server_gpus,
-                    server_address=config.get("server_address"),
-                    num_chunks=config.get("num_chunks", 1),
-                    server_container=config.get("server_container"),
-                    server_entrypoint=config.get("server_entrypoint"),
-                    data_dir=config.get("data_dir"),
-                    server_args=config.get("server_args", ""),
-                    installation_command=config.get("installation_command"),
-                    partition=partition,
-                    expname=expname,
-                    auto_summarize_results=False,
-                    dry_run=dry_run,
-                )
-                generation_submitted = True
+            asr_run_after = run_asr_stage(config, category, expname, eval_results_path, merge_run_after, dry_run)
+            if asr_only:
+                continue
+        else:
+            asr_run_after = None
 
-        if not generation_only:
-            score_run_after = maybe_merge_before_scoring(
-                config, eval_results_path, expname,
-                run_after=[expname] if generation_submitted else None,
-                dry_run=dry_run,
-            )
-            print("\n--- Running scoring ---")
-            score_command = build_score_command(config, category, force=config.get("scoring_force", False))
-            run_cmd(
-                ctx=wrap_arguments(""),
-                cluster=config["cluster"],
-                command=score_command,
-                partition=config.get("cpu_partition") or config.get("partition"),
-                run_after=score_run_after,
-                expname=f"{expname}_score",
-                installation_command=config.get("scoring_installation_command"),
-                log_dir=f"{eval_results_path}/summarized-results",
-                dry_run=dry_run,
-            )
+        run_scoring_stage(config, category, expname, eval_results_path, asr_run_after, dry_run)
 
     print(f"\n{'=' * 60}")
     print("Done!")
@@ -159,7 +228,7 @@ def run_bba_eval(config: dict):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run BigBench Audio evaluation (generate + score)")
+    parser = argparse.ArgumentParser(description="Run BigBench Audio evaluation (generate + ASR + score)")
     parser.add_argument("--config", required=True, help="Path to YAML config file")
     parser.add_argument("--cluster", help="Override cluster")
     parser.add_argument("--partition", help="Override partition")
@@ -168,9 +237,10 @@ def main():
     parser.add_argument("--categories", help="Override categories (comma-separated)")
     parser.add_argument("--max_samples", type=int, help="Override max_samples")
     parser.add_argument("--dry_run", action="store_true")
-    parser.add_argument("--generation_only", action="store_true")
-    parser.add_argument("--scoring_only", action="store_true")
-    parser.add_argument("--scoring_force", action="store_true", help="Re-run scoring even if metrics.json exists")
+    parser.add_argument("--generation_only", action="store_true", help="Run stage 1 (generation) only")
+    parser.add_argument("--asr_only", action="store_true", help="Run stage 3 (ASR) only")
+    parser.add_argument("--scoring_only", action="store_true", help="Run stage 4 (scoring) only")
+    parser.add_argument("--scoring_force", action="store_true", help="Re-run ASR and scoring even if outputs exist")
 
     args = parser.parse_args()
     config = load_config(args.config)
@@ -182,6 +252,8 @@ def main():
         config["dry_run"] = True
     if args.generation_only:
         config["generation_only"] = True
+    if args.asr_only:
+        config["asr_only"] = True
     if args.scoring_only:
         config["scoring_only"] = True
     if args.scoring_force:
