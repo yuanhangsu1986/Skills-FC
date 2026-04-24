@@ -52,7 +52,7 @@ GENERATION_ARGS = "++prompt_format=openai"
 EVAL_ARGS = "++eval_type=null"
 """
 
-SYSTEM_MESSAGE = {"role": "system", "content": "Answer the question with a single word or short phrase."}
+SYSTEM_MESSAGE = {"role": "system", "content": "Answer the question with a single word."}
 
 
 def save_audio(audio_data: dict, audio_path: Path) -> None:

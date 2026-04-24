@@ -57,6 +57,10 @@ categories:
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
 scoring_installation_command: ""
 
+# LLM-as-judge for semantic equivalence fallback
+judge_model: azure/openai/gpt-4o-mini
+api_type: nvidia
+
 expname: bba_fc
 # max_samples: 50
 

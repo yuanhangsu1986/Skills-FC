@@ -47,6 +47,10 @@ def build_score_command(config: dict, category: str, force: bool = False) -> str
     ]
     if force:
         cmd_args.append("--force")
+    if config.get("judge_model"):
+        cmd_args.append(f"--judge_model {config['judge_model']}")
+    if config.get("api_type"):
+        cmd_args.append(f"--api_type {config['api_type']}")
     return " ".join(cmd_args)
 
 
