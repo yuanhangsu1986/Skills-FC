@@ -26,7 +26,7 @@ from pathlib import Path
 import yaml
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
-from nemo_skills.pipeline.cli import run_cmd, wrap_arguments
+from nemo_skills.pipeline.cli import maybe_merge_before_scoring, run_cmd, wrap_arguments
 from nemo_skills.pipeline.utils.cluster import isolate_job_dir
 
 ALL_CATEGORIES = ["formal_fallacies", "navigate", "object_counting", "web_of_lies"]
@@ -126,6 +126,11 @@ def run_bba_eval(config: dict):
                 generation_submitted = True
 
         if not generation_only:
+            score_run_after = maybe_merge_before_scoring(
+                config, eval_results_path, expname,
+                run_after=[expname] if generation_submitted else None,
+                dry_run=dry_run,
+            )
             print("\n--- Running scoring ---")
             score_command = build_score_command(config, category, force=config.get("scoring_force", False))
             run_cmd(
@@ -133,7 +138,7 @@ def run_bba_eval(config: dict):
                 cluster=config["cluster"],
                 command=score_command,
                 partition=config.get("cpu_partition") or config.get("partition"),
-                run_after=[expname] if generation_submitted else None,
+                run_after=score_run_after,
                 expname=f"{expname}_score",
                 installation_command=config.get("scoring_installation_command"),
                 log_dir=f"{eval_results_path}/summarized-results",

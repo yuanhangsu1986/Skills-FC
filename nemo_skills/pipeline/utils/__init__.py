@@ -44,9 +44,9 @@ from nemo_skills.pipeline.utils.exp import (
     get_sandbox_command,
     run_exp,
 )
+from nemo_skills.inference.merge_chunks import get_chunked_rs_filename, get_merge_cmd
 from nemo_skills.pipeline.utils.generation import (
     configure_client,
-    get_chunked_rs_filename,
     get_generation_cmd,
     get_remaining_jobs,
     wrap_cmd,

@@ -16,8 +16,8 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
+from nemo_skills.inference.merge_chunks import get_chunked_rs_filename
 from nemo_skills.pipeline.utils.generation import (
-    get_chunked_rs_filename,
     get_expected_done_files,
     get_remaining_jobs,
     separate_hydra_args,

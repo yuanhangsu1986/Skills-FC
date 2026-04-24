@@ -27,7 +27,7 @@ from pathlib import Path
 import yaml
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
-from nemo_skills.pipeline.cli import run_cmd, wrap_arguments
+from nemo_skills.pipeline.cli import maybe_merge_before_scoring, run_cmd, wrap_arguments
 from nemo_skills.pipeline.utils.cluster import isolate_job_dir
 
 ALL_SUBTESTS = [
@@ -132,6 +132,10 @@ def run_fdb_eval(config: dict):
 
         benchmark = _benchmark_name(subtest, fdb_version)
         expname = f"{config.get('expname', 'fdb')}_{subtest}"
+        eval_results_path = f"{config['output_dir']}/eval-results/{benchmark}"
+        output_jsonl = Path(eval_results_path) / "output.jsonl"
+        output_jsonl_done = Path(eval_results_path) / "output.jsonl.done"
+        generation_submitted = False
 
         # Generation phase
         if not scoring_only:
@@ -159,12 +163,17 @@ def run_fdb_eval(config: dict):
                 auto_summarize_results=False,
                 dry_run=dry_run,
             )
+            generation_submitted = True
 
         # Scoring phase
         if not generation_only:
+            score_run_after = maybe_merge_before_scoring(
+                config, eval_results_path, expname,
+                run_after=[expname] if generation_submitted else None,
+                dry_run=dry_run,
+            )
             print("\n--- Running scoring ---")
             score_command = build_score_command(config, subtest, force=config.get("scoring_force", False))
-            eval_results_path = f"{config['output_dir']}/eval-results/{benchmark}"
             # FDB scoring runs get_transcript/asr.py which requires NeMo + CUDA; use GPU partition and 1 GPU
             scoring_container = config.get("scoring_container") or config.get("server_container") or "nemo-skills"
             scoring_gpus = config.get("scoring_gpus", 1)  # ASR needs GPU; default 1
@@ -176,7 +185,7 @@ def run_fdb_eval(config: dict):
                 container=scoring_container,
                 partition=scoring_partition,
                 num_gpus=scoring_gpus,
-                run_after=[expname] if not scoring_only else None,
+                run_after=score_run_after,
                 expname=f"{expname}_score",
                 installation_command=config.get("scoring_installation_command"),
                 log_dir=f"{eval_results_path}/summarized-results",

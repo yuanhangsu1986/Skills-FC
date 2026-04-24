@@ -18,31 +18,13 @@ import shlex
 import subprocess
 from collections import defaultdict
 
+from nemo_skills.inference.merge_chunks import get_chunked_rs_filename
 from nemo_skills.pipeline.utils.cluster import get_tunnel
 from nemo_skills.pipeline.utils.mounts import get_unmounted_path
 from nemo_skills.pipeline.utils.server import get_free_port
-from nemo_skills.utils import get_chunked_filename, get_logger_name
+from nemo_skills.utils import get_logger_name
 
 LOG = logging.getLogger(get_logger_name(__file__))
-
-
-def get_chunked_rs_filename(
-    output_dir: str,
-    random_seed: int = None,
-    chunk_id: int = None,
-) -> str:
-    """
-    Return a path of the form: {output_dir}/output[-rsSEED][-chunkK].jsonl
-    """
-    if random_seed is not None:
-        base_filename = f"output-rs{random_seed}.jsonl"
-    else:
-        base_filename = "output.jsonl"
-
-    # If chunking is enabled, add the chunk suffix
-    if chunk_id is not None:
-        base_filename = get_chunked_filename(chunk_id, base_filename)
-    return os.path.join(output_dir, base_filename)
 
 
 def get_expected_done_files(output_dir, random_seeds, chunk_ids):
@@ -343,29 +325,17 @@ def get_generation_cmd(
     if chunk_id is not None:
         cmd += f" ++num_chunks={num_chunks} ++chunk_id={chunk_id} "
         output_file = get_chunked_rs_filename(output_dir, random_seed=random_seed, chunk_id=chunk_id)
-        donefiles = []
-        # we are always waiting for all chunks in num_chunks, no matter chunk_ids in
-        # the current run (as we don't want to merge partial jobs)
-        for cur_chunk_id in range(num_chunks):
-            filename = get_chunked_rs_filename(output_dir=output_dir, random_seed=random_seed, chunk_id=cur_chunk_id)
-            donefile = f"{filename}.done"
-            donefiles.append(donefile)
+        chunk_donefile = f"{output_file}.done"
 
         if job_end_cmd:
-            job_end_cmd += f" && touch {donefiles[chunk_id]} "
+            job_end_cmd += f" && touch {chunk_donefile} "
         else:
-            job_end_cmd = f"touch {donefiles[chunk_id]} "
+            job_end_cmd = f"touch {chunk_donefile} "
 
-        # getting file name as if there is no chunking since that's where we want to merge
-        merged_output_file = get_chunked_rs_filename(output_dir=output_dir, random_seed=random_seed)
-        merge_cmd = (
-            f"python -m nemo_skills.inference.merge_chunks {merged_output_file} "
-            f"{' '.join([f[:-5] for f in donefiles])}"
-        )
         if postprocess_cmd:
-            postprocess_cmd = shlex.quote(postprocess_cmd)
-            merge_cmd = f"{merge_cmd} -- {postprocess_cmd}"
-        postprocess_cmd = f"{job_end_cmd} && {merge_cmd}"
+            postprocess_cmd = f"{job_end_cmd} && {postprocess_cmd}"
+        else:
+            postprocess_cmd = job_end_cmd
 
     else:  # only writing a single status file
         if job_end_cmd:

@@ -551,6 +551,55 @@ def eval(
                 all_tasks.append(new_task)
                 # only last dependent job will be here, which is what we want
                 job_id_to_tasks[idx] = prev_tasks
+
+        # For each chunked benchmark, add a standalone CPU merge task.
+        # - Generation mode (remaining_jobs non-empty): merge depends on chunk tasks.
+        # - Scoring-only mode (remaining_jobs empty, no chunk tasks submitted this run):
+        #   merge has no SLURM dependencies and runs immediately; the merge script is
+        #   idempotent (skips if output.jsonl.done exists) and fails (exit 1) if any
+        #   chunk file is missing, propagating failure to all downstream jobs.
+        # Updating job_id_to_tasks to point to the merge task means all downstream
+        # phases (judge, summarize, etc.) automatically depend on merge.
+        for benchmark, benchmark_args in benchmarks_dict.items():
+            if not benchmark_args.num_chunks or benchmark_args.num_chunks <= 1:
+                continue
+            benchmark_output_dir = f"{output_dir}/{benchmark_args.eval_subfolder}"
+            chunk_tasks = [task for job_id in benchmark_args.job_ids for task in job_id_to_tasks[job_id]]
+            if benchmark_args.remaining_jobs:
+                seeds = benchmark_args.remaining_jobs
+            else:
+                # Scoring-only: derive seeds from num_samples since remaining_jobs is empty.
+                seeds = (
+                    [None]
+                    if benchmark_args.num_samples == 0
+                    else list(range(int(benchmark_args.num_samples)))
+                )
+            merge_cmds = [
+                pipeline_utils.get_merge_cmd(benchmark_output_dir, benchmark_args.num_chunks, random_seed=seed)
+                for seed in seeds
+            ]
+            has_tasks = True
+            merge_task = pipeline_utils.add_task(
+                exp,
+                cmd=" && ".join(merge_cmds),
+                task_name=f"{expname}-{benchmark}-merge",
+                log_dir=f"{benchmark_output_dir}/summarized-results",
+                container=cluster_config["containers"]["nemo-skills"],
+                cluster_config=cluster_config,
+                partition=cluster_config.get("cpu_partition") or cluster_config.get("partition"),
+                task_dependencies=(
+                    chunk_tasks if cluster_config["executor"] == "slurm" else all_tasks + _task_dependencies
+                ),
+                reuse_code_exp=reuse_code_exp,
+                reuse_code=reuse_code,
+                installation_command=installation_command,
+                skip_hf_home_check=skip_hf_home_check,
+                sbatch_kwargs=sbatch_kwargs,
+            )
+            all_tasks.append(merge_task)
+            for job_id in benchmark_args.job_ids:
+                job_id_to_tasks[job_id] = [merge_task]
+
         # scheduling judge jobs if needed
         for idx, (benchmark, benchmark_args) in enumerate(benchmarks_dict.items()):
             if not eval_requires_judge and not benchmark_args.requires_judge:

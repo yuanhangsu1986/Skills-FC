@@ -26,7 +26,7 @@ import yaml
 from convert_to_voicebench_format import REQUIRES_GPT_JUDGE, SUBTEST_TO_EVALUATOR
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
-from nemo_skills.pipeline.cli import run_cmd, wrap_arguments
+from nemo_skills.pipeline.cli import maybe_merge_before_scoring, run_cmd, wrap_arguments
 from nemo_skills.pipeline.utils.cluster import isolate_job_dir
 
 ALL_SUBTESTS = [
@@ -198,6 +198,17 @@ def run_voicebench_eval(config: dict):
                 )
                 generation_submitted = gen_exp is not None
 
+        # Gate all scoring stages on merge completing if output.jsonl is missing.
+        pre_scoring_run_after = (
+            maybe_merge_before_scoring(
+                config, eval_results_path, expname,
+                run_after=[expname] if generation_submitted else None,
+                dry_run=dry_run,
+            )
+            if not generation_only
+            else None
+        )
+
         # Agent-audio ASR + WER/CER phase (optional)
         agent_audio_expname = f"{expname}_agent_audio_asr"
         if not generation_only and agent_audio_stage_enabled:
@@ -210,7 +221,7 @@ def run_voicebench_eval(config: dict):
                 container=config.get("server_container") or "nemo-skills",
                 partition=config.get("partition"),
                 num_gpus=1,
-                run_after=[expname] if generation_submitted else None,
+                run_after=pre_scoring_run_after,
                 expname=agent_audio_expname,
                 installation_command=config.get("agent_audio_installation_command"),
                 log_dir=f"{eval_results_path}/summarized-results",
@@ -228,7 +239,7 @@ def run_voicebench_eval(config: dict):
                 cluster=config["cluster"],
                 command=score_command_generated,
                 partition=config.get("cpu_partition") or config.get("partition"),
-                run_after=[expname] if generation_submitted else None,
+                run_after=pre_scoring_run_after,
                 expname=score_generated_expname,
                 installation_command=config.get("scoring_installation_command"),
                 log_dir=f"{eval_results_path}/summarized-results",

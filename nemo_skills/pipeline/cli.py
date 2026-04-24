@@ -52,6 +52,44 @@ def wrap_arguments(arguments: str):
     return MockContext(args=arguments.split(" "))
 
 
+def maybe_merge_before_scoring(
+    config: dict,
+    eval_results_path: str,
+    expname: str,
+    run_after=None,
+    dry_run: bool = False,
+):
+    """Submit a CPU merge job if chunks exist but the merged output.jsonl is missing.
+
+    Returns the run_after value to use for the scoring job: either [merge_expname]
+    when a merge job was submitted, or the original run_after otherwise.
+    Call this before every scoring run_cmd when num_chunks > 1.
+    """
+    from pathlib import Path
+
+    from nemo_skills.pipeline.utils import get_merge_cmd
+
+    num_chunks = int(config.get("num_chunks", 1) or 1)
+    if num_chunks <= 1:
+        return run_after
+    output_jsonl_done = Path(eval_results_path) / "output.jsonl.done"
+    if output_jsonl_done.exists():
+        return run_after
+    merge_expname = f"{expname}_merge"
+    run_cmd(
+        ctx=wrap_arguments(""),
+        cluster=config["cluster"],
+        command=get_merge_cmd(eval_results_path, num_chunks, random_seed=None),
+        partition=config.get("cpu_partition") or config.get("partition"),
+        run_after=run_after,
+        expname=merge_expname,
+        installation_command=config.get("installation_command"),
+        log_dir=f"{eval_results_path}/summarized-results",
+        dry_run=dry_run,
+    )
+    return [merge_expname]
+
+
 if __name__ == "__main__":
     # workaround for https://github.com/fastapi/typer/issues/341
     app()
