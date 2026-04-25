@@ -63,7 +63,7 @@ scoring_installation_command: ""
 
 # ASR settings (following official BBA evaluation methodology)
 asr_model: openai/whisper-large-v3
-asr_server_args: "--task transcribe"
+asr_server_args: "--task transcription"
 asr_server_gpus: 1
 
 # LLM-as-judge (Claude Sonnet via NVIDIA inference API, following official BBA evaluation methodology)
