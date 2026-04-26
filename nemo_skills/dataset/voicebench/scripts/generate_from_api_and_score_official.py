@@ -23,7 +23,6 @@ import argparse
 from pathlib import Path
 
 import yaml
-from convert_to_voicebench_format import REQUIRES_GPT_JUDGE, SUBTEST_TO_EVALUATOR
 
 from nemo_skills.pipeline.cli import eval as nemo_eval
 from nemo_skills.pipeline.cli import maybe_merge_before_scoring, run_cmd, wrap_arguments
@@ -51,13 +50,22 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def build_score_command(config: dict, subtest: str) -> str:
+def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
     """Build the scoring command to run via run_cmd.
 
     Uses run_voicebench_scoring.py to create output compatible with nemo-skills:
     - summarized-results/ directory with logs
     - metrics.json with evaluation results
     """
+    try:
+        from convert_to_voicebench_format import REQUIRES_GPT_JUDGE, SUBTEST_TO_EVALUATOR
+    except ImportError as e:
+        raise ImportError(
+            "Could not import convert_to_voicebench_format. "
+            "Make sure to run this script from the voicebench scripts directory "
+            "or add it to PYTHONPATH."
+        ) from e
+
     eval_results_dir = f"{config['output_dir']}/eval-results/voicebench.{subtest}"
     evaluator = SUBTEST_TO_EVALUATOR.get(subtest, "open")
     needs_judge = subtest in REQUIRES_GPT_JUDGE
@@ -78,6 +86,8 @@ def build_score_command(config: dict, subtest: str) -> str:
             cmd_args.append(f"--api_type {config['api_type']}")
         if config.get("nvidia_model"):
             cmd_args.append(f"--nvidia_model {config['nvidia_model']}")
+    if force:
+        cmd_args.append("--force")
 
     return " ".join(cmd_args)
 
@@ -194,6 +204,7 @@ def run_voicebench_eval(config: dict):
                     partition=partition,
                     expname=expname,
                     auto_summarize_results=False,
+                    reuse_code=False,
                     dry_run=dry_run,
                 )
                 generation_submitted = gen_exp is not None
@@ -225,6 +236,7 @@ def run_voicebench_eval(config: dict):
                 expname=agent_audio_expname,
                 installation_command=config.get("agent_audio_installation_command"),
                 log_dir=f"{eval_results_path}/summarized-results",
+                reuse_code=False,
                 dry_run=dry_run,
             )
 
@@ -234,7 +246,7 @@ def run_voicebench_eval(config: dict):
 
             # Stage 3: VoiceBench scoring on generated text (output.jsonl)
             print("\n--- Running scoring (generated text) ---")
-            score_command_generated = f"{build_score_command(config, subtest)} --input_jsonl output.jsonl --metrics_variant generated"
+            score_command_generated = f"{build_score_command(config, subtest, force=config.get('scoring_force', False))} --input_jsonl output.jsonl --metrics_variant generated"
             score_generated_expname = f"{expname}_score_generated"
             run_cmd(
                 ctx=wrap_arguments(""),
@@ -246,13 +258,14 @@ def run_voicebench_eval(config: dict):
                 expname=score_generated_expname,
                 installation_command=config.get("scoring_installation_command"),
                 log_dir=f"{eval_results_path}/summarized-results",
+                reuse_code=False,
                 dry_run=dry_run,
             )
 
             # Stage 4: VoiceBench scoring on agent ASR transcript (output_asr.jsonl)
             if agent_audio_stage_enabled:
                 print("\n--- Running scoring (agent ASR) ---")
-                score_command_asr = f"{build_score_command(config, subtest)} --input_jsonl output_asr.jsonl --metrics_variant asr"
+                score_command_asr = f"{build_score_command(config, subtest, force=config.get('scoring_force', False))} --input_jsonl output_asr.jsonl --metrics_variant asr"
                 run_cmd(
                     ctx=wrap_arguments(""),
                     cluster=config["cluster"],
@@ -263,6 +276,7 @@ def run_voicebench_eval(config: dict):
                     expname=f"{expname}_score_asr",
                     installation_command=config.get("scoring_installation_command"),
                     log_dir=f"{eval_results_path}/summarized-results",
+                    reuse_code=False,
                     dry_run=dry_run,
                 )
 
@@ -285,6 +299,7 @@ def main():
     parser.add_argument("--dry_run", action="store_true", help="Print commands without executing")
     parser.add_argument("--generation_only", action="store_true", help="Only run generation")
     parser.add_argument("--scoring_only", action="store_true", help="Only run scoring")
+    parser.add_argument("--scoring_force", action="store_true", help="Re-run scoring even if metrics.json exists")
 
     args = parser.parse_args()
 
@@ -300,6 +315,8 @@ def main():
         config["generation_only"] = True
     if args.scoring_only:
         config["scoring_only"] = True
+    if getattr(args, "scoring_force", False):
+        config["scoring_force"] = True
 
     output_dir = config.get("output_dir", "")
     if output_dir:

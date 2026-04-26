@@ -104,6 +104,7 @@ def run_generation_stage(config: dict, category: str, expname: str, base_extra_a
         partition=partition,
         expname=expname,
         auto_summarize_results=False,
+        reuse_code=False,
         dry_run=dry_run,
     )
     return True
@@ -144,6 +145,7 @@ def run_asr_stage(config: dict, category: str, expname: str, eval_results_path: 
         installation_command=config.get("asr_installation_command"),
         log_dir=f"{eval_results_path}/summarized-results",
         force=force,
+        reuse_code=False,
         dry_run=dry_run,
     )
     return [asr_expname]
@@ -162,6 +164,7 @@ def run_scoring_stage(config: dict, category: str, expname: str, eval_results_pa
         expname=f"{expname}_score",
         installation_command=config.get("scoring_installation_command"),
         log_dir=f"{eval_results_path}/summarized-results",
+        reuse_code=False,
         dry_run=dry_run,
     )
 

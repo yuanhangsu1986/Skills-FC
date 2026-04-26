@@ -25,6 +25,7 @@ Can be used as:
 """
 
 import logging
+import shlex
 from typing import List
 
 import typer
@@ -96,6 +97,7 @@ def transcribe_audio(
     installation_command: str = typer.Option(None, help="Installation command to run before the transcription job"),
     log_dir: str = typer.Option(None, help="Directory for Slurm logs"),
     force: bool = typer.Option(False, help="Overwrite output_jsonl if it already exists"),
+    reuse_code: bool = typer.Option(True, help="If True, reuse code from the last submitted experiment in this session."),
     dry_run: bool = typer.Option(False, help="Print job config without submitting"),
     config_dir: str = typer.Option(None, help="Custom location for cluster configs"),
 ):
@@ -144,7 +146,7 @@ def transcribe_audio(
         f" --output_jsonl {output_jsonl}"
     )
     if data_dir:
-        transcribe_cmd += f" --data_dir {data_dir}"
+        transcribe_cmd += f" --data_dir {shlex.quote(data_dir)}"
     if force:
         transcribe_cmd += " --force"
 
@@ -162,6 +164,7 @@ def transcribe_audio(
             server_config=server_config,
             run_after=[download_expname],
             installation_command=installation_command,
+            reuse_code=reuse_code,
         )
         run_exp(exp, cluster_config, dry_run=dry_run)
 

@@ -57,7 +57,7 @@ def _benchmark_name(subtest: str, fdb_version: str) -> str:
     return f"fdb_v1.{subtest}"
 
 
-def build_score_command(config: dict, subtest: str) -> str:
+def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
     """Build the scoring command to run via run_cmd.
 
     Uses run_fdb_scoring.py to create output compatible with nemo-skills:
@@ -80,6 +80,8 @@ def build_score_command(config: dict, subtest: str) -> str:
     fdb_data_path = config.get("fdb_data_path")
     if fdb_data_path:
         cmd_args.append(f"--fdb_data_path {shlex.quote(str(fdb_data_path))}")
+    if force:
+        cmd_args.append("--force")
 
     return " ".join(cmd_args)
 
@@ -158,6 +160,7 @@ def run_fdb_eval(config: dict):
                 partition=partition,
                 expname=expname,
                 auto_summarize_results=False,
+                reuse_code=False,
                 dry_run=dry_run,
             )
             generation_submitted = True
@@ -170,7 +173,7 @@ def run_fdb_eval(config: dict):
                 dry_run=dry_run,
             )
             print("\n--- Running scoring ---")
-            score_command = build_score_command(config, subtest)
+            score_command = build_score_command(config, subtest, force=config.get("scoring_force", False))
             # FDB scoring runs get_transcript/asr.py which requires NeMo + CUDA; use GPU partition and 1 GPU
             scoring_container = config.get("scoring_container") or config.get("server_container") or "nemo-skills"
             scoring_gpus = config.get("scoring_gpus", 1)  # ASR needs GPU; default 1
@@ -186,6 +189,7 @@ def run_fdb_eval(config: dict):
                 expname=f"{expname}_score",
                 installation_command=config.get("scoring_installation_command"),
                 log_dir=f"{eval_results_path}/summarized-results",
+                reuse_code=False,
                 dry_run=dry_run,
             )
 

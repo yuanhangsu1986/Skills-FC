@@ -381,20 +381,26 @@ def get_git_commit_hash() -> str:
 
 
 def isolate_job_dir(config):
-    """Give each run its own job_dir subdirectory so code packages don't collide across runs.
+    """Give each run its own job_dir subdirectory so each submission always uploads fresh code.
 
-    Uses the git commit hash so the same code version reuses the same job_dir (and thus
-    cached code packages), while a new commit gets a fresh directory.
-    Modifies config['cluster'] in-place. No-op when scoring_only=True.
+    Uses a timestamp so every job submission gets a unique directory regardless of git state.
+    This keeps output_dir (which uses the plain commit hash) stable so scoring can always
+    find generation outputs even after local edits between submissions.
     """
-    if config.get("scoring_only"):
-        return
-    run_id = f"{config.get('expname', 'run')}_{get_git_commit_hash()}"
+    from datetime import datetime
+    import uuid
+    timestamp = datetime.now().strftime("%Y-%m-%d_%Hh%M")
+    commit_hash = get_git_commit_hash()
+    unique_id = uuid.uuid4().hex[:8]
+    run_id = f"{config.get('expname', 'run')}_{timestamp}_{commit_hash}_{unique_id}"
     cluster = get_cluster_config(config["cluster"])
     if "ssh_tunnel" in cluster:
         cluster["ssh_tunnel"]["job_dir"] = f"{cluster['ssh_tunnel']['job_dir']}/{run_id}"
     elif "job_dir" in cluster:
         cluster["job_dir"] = f"{cluster['job_dir']}/{run_id}"
+        # For oncluster (no ssh_tunnel), nemo-run uses its home dir set by set_nemorun_home.
+        # read_config already called it with the original path, so we must update it here.
+        set_nemorun_home(cluster["job_dir"])
     config["cluster"] = cluster
 
 

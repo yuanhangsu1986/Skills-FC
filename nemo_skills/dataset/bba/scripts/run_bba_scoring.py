@@ -86,7 +86,6 @@ def _score_one_run(entries: list, client, judge_model: str, run_idx: int) -> tup
         generation = entry.get("generation", "")
         question = entry.get("question_asr", "")
 
-        print(f"  [run {run_idx + 1}, entry {total + 1}] gen={generation!r:.60} exp={expected!r}", flush=True)
         is_correct = llm_judge(generation, expected, question, client, judge_model)
         if is_correct:
             correct += 1
@@ -136,10 +135,11 @@ def score(
     else:
         import os
         from openai import OpenAI
-        api_key = os.environ.get("NVIDIA_API_KEY") if api_type == "nvidia" else os.environ.get("OPENAI_API_KEY")
+        api_key = os.environ.get("NV_INFERENCE_KEY") if api_type == "nvidia" else os.environ.get("OPENAI_API_KEY")
         client = OpenAI(base_url=judge_base_url, api_key=api_key)
 
-    entries = [json.loads(line) for line in open(output_jsonl) if line.strip()]
+    with open(output_jsonl) as f:
+        entries = [json.loads(line) for line in f if line.strip()]
     if not entries:
         print("Error: no entries found in output file.", file=sys.stderr)
         return 1

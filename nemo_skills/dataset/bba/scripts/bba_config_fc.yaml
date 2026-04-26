@@ -5,7 +5,7 @@
 #     --config nemo_skills/dataset/bba/scripts/bba_config_fc.yaml
 
 # Cluster settings
-cluster: s2s_eval_oci_iad
+cluster: s2s_eval_oci_iad_oncluster
 partition: batch_block1,batch_block3,batch_block4
 cpu_partition: cpu
 
