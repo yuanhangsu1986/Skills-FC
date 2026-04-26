@@ -138,32 +138,43 @@ def run_fdb_eval(config: dict):
 
         # Generation phase
         if not scoring_only:
-            print("\n--- Running generation ---")
-            server_gpus = config.get("server_gpus", 1)
-            # Use cpu_partition when not self-hosting (external API)
-            partition = config.get("cpu_partition") if server_gpus == 0 else config.get("partition")
-            nemo_eval(
-                ctx=wrap_arguments(extra_args_str),
-                cluster=config["cluster"],
-                output_dir=config["output_dir"],
-                benchmarks=benchmark,
-                model=config["model"],
-                server_type=config.get("server_type", "vllm"),
-                server_gpus=server_gpus,
-                server_address=config.get("server_address"),
-                num_chunks=config.get("num_chunks", 1),
-                server_container=config.get("server_container"),
-                server_entrypoint=config.get("server_entrypoint"),
-                data_dir=config.get("data_dir"),
-                server_args=config.get("server_args", ""),
-                installation_command=config.get("installation_command"),
-                partition=partition,
-                expname=expname,
-                auto_summarize_results=False,
-                reuse_code=False,
-                dry_run=dry_run,
-            )
-            generation_submitted = True
+            num_chunks = int(config.get("num_chunks", 1) or 1)
+            eval_dir = Path(eval_results_path)
+            if num_chunks > 1:
+                chunk_done_ok = all((eval_dir / f"output_chunk_{i}.jsonl.done").exists() for i in range(num_chunks))
+            else:
+                chunk_done_ok = (eval_dir / "output_chunk_0.jsonl.done").exists() or output_jsonl_done.exists()
+            generation_complete = output_jsonl.exists() and chunk_done_ok
+
+            if generation_complete:
+                print(f"\n--- Skipping generation (found {output_jsonl} and done markers) ---")
+            else:
+                print("\n--- Running generation ---")
+                server_gpus = config.get("server_gpus", 1)
+                # Use cpu_partition when not self-hosting (external API)
+                partition = config.get("cpu_partition") if server_gpus == 0 else config.get("partition")
+                nemo_eval(
+                    ctx=wrap_arguments(extra_args_str),
+                    cluster=config["cluster"],
+                    output_dir=config["output_dir"],
+                    benchmarks=benchmark,
+                    model=config["model"],
+                    server_type=config.get("server_type", "vllm"),
+                    server_gpus=server_gpus,
+                    server_address=config.get("server_address"),
+                    num_chunks=config.get("num_chunks", 1),
+                    server_container=config.get("server_container"),
+                    server_entrypoint=config.get("server_entrypoint"),
+                    data_dir=config.get("data_dir"),
+                    server_args=config.get("server_args", ""),
+                    installation_command=config.get("installation_command"),
+                    partition=partition,
+                    expname=expname,
+                    auto_summarize_results=False,
+                    reuse_code=False,
+                    dry_run=dry_run,
+                )
+                generation_submitted = True
 
         # Scoring phase
         if not generation_only:

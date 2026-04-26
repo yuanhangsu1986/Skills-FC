@@ -86,11 +86,23 @@ def main():
     parser.add_argument("--subtest", required=True, choices=list(ASR_TASK_MAP))
     parser.add_argument("--fdb_data_path", type=Path, default=None, help="FDB dataset root; required for turn_taking (turn_taking.json) and interruption (interrupt.json)")
     parser.add_argument("--fdb_version", default="v1.0", choices=["v1.0", "v1.5"], help="FDB dataset version (metadata paths and metrics key)")
+    parser.add_argument("--force", action="store_true", help="Re-run scoring even if metrics.json exists")
     args = parser.parse_args()
 
     eval_results_dir = args.eval_results_dir.resolve()
     fdb_repo = args.fdb_repo.resolve()
     metrics_file = eval_results_dir / "metrics.json"
+    benchmark_key = f"fdb_v1_5.{args.subtest}" if args.fdb_version == "v1.5" else f"fdb_v1.{args.subtest}"
+
+    if metrics_file.exists() and not args.force:
+        try:
+            existing = json.loads(metrics_file.read_text())
+            if benchmark_key in existing:
+                print(f"Scoring already done for {benchmark_key}. Skipping (use --force to re-run).")
+                sys.exit(0)
+        except Exception:
+            pass
+
     if not eval_results_dir.exists() or not fdb_repo.exists():
         print("Error: eval_results_dir or fdb_repo not found.")
         sys.exit(1)
@@ -232,10 +244,16 @@ def main():
     if not metrics:
         metrics["status"] = "no_metrics_found"
 
-    benchmark_key = f"fdb_v1_5.{args.subtest}" if args.fdb_version == "v1.5" else f"fdb_v1.{args.subtest}"
+    existing_metrics = {}
+    if metrics_file.exists():
+        try:
+            existing_metrics = json.loads(metrics_file.read_text())
+        except Exception:
+            pass
+    existing_metrics[benchmark_key] = {"greedy": metrics}
     metrics_file.parent.mkdir(parents=True, exist_ok=True)
     with open(metrics_file, "w") as f:
-        json.dump({benchmark_key: {"greedy": metrics}}, f, indent=2)
+        json.dump(existing_metrics, f, indent=2)
     print(f"Metrics written to {metrics_file}")
 
 
