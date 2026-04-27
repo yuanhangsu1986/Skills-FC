@@ -143,6 +143,10 @@ def main():
     if not evaluate_script.exists():
         print(f"Error: {evaluate_script} not found")
         sys.exit(1)
+    # backchannel eval (v1.0) runs Silero VAD directly on output.wav — needs mono (ch1=model channel).
+    # ASR already ran in prep_cmd above, so converting here does not affect output.json transcripts.
+    if args.subtest == "backchannel" and args.fdb_version == "v1.0":
+        _convert_stereo_to_mono(fdb_prepared)
     # Run from evaluation/ so FDB scripts find ./icc_gt_distribution.json (backchannel) and other relative paths.
     # Pass through env so NVIDIA_API_KEY is available for interruption/behavior tasks (NVIDIA NIM API).
     result = subprocess.run(

@@ -359,7 +359,7 @@ def prepare_fdb_dir(
         cmd = [sys.executable, str(asr_script), "--root_dir", str(fdb_prepared), "--task", asr_task]
         if stereo:
             cmd.append("--stereo")
-        subprocess.run(cmd, cwd=str(fdb_repo), check=False)
+        subprocess.run(cmd, cwd=str(fdb_repo), check=True)
         _needs_inputs_asr = (
             subtest in ("background_speech", "talking_to_other")
             or (subtest == "backchannel" and fdb_version == "v1.5")
@@ -369,7 +369,7 @@ def prepare_fdb_dir(
             subprocess.run(
                 [sys.executable, str(asr_script), "--root_dir", str(fdb_prepared), "--task", "inputs_only"],
                 cwd=str(fdb_repo),
-                check=False,
+                check=True,
             )
 
     return fdb_prepared
