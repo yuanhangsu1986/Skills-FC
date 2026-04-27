@@ -161,7 +161,7 @@ def main():
     metrics = {}
     combined = stdout + "\n" + stderr
     # Extract explicitly known FDB metric lines
-    # Per-subtask reporting: turn_taking -> TOR %, latency_ms; interruption -> TOR %, rating (GPT), latency_ms; pause -> candor TOR %, synthetic TOR %
+    # pause -> TOR %; backchannel -> JSD, TOR %, Frequency; turn_taking -> TOR %, latency_ms; interruption -> rating (GPT), TOR %, latency_ms
     explicit_metrics = [
         ("JSD - Mean", "jsd"),
         ("TOR - Mean", "tor"),
@@ -169,8 +169,6 @@ def main():
         ("Average take turn", "turn"),
         ("Average latency", "latency"),
         ("Average rating", "rating"),  # GPT/LLM judge score (interruption only)
-        ("Candor - TOR %", "tor_candor_pct"),   # pause: candor subset
-        ("Synthetic - TOR %", "tor_synthetic_pct"),  # pause: synthetic subset
     ]
     for name, key in explicit_metrics:
         m = re.search(rf"{re.escape(name)}\s*(?:\(s\))?\s*:\s*([0-9.]+)", combined)
@@ -179,9 +177,11 @@ def main():
                 metrics[key] = float(m.group(1))
             except ValueError:
                 pass
-    # TOR as percentage (0-100) for turn_taking and interruption
+    # TOR as percentage (0-100)
     if "turn" in metrics:
         metrics["tor_pct"] = round(metrics["turn"] * 100, 2)
+    if "tor" in metrics:
+        metrics["tor_pct"] = round(metrics["tor"] * 100, 2)
     # Latency in ms for turn_taking and interruption
     if "latency" in metrics:
         metrics["latency_ms"] = round(metrics["latency"] * 1000, 2)
@@ -259,6 +259,7 @@ def main():
     with open(metrics_file, "w") as f:
         json.dump(existing_metrics, f, indent=2)
     print(f"Metrics written to {metrics_file}")
+
 
 
 if __name__ == "__main__":

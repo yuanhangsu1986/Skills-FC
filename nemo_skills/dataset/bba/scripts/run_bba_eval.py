@@ -169,62 +169,22 @@ def run_scoring_stage(config: dict, category: str, expname: str, eval_results_pa
     )
 
 
+def build_aggregate_command(config: dict, categories: list, force: bool = False) -> str:
+    """Build the stage-5 aggregation command."""
+    cmd_args = [
+        "python nemo_skills/dataset/bba/scripts/run_bba_aggregate.py",
+        f"--output_dir {config['output_dir']}",
+        f"--categories {' '.join(categories)}",
+    ]
+    if force:
+        cmd_args.append("--force")
+    return " ".join(cmd_args)
+
+
 def run_aggregate_stage(config: dict, categories: list, force: bool = False):
-    """Stage 5: Aggregate accuracy across all scored categories (runs inline, no Slurm job)."""
-    import json as _json
-
-    output_dir = Path(config["output_dir"])
-    agg_metrics_file = output_dir / "eval-results" / "bba_aggregate" / "metrics.json"
-
-    if agg_metrics_file.exists() and not force:
-        try:
-            if "bba.aggregate" in _json.loads(agg_metrics_file.read_text()):
-                print("\n--- Stage 5: Skipping aggregation (already done) ---")
-                return
-        except Exception:
-            pass
-
-    per_category = {}
-    missing = []
-    for category in categories:
-        metrics_file = output_dir / "eval-results" / category / "metrics.json"
-        if not metrics_file.exists():
-            missing.append(category)
-            continue
-        try:
-            acc = _json.loads(metrics_file.read_text()).get(f"bba.{category}", {}).get("greedy", {}).get("accuracy")
-            if acc is None:
-                missing.append(category)
-            else:
-                per_category[category] = acc
-        except Exception:
-            missing.append(category)
-
-    if missing:
-        print(f"\n--- Stage 5: Skipping aggregation (missing results for: {missing}) ---")
-        return
-
-    aggregate_accuracy = round(sum(per_category.values()) / len(per_category), 2)
-    result = {
-        "bba.aggregate": {
-            "greedy": {
-                "accuracy": aggregate_accuracy,
-                "num_categories": len(per_category),
-                "per_category": per_category,
-            }
-        }
-    }
-    agg_metrics_file.parent.mkdir(parents=True, exist_ok=True)
-    agg_metrics_file.write_text(_json.dumps(result, indent=2))
-
-    print("\n" + "=" * 60)
-    print("BBA AGGREGATE RESULTS")
-    print("=" * 60)
-    for cat, acc in per_category.items():
-        print(f"  {cat}: {acc}%")
-    print(f"  AVERAGE: {aggregate_accuracy}%")
-    print("=" * 60)
-    print(f"Metrics saved to {agg_metrics_file}")
+    """Stage 5 (inline): run aggregation directly when --aggregate_only is set."""
+    from nemo_skills.dataset.bba.scripts.run_bba_aggregate import aggregate
+    aggregate(config["output_dir"], categories, force=force)
 
 
 def run_bba_eval(config: dict):
@@ -259,6 +219,7 @@ def run_bba_eval(config: dict):
     if config.get("inference_overrides"):
         base_extra_args.extend(config["inference_overrides"].strip().split())
 
+    score_expnames = []
     for category in categories:
         print(f"\n{'=' * 60}")
         print(f"Processing category: {category}")
@@ -288,10 +249,31 @@ def run_bba_eval(config: dict):
             asr_run_after = None
 
         run_scoring_stage(config, category, expname, eval_results_path, asr_run_after, dry_run)
+        score_expnames.append(f"{expname}_score")
 
-    # Stage 5: aggregate across all scored categories (inline, no Slurm job)
+    # Stage 5: aggregate across all scored categories
     if not generation_only and not asr_only:
-        run_aggregate_stage(config, categories, force=config.get("scoring_force", False))
+        if aggregate_only:
+            # Results already exist on disk — run inline.
+            run_aggregate_stage(config, categories, force=config.get("scoring_force", False))
+        else:
+            # Submit as a Slurm job that depends on all scoring jobs completing.
+            agg_expname = f"{config.get('expname', 'bba')}_aggregate"
+            agg_log_dir = str(Path(config["output_dir"]) / "eval-results" / "bba_aggregate" / "summarized-results")
+            print("\n--- Stage 5: Submitting aggregate job ---")
+            run_cmd(
+                ctx=wrap_arguments(""),
+                cluster=config["cluster"],
+                command=build_aggregate_command(config, categories, force=config.get("scoring_force", False)),
+                container=config.get("scoring_container") or config.get("server_container") or "nemo-skills",
+                partition=config.get("cpu_partition") or config.get("partition"),
+                run_after=score_expnames if score_expnames else None,
+                expname=agg_expname,
+                installation_command=config.get("scoring_installation_command"),
+                log_dir=agg_log_dir,
+                reuse_code=False,
+                dry_run=dry_run,
+            )
 
     print(f"\n{'=' * 60}")
     print("Done!")
