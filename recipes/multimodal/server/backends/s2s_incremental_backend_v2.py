@@ -130,6 +130,12 @@ class S2SIncrementalV2Config(BackendConfig):
 
     matmul_precision: str = "high"
 
+    inference_guidance_enabled: bool = True
+    inference_guidance_scale: Optional[float] = None
+    inference_top_p_or_k: Optional[float] = None
+    inference_noise_scale: Optional[float] = None
+    tts_sliding_window: Optional[int] = None
+
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "S2SIncrementalV2Config":
         known_fields = {f.name for f in cls.__dataclass_fields__.values() if f.name != "extra_config"}
@@ -224,6 +230,7 @@ class S2SIncrementalBackendV2(InferenceBackend):
             "force_turn_taking": cfg.force_turn_taking,
             "force_turn_taking_threshold": cfg.force_turn_taking_threshold,
             "force_turn_taking_pad_window": cfg.force_turn_taking_pad_window,
+            "inference_guidance_enabled": cfg.inference_guidance_enabled,
         }
 
         for boost_key in (
@@ -238,10 +245,18 @@ class S2SIncrementalBackendV2(InferenceBackend):
             if val is not None:
                 d[boost_key] = val
 
+        for tts_key in ("inference_guidance_scale", "inference_top_p_or_k", "inference_noise_scale"):
+            val = getattr(cfg, tts_key, None)
+            if val is not None:
+                d[tts_key] = val
+
         if cfg.vllm_llm_config:
             d["vllm_llm_config"] = cfg.vllm_llm_config
         if cfg.vllm_tts_config:
-            d["vllm_tts_config"] = cfg.vllm_tts_config
+            vllm_tts_cfg = dict(cfg.vllm_tts_config)
+            if cfg.tts_sliding_window is not None:
+                vllm_tts_cfg["hf_overrides"] = {"sliding_window": cfg.tts_sliding_window}
+            d["vllm_tts_config"] = vllm_tts_cfg
 
         return OmegaConf.create(d)
 

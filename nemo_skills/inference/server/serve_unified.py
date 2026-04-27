@@ -421,6 +421,35 @@ def main():
         action="store_true",
         help="Use ASR channel (user transcription) as primary response text instead of agent text (for ASR evaluation)",
     )
+    parser.add_argument(
+        "--no_inference_guidance_enabled",
+        action="store_true",
+        help="Disable TTS classifier-free guidance (s2s_incremental_v2, default: enabled)",
+    )
+    parser.add_argument(
+        "--inference_guidance_scale",
+        type=float,
+        default=None,
+        help="TTS guidance scale; overrides checkpoint default when set (s2s_incremental_v2)",
+    )
+    parser.add_argument(
+        "--inference_top_p_or_k",
+        type=float,
+        default=None,
+        help="TTS top-p/top-k; overrides checkpoint default when set (s2s_incremental_v2)",
+    )
+    parser.add_argument(
+        "--inference_noise_scale",
+        type=float,
+        default=None,
+        help="TTS noise scale; overrides checkpoint default when set (s2s_incremental_v2)",
+    )
+    parser.add_argument(
+        "--tts_sliding_window",
+        type=int,
+        default=None,
+        help="Override sliding_window in TTS vLLM config.json before engine creation (s2s_incremental_v2)",
+    )
 
     # Session management options (s2s_session backend)
     parser.add_argument(
@@ -652,6 +681,15 @@ def main():
             extra_config["merge_user_channel"] = True
         if args.use_asr_as_response:
             extra_config["use_asr_as_response"] = True
+        extra_config["inference_guidance_enabled"] = not args.no_inference_guidance_enabled
+        if args.inference_guidance_scale is not None:
+            extra_config["inference_guidance_scale"] = args.inference_guidance_scale
+        if args.inference_top_p_or_k is not None:
+            extra_config["inference_top_p_or_k"] = args.inference_top_p_or_k
+        if args.inference_noise_scale is not None:
+            extra_config["inference_noise_scale"] = args.inference_noise_scale
+        if args.tts_sliding_window is not None:
+            extra_config["tts_sliding_window"] = args.tts_sliding_window
         # Build vLLM configs when using a vLLM engine
         if "vllm" in args.engine_type:
             model_path = args.model

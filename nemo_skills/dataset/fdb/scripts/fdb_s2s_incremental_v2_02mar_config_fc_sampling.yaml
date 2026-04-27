@@ -30,10 +30,16 @@ server_args: >-
   --inference_pad_boost 0
   --inference_bos_boost 0
   --inference_eos_boost 0
+  --inference_user_pad_boost 0
+  --inference_user_bos_boost 0
+  --inference_user_eos_boost 0
+  --inference_guidance_scale 0.2
+  --inference_top_p_or_k 0.95
+  --inference_noise_scale 0.001
+  --tts_sliding_window 7500
   --top_p 0.9
   --repetition_penalty 1.2
   --temperature 0.8
-  --max_new_tokens 4500
   --matmul_precision medium
   --vllm_gpu_memory_utilization 0.35
   --vllm_max_model_len 8192
@@ -65,10 +71,10 @@ subtests:
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
 scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile"
 
-expname: fdb_v1_0_s2s_incremental_v2_02mar_fc
+expname: fdb_v1_0_s2s_incremental_v2_02mar_fc_sampling
 # max_samples: 50
 
-inference_overrides: "++inference.tokens_to_generate=4500"
+inference_overrides: ""
 
 generation_only: false
 scoring_only: false

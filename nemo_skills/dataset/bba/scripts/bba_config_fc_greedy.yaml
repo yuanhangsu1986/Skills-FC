@@ -31,7 +31,16 @@ server_args: >-
   --matmul_precision medium
   --vllm_gpu_memory_utilization 0.35
   --vllm_max_model_len 8192
-  --inference_user_pad_boost 0.8
+  --inference_pad_boost 0
+  --inference_bos_boost 0
+  --inference_eos_boost 0
+  --inference_user_pad_boost 0
+  --inference_user_bos_boost 0
+  --inference_user_eos_boost 0
+  --inference_guidance_scale 0.2
+  --inference_top_p_or_k 0.95
+  --inference_noise_scale 0.001
+  --tts_sliding_window 7500
   --force_turn_taking
   --top_p 1.0
   --repetition_penalty 1.0
