@@ -169,6 +169,64 @@ def run_scoring_stage(config: dict, category: str, expname: str, eval_results_pa
     )
 
 
+def run_aggregate_stage(config: dict, categories: list, force: bool = False):
+    """Stage 5: Aggregate accuracy across all scored categories (runs inline, no Slurm job)."""
+    import json as _json
+
+    output_dir = Path(config["output_dir"])
+    agg_metrics_file = output_dir / "eval-results" / "bba_aggregate" / "metrics.json"
+
+    if agg_metrics_file.exists() and not force:
+        try:
+            if "bba.aggregate" in _json.loads(agg_metrics_file.read_text()):
+                print("\n--- Stage 5: Skipping aggregation (already done) ---")
+                return
+        except Exception:
+            pass
+
+    per_category = {}
+    missing = []
+    for category in categories:
+        metrics_file = output_dir / "eval-results" / category / "metrics.json"
+        if not metrics_file.exists():
+            missing.append(category)
+            continue
+        try:
+            acc = _json.loads(metrics_file.read_text()).get(f"bba.{category}", {}).get("greedy", {}).get("accuracy")
+            if acc is None:
+                missing.append(category)
+            else:
+                per_category[category] = acc
+        except Exception:
+            missing.append(category)
+
+    if missing:
+        print(f"\n--- Stage 5: Skipping aggregation (missing results for: {missing}) ---")
+        return
+
+    aggregate_accuracy = round(sum(per_category.values()) / len(per_category), 2)
+    result = {
+        "bba.aggregate": {
+            "greedy": {
+                "accuracy": aggregate_accuracy,
+                "num_categories": len(per_category),
+                "per_category": per_category,
+            }
+        }
+    }
+    agg_metrics_file.parent.mkdir(parents=True, exist_ok=True)
+    agg_metrics_file.write_text(_json.dumps(result, indent=2))
+
+    print("\n" + "=" * 60)
+    print("BBA AGGREGATE RESULTS")
+    print("=" * 60)
+    for cat, acc in per_category.items():
+        print(f"  {cat}: {acc}%")
+    print(f"  AVERAGE: {aggregate_accuracy}%")
+    print("=" * 60)
+    print(f"Metrics saved to {agg_metrics_file}")
+
+
 def run_bba_eval(config: dict):
     categories_cfg = config.get("categories", "all")
     if categories_cfg == "all":
@@ -185,6 +243,7 @@ def run_bba_eval(config: dict):
     generation_only = config.get("generation_only", False)
     asr_only = config.get("asr_only", False)
     scoring_only = config.get("scoring_only", False)
+    aggregate_only = config.get("aggregate_only", False)
     dry_run = config.get("dry_run", False)
 
     print(f"Processing {len(categories)} categories: {', '.join(categories)}")
@@ -208,6 +267,9 @@ def run_bba_eval(config: dict):
         expname = f"{config.get('expname', 'bba')}_{category}"
         eval_results_path = f"{config['output_dir']}/eval-results/{category}"
 
+        if aggregate_only:
+            continue
+
         generation_submitted = False
         if not (scoring_only or asr_only):
             generation_submitted = run_generation_stage(config, category, expname, base_extra_args, dry_run)
@@ -227,6 +289,10 @@ def run_bba_eval(config: dict):
 
         run_scoring_stage(config, category, expname, eval_results_path, asr_run_after, dry_run)
 
+    # Stage 5: aggregate across all scored categories (inline, no Slurm job)
+    if not generation_only and not asr_only:
+        run_aggregate_stage(config, categories, force=config.get("scoring_force", False))
+
     print(f"\n{'=' * 60}")
     print("Done!")
     print(f"{'=' * 60}")
@@ -245,6 +311,7 @@ def main():
     parser.add_argument("--generation_only", action="store_true", help="Run stage 1 (generation) only")
     parser.add_argument("--asr_only", action="store_true", help="Run stage 3 (ASR) only")
     parser.add_argument("--scoring_only", action="store_true", help="Run stage 4 (scoring) only")
+    parser.add_argument("--aggregate_only", action="store_true", help="Run stage 5 (aggregation) only")
     parser.add_argument("--scoring_force", action="store_true", help="Re-run ASR and scoring even if outputs exist")
 
     args = parser.parse_args()
@@ -261,6 +328,8 @@ def main():
         config["asr_only"] = True
     if args.scoring_only:
         config["scoring_only"] = True
+    if args.aggregate_only:
+        config["aggregate_only"] = True
     if args.scoring_force:
         config["scoring_force"] = True
 
