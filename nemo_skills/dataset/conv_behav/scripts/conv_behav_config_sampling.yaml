@@ -1,0 +1,96 @@
+# conv_behav evaluation — sampling decoding
+#
+# Uses temperature=0.8, no force_turn_taking.  Matches the sampling setting
+# used across BBA / VB / FDB / BFCL sampling configs.
+#
+# Run:
+#   python nemo_skills/dataset/conv_behav/scripts/run_eval.py \
+#     --config nemo_skills/dataset/conv_behav/scripts/conv_behav_config_sampling.yaml
+
+# ---------------------------------------------------------------------------
+# Cluster
+# ---------------------------------------------------------------------------
+cluster: s2s_eval_oci_iad_oncluster
+partition: batch_block1,batch_block3,batch_block4
+
+# ---------------------------------------------------------------------------
+# Model — HuggingFace-format checkpoint directory (produced by to_hf.py).
+# ---------------------------------------------------------------------------
+model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
+
+# ---------------------------------------------------------------------------
+# NeMo codebase — path to Kevin's NeMo repo on the cluster.
+# Used by both run_inference.py (sys.path) and run_scoring.py (eval script).
+# ---------------------------------------------------------------------------
+nemo_code_path: /lustre/fsw/portfolios/llmservice/users/kevinhu/s2s/NeMo
+
+# ---------------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------------
+shar_input_dir: /lustre/fsw/portfolios/llmservice/users/kevinhu/data/team_20251124
+dataset_name: team_20251124
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_sampling/conv_behav
+
+# ---------------------------------------------------------------------------
+# Inference — passed verbatim as extra args to run_inference.py and applied
+# as flat OmegaConf overrides on model.cfg after loading the HF checkpoint.
+# ---------------------------------------------------------------------------
+num_gpus: 1
+num_nodes: 1
+batch_size: 1
+precision: bf16-true
+
+inference_args: >-
+  --temperature 0.8
+  --top_p 0.9
+  --repetition_penalty 1.2
+  --num_frames_per_inference 3
+  --use_codec_cache
+  --use_perception_cache
+  --buffer_size_frames 21
+  --codec_token_history_size 60
+  --inference_pad_boost 0
+  --inference_bos_boost 0
+  --inference_eos_boost 0
+  --inference_user_pad_boost 0
+  --inference_user_bos_boost 0
+  --inference_user_eos_boost 0
+  --inference_guidance_scale 0.2
+  --inference_top_p_or_k 0.95
+  --inference_noise_scale 0.001
+  --pad_audio_to_sec 40
+
+# ---------------------------------------------------------------------------
+# Scoring thresholds
+# ---------------------------------------------------------------------------
+barge_in_threshold_sec: 1.5
+tt_latency_threshold_sec: 1.5
+tt_precision_buffer_sec: 1.0
+tt_recall_buffer_sec: 20.0
+vad_min_silence_duration_ms: 2000
+scoring_gpus: 1
+
+# ---------------------------------------------------------------------------
+# Containers
+# ---------------------------------------------------------------------------
+inference_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+# scoring_container: ???   # defaults to inference_container
+
+# ---------------------------------------------------------------------------
+# Installation commands
+# ---------------------------------------------------------------------------
+# installation_command: ""
+scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile"
+
+# ---------------------------------------------------------------------------
+# Pipeline control
+# ---------------------------------------------------------------------------
+expname: conv_behav_sampling
+inference_only: false
+scoring_only: false
+scoring_force: false
+dry_run: false

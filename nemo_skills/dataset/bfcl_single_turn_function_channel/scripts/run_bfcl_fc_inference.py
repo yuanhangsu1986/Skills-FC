@@ -41,6 +41,21 @@ import time
 from pathlib import Path
 
 
+def _tool_calls_to_generation(tool_calls: list) -> str:
+    """Convert OpenAI-format tool_calls to <TOOLCALL>...</TOOLCALL> generation string."""
+    calls = []
+    for tc in tool_calls:
+        func = tc.get("function", {})
+        name = func.get("name", "")
+        raw_args = func.get("arguments", "{}")
+        try:
+            args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+        except Exception:
+            args = {}
+        calls.append({"name": name, "arguments": args})
+    return f"<TOOLCALL>{json.dumps(calls)}</TOOLCALL>"
+
+
 def _poll_server(server_url: str, interval: int, max_attempts: int) -> bool:
     import urllib.request
     health_url = server_url.rstrip("/") + "/health"
@@ -123,7 +138,12 @@ def main():
                     response = _send_request(
                         args.server_url, audio_bytes, system_prompt, args.request_timeout
                     )
-                    generation = response["choices"][0]["message"].get("content", "")
+                    message = response["choices"][0]["message"]
+                    raw_tool_calls = message.get("tool_calls") or []
+                    if raw_tool_calls:
+                        generation = _tool_calls_to_generation(raw_tool_calls)
+                    else:
+                        generation = message.get("content", "")
                 except Exception as e:
                     print(f"[inference] WARNING: request failed for {sample['id']}: {e}")
                     generation = ""

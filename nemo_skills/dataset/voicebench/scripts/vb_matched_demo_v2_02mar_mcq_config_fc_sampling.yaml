@@ -50,7 +50,7 @@ server_args: >-
   --repetition_penalty 1.2
   --temperature 0.8
   --system_prompt "Answer the following multiple choice question with an explanation for the answer."
-  --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/vb_mcq_artifacts
+  --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_sampling/vb_mcq_artifacts
   --batch_size 2
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_FC
   --pip_install "hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
@@ -60,7 +60,7 @@ server_server_type: vllm_multimodal
 
 # Paths
 data_dir: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/voicebench_data_dir
-output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/vb_mcq
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_sampling/vb_mcq
 voicebench_repo_path: /lustre/fsw/portfolios/llmservice/users/vmendelev/code/VoiceBench
 
 subtests:

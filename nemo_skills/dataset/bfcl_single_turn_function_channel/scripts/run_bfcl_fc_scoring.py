@@ -70,8 +70,6 @@ def score(
     category: str,
     force: bool = False,
 ) -> int:
-    from nemo_skills.dataset.bfcl_single_turn_function_channel.score import bfcl_match_score
-
     output_path = Path(output_jsonl)
     metrics_file = output_path.parent / "metrics.json"
     summarized_dir = output_path.parent / "summarized-results"

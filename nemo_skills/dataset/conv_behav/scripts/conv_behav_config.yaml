@@ -1,0 +1,87 @@
+# conv_behav (conversational behavior) evaluation config
+#
+# Evaluates a DuplexS2SSpeechDecoderModel on turn-taking, barge-in,
+# back-channeling, and user EOU detection using real conversation recordings.
+#
+# Run:
+#   python nemo_skills/dataset/conv_behav/scripts/run_eval.py \
+#     --config nemo_skills/dataset/conv_behav/scripts/conv_behav_config.yaml
+
+# ---------------------------------------------------------------------------
+# Cluster
+# ---------------------------------------------------------------------------
+cluster: s2s_eval_oci_iad_oncluster
+partition: batch_block1,batch_block3,batch_block4
+
+# ---------------------------------------------------------------------------
+# Model — HuggingFace-format checkpoint directory (produced by to_hf.py).
+# Must contain config.json + model weights.
+# ---------------------------------------------------------------------------
+model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
+
+# ---------------------------------------------------------------------------
+# NeMo codebase path — needed by run_scoring.py to locate
+# scripts/speech_eval/eval_conversation_behavior.py.
+# ---------------------------------------------------------------------------
+nemo_code_path: /lustre/fsw/portfolios/llmservice/users/kevinhu/s2s/NeMo
+
+# ---------------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------------
+# Lhotse shar directory containing cuts.*.jsonl.gz + recording.*.tar files
+# with the user-side conversation recordings.
+shar_input_dir: /lustre/fsw/portfolios/llmservice/users/kevinhu/data/team_20251124
+
+# Name used for output files (pred_wavs prefix, metadatas key).
+# Should match the shar dataset being evaluated.
+dataset_name: team_20251124
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+# Git commit hash is appended automatically (e.g. conv_behav_results_abc1234).
+output_dir: ???
+
+# ---------------------------------------------------------------------------
+# Inference settings
+# ---------------------------------------------------------------------------
+num_gpus: 1
+num_nodes: 1
+batch_size: 1
+precision: bf16-true
+force_turn_taking: true
+
+# ---------------------------------------------------------------------------
+# Scoring thresholds (match eval_conv_fc_kevin.sh defaults)
+# ---------------------------------------------------------------------------
+barge_in_threshold_sec: 1.5
+tt_latency_threshold_sec: 1.5
+tt_precision_buffer_sec: 1.0
+tt_recall_buffer_sec: 20.0
+vad_min_silence_duration_ms: 2000
+
+# GPU count for the scoring job (needs GPU for Silero VAD + Parakeet ASR).
+scoring_gpus: 1
+
+# ---------------------------------------------------------------------------
+# Containers
+# ---------------------------------------------------------------------------
+# inference_container: path to .sqsh container image for the inference job.
+# scoring_container: defaults to inference_container if not set.
+inference_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+# scoring_container: ???   # defaults to inference_container
+
+# ---------------------------------------------------------------------------
+# Installation commands (optional pip installs inside the container)
+# ---------------------------------------------------------------------------
+# installation_command: ""
+# scoring_installation_command: ""
+
+# ---------------------------------------------------------------------------
+# Pipeline control
+# ---------------------------------------------------------------------------
+expname: conv_behav
+inference_only: false
+scoring_only: false
+scoring_force: false
+dry_run: false

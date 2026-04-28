@@ -45,7 +45,7 @@ server_args: >-
   --vllm_max_model_len 8192
   --ignore_system_prompt
   --merge_user_channel_v2
-  --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/fdb_fc_artifacts
+  --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_sampling/fdb_fc_artifacts
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_FC
   --pip_install "hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
 
@@ -57,7 +57,7 @@ server_server_type: vllm_multimodal
 fdb_version: v1.0
 
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
-output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/fdb_fc
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_sampling/fdb_fc
 fdb_repo_path: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/Full-Duplex-Bench
 fdb_data_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb_raw
 
