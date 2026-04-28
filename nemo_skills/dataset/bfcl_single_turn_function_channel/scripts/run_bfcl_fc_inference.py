@@ -122,6 +122,7 @@ def main():
     samples = [json.loads(line) for line in input_path.read_text().splitlines() if line.strip()]
     print(f"[inference] Processing {len(samples)} samples from {input_path}")
 
+    n_failed = 0
     with open(output_path, "w") as out:
         for i, sample in enumerate(samples):
             audio_path = sample["audio_path"]
@@ -133,6 +134,7 @@ def main():
             except Exception as e:
                 print(f"[inference] WARNING: could not read audio {audio_path}: {e}")
                 generation = ""
+                n_failed += 1
             else:
                 try:
                     response = _send_request(
@@ -147,6 +149,7 @@ def main():
                 except Exception as e:
                     print(f"[inference] WARNING: request failed for {sample['id']}: {e}")
                     generation = ""
+                    n_failed += 1
 
             out_entry = {
                 "id": sample["id"],
@@ -160,7 +163,12 @@ def main():
             if (i + 1) % 10 == 0:
                 print(f"[inference] {i + 1}/{len(samples)} done")
 
-    print(f"[inference] Wrote {len(samples)} entries to {output_path}")
+    print(f"[inference] Wrote {len(samples)} entries to {output_path} ({n_failed} failures)")
+    if n_failed > 0:
+        failure_rate = n_failed / len(samples)
+        if failure_rate > 0.1:
+            print(f"[inference] ERROR: {n_failed}/{len(samples)} samples failed ({failure_rate:.0%}), aborting.", file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
