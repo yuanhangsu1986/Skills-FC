@@ -12,34 +12,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Only single-turn categories — multi-turn requires stateful execution not
-# supported by the function-channel S2S inference path.
+# Categories available in ServiceNow-AI/BFCL_v3_audio.
+# "simple" covers all language variants (python / java / javascript) in one subset.
+# Live categories and multi-turn are not present in the audio dataset.
 SINGLE_TURN_CATEGORIES = [
-    "simple_python",
-    "simple_java",
-    "simple_javascript",
+    "simple",
     "parallel",
     "multiple",
     "parallel_multiple",
     "irrelevance",
-    "live_simple",
-    "live_multiple",
-    "live_parallel",
-    "live_parallel_multiple",
-    "live_irrelevance",
-    "live_relevance",
 ]
 
-# HuggingFace dataset that provides pre-synthesised audio for BFCL questions.
-# The dataset must have columns: id, <audio_column>, tools, <target_column>.
-# Confirm the exact repo name with the dataset owner before running prepare.py.
-HF_DATASET_REPO = "gorilla-llm/Berkeley-Function-Calling-Leaderboard"
+# Map from our category name to the HuggingFace subset name used by
+# ServiceNow-AI/BFCL_v3_audio (passed as `name=` in load_dataset).
+HF_SUBSET_MAP = {
+    "simple":            "BFCL_v3_simple",
+    "parallel":          "BFCL_v3_parallel",
+    "multiple":          "BFCL_v3_multiple",
+    "parallel_multiple": "BFCL_v3_parallel_multiple",
+    "irrelevance":       "BFCL_v3_irrelevance",
+}
+
+# HuggingFace dataset with pre-synthesised audio for BFCL questions.
+# ServiceNow-AI/BFCL_v3_audio contains TTS-synthesised audio alongside the
+# original BFCL text fields (question, tools, reference).
+HF_DATASET_REPO = "ServiceNow-AI/BFCL_v3_audio"
 HF_AUDIO_COLUMN = "audio"
 HF_TOOLS_COLUMN = "tools"
-HF_TARGET_COLUMN = "answer"
+HF_TARGET_COLUMN = "reference"
 HF_ID_COLUMN = "id"
 HF_PROMPT_COLUMN = "question"
 
-TOOLS_SYSTEM_PROMPT_PREFIX = (
-    "Here is a list of functions in JSON format that you can invoke.\n"
+TOOLS_USER_PROMPT = (
+    "You are an expert in composing functions. You are given a question and a set of possible functions. "
+    "Based on the question, you will need to make one or more function/tool calls to achieve the purpose.\n"
+    "If none of the functions can be used, point it out. "
+    "If the given question lacks the parameters required by the function, also point it out.\n"
+    "You should only return the function calls in your response.\n\n"
+    "If you decide to invoke any of the function(s), you MUST put it in the format of \n\n"
+    "```json\n[{\"func_name1\":{\"params_name1\":params_value1, \"params_name2\":params_value2...}}, "
+    "{\"func_name2\":{\"params_name1\":params_value1, \"params_name2\":params_value2, \"params_name3\":params_value3...}}]\n``` \n\n"
+    "You SHOULD NOT include any other text in the response. "
+    "If no relevant function matches then return empty list in json like ```json\n [] \n ```. "
+    "Make sure an appropriate json is always there in the response. \n\n"
+    "At each turn, you should try your best to complete the tasks requested by the user within the current turn. "
+    "Continue to output functions to call until you have fulfilled the user's request to the best of your ability. "
+    "Once you have no more functions to call, the system will consider the current turn complete and proceed to the next turn or task.\n\n"
 )
+TOOLS_SYSTEM_PROMPT_PREFIX = "Here is a list of functions in JSON format that you can invoke.\n"

@@ -5,27 +5,26 @@ Speech language model evaluation on function-calling tasks from the
 The model receives a spoken question alongside tool definitions and must emit the correct
 function call via the model's dedicated function channel.
 
-- **Source**: `gorilla-llm/Berkeley-Function-Calling-Leaderboard` (HuggingFace, pre-synthesised audio)
-- **Size**: ~2,600 samples across 13 single-turn categories
+- **Source**: `ServiceNow-AI/BFCL_v3_audio` (HuggingFace) — TTS-synthesised audio on top of the
+  official [BFCL v3 text benchmark](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard)
+- **Size**: 1,240 samples across 5 categories (split: `test`)
 - **Scoring**: exact match — function name + required parameter values (no LLM judge)
 
 ## Categories
 
-| Category | Description |
-|---|---|
-| `simple_python` | Single call, Python types |
-| `simple_java` | Single call, Java types |
-| `simple_javascript` | Single call, JavaScript types |
-| `parallel` | Multiple simultaneous calls |
-| `multiple` | One call chosen from multiple tools |
-| `parallel_multiple` | Parallel calls across multiple tools |
-| `irrelevance` | No matching tool — model should not call anything |
-| `live_simple` | Real-world single call |
-| `live_multiple` | Real-world multi-tool |
-| `live_parallel` | Real-world parallel |
-| `live_parallel_multiple` | Real-world parallel + multi-tool |
-| `live_irrelevance` | Real-world irrelevance |
-| `live_relevance` | Real-world relevance detection |
+Five categories are available in `ServiceNow-AI/BFCL_v3_audio`
+(HF subset name in parentheses):
+
+| Category | HF subset | Description |
+|---|---|---|
+| `simple` | `BFCL_v3_simple` | Single call — covers Python, Java, JavaScript variants |
+| `parallel` | `BFCL_v3_parallel` | Multiple simultaneous calls |
+| `multiple` | `BFCL_v3_multiple` | One call chosen from multiple tools |
+| `parallel_multiple` | `BFCL_v3_parallel_multiple` | Parallel calls across multiple tools |
+| `irrelevance` | `BFCL_v3_irrelevance` | No matching tool — model should not call anything |
+
+Live categories and per-language simple variants (simple_python / simple_java /
+simple_javascript) are not present in the audio dataset.
 
 ## Step 1 — Prepare the dataset
 

@@ -34,7 +34,7 @@ Usage:
         --output_dir /data/bfcl_fc \
         --categories simple_python parallel \
         [--hf_dataset gorilla-llm/Berkeley-Function-Calling-Leaderboard] \
-        [--hf_split train] \
+        [--hf_split test] \
         [--max_samples 100]
 """
 
@@ -53,10 +53,12 @@ from nemo_skills.dataset.bfcl_single_turn_function_channel.constants import (
     HF_DATASET_REPO,
     HF_ID_COLUMN,
     HF_PROMPT_COLUMN,
+    HF_SUBSET_MAP,
     HF_TARGET_COLUMN,
     HF_TOOLS_COLUMN,
     SINGLE_TURN_CATEGORIES,
     TOOLS_SYSTEM_PROMPT_PREFIX,
+    TOOLS_USER_PROMPT,
 )
 
 
@@ -71,7 +73,7 @@ def _normalise_tool_name(name: str) -> str:
 
 def _build_system_prompt(tools: list) -> str:
     normalised = [{**t, "name": _normalise_tool_name(t["name"])} for t in tools]
-    return TOOLS_SYSTEM_PROMPT_PREFIX + json.dumps(normalised, indent=2)
+    return TOOLS_USER_PROMPT + TOOLS_SYSTEM_PROMPT_PREFIX + json.dumps(normalised, indent=4)
 
 
 def _build_required_fields(tools: list) -> dict:
@@ -189,7 +191,7 @@ def main():
         help="Categories to prepare (default: all single-turn)",
     )
     parser.add_argument("--hf_dataset", default=HF_DATASET_REPO, help="HuggingFace dataset repo")
-    parser.add_argument("--hf_split", default="train", help="Dataset split")
+    parser.add_argument("--hf_split", default="test", help="Dataset split")
     parser.add_argument("--hf_audio_column", default=HF_AUDIO_COLUMN)
     parser.add_argument("--hf_tools_column", default=HF_TOOLS_COLUMN)
     parser.add_argument("--hf_target_column", default=HF_TARGET_COLUMN)
@@ -208,11 +210,12 @@ def main():
 
     total = 0
     for cat in categories:
-        print(f"\n[prepare] Loading {args.hf_dataset} / {cat} ...")
+        hf_subset = HF_SUBSET_MAP.get(cat, cat)
+        print(f"\n[prepare] Loading {args.hf_dataset} / {hf_subset} (category: {cat}) ...")
         try:
-            ds = load_dataset(args.hf_dataset, cat, split=args.hf_split, trust_remote_code=True)
+            ds = load_dataset(args.hf_dataset, name=hf_subset, split=args.hf_split, trust_remote_code=True)
         except Exception as e:
-            print(f"[prepare] Warning: could not load category '{cat}': {e}")
+            print(f"[prepare] Warning: could not load category '{cat}' (subset '{hf_subset}'): {e}")
             continue
 
         count = prepare_category(

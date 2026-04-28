@@ -63,7 +63,12 @@ request_timeout: 300    # per-request HTTP timeout in seconds
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bfcl_fc_data
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/bfcl_fc
 
-categories: all
+categories:
+  - simple
+  - parallel
+  - multiple
+  - parallel_multiple
+  - irrelevance
 
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
 scoring_installation_command: ""
