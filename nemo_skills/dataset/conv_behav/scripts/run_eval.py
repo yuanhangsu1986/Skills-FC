@@ -16,8 +16,9 @@
 Run conv_behav (conversational behavior) evaluation.
 
 Pipeline stages:
-  1. inference  — loads HF-format DuplexS2SSpeechDecoderModel, runs offline
-                  inference on lhotse shar dataset; produces
+  1. inference  — loads NemotronVoiceChat via RealtimeStreamingInference
+                  (vtrinh's NeMo2), runs per-frame streaming inference on
+                  lhotse shar recordings; produces
                     <output_dir>/validation_logs/pred_wavs/
                     <output_dir>/validation_logs/metadatas/<dataset_name>.json
   2. scoring    — calls eval_conversation_behavior.py from the NeMo codebase,
@@ -53,17 +54,16 @@ def build_inference_command(config: dict) -> str:
     cmd = (
         f"python nemo_skills/dataset/conv_behav/scripts/run_inference.py"
         f" --model_path {config['model']}"
+        f" --llm_checkpoint_path {config['llm_checkpoint_path']}"
         f" --shar_input_dir {config['shar_input_dir']}"
         f" --output_dir {config['output_dir']}/eval-results"
         f" --nemo_code_path {config['nemo_code_path']}"
+        f" --speaker_reference {config['speaker_reference']}"
         f" --dataset_name {config['dataset_name']}"
-        f" --num_gpus {config.get('num_gpus', 1)}"
-        f" --num_nodes {config.get('num_nodes', 1)}"
-        f" --batch_size {config.get('batch_size', 1)}"
-        f" --precision {config.get('precision', 'bf16-true')}"
+        f" --num_frames_per_inference {config.get('num_frames_per_inference', 3)}"
+        f" --buffer_size_frames {config.get('buffer_size_frames', 21)}"
+        f" --codec_token_history_size {config.get('codec_token_history_size', 60)}"
     )
-    if config.get("force_turn_taking"):
-        cmd += " --force_turn_taking"
     if config.get("inference_args"):
         cmd += f" {config['inference_args']}"
     return cmd

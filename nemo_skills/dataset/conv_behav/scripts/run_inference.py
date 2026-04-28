@@ -15,41 +15,109 @@
 """
 Offline inference for conv_behav evaluation.
 
-Loads a HuggingFace-format DuplexS2SSpeechDecoderModel checkpoint and runs
-offline inference (trainer.validate) on a lhotse shar dataset.
+Uses NemotronVoiceChat via RealtimeStreamingInference from vtrinh's NeMo2
+for per-frame autoregressive streaming, which is required for turn-taking
+timing metrics (barge-in detection, latency, etc.).
 
 Produces under <output_dir>/:
-  validation_logs/pred_wavs/{dataset_name}_{sample_id}.wav   (stereo: user L, agent R)
-  validation_logs/metadatas/{dataset_name}.json              (pred_text, pred_src_text, ...)
+  validation_logs/pred_wavs/{dataset_name}_{recording_id}.wav
+  validation_logs/metadatas/{dataset_name}.json
 
 Usage:
     python run_inference.py \
-        --model_path /path/to/hf_checkpoint_dir \
+        --model_path /path/to/vtrinh_combined_ckpt \
+        --llm_checkpoint_path /path/to/vtrinh_combined_ckpt \
         --shar_input_dir /path/to/lhotse_shar \
         --output_dir /path/to/output \
-        --nemo_code_path /path/to/NeMo \
+        --nemo_code_path /path/to/vtrinh/NeMo2 \
+        --speaker_reference /path/to/speaker_ref.wav \
         [--dataset_name team_20251124] \
-        [--num_gpus 1] \
-        [--batch_size 1] \
-        [--force_turn_taking] \
-        [--precision bf16-true]
+        [--num_frames_per_inference 3] \
+        [--buffer_size_frames 21] \
+        [--codec_token_history_size 60] \
+        [extra inference overrides, e.g. --force_turn_taking false --temperature 0.8]
 """
 
 import argparse
+import importlib.util
+import json
 import os
 import sys
+import tarfile
+import tempfile
+from pathlib import Path
 
-import torch
+import soundfile as sf
+import torchaudio
 from omegaconf import OmegaConf
 
 
-def _apply_inference_overrides(cfg, extra_args: list) -> None:
-    """Apply --key [value] pairs from extra_args as flat OmegaConf overrides on cfg.
+_INFER_SCRIPT_REL = (
+    "scripts/training/iad/s2s/sdv2_hf/conv/nano_9b/eartts/"
+    "inference_streaming_realtime_niva_json.py"
+)
+_TTS_SAMPLE_RATE = 22050
 
-    Flag-style args (no following value, or next token starts with '--') are set
-    to True.  All values are coerced: 'true'/'false' → bool, integers → int,
-    floats → float, everything else stays a string.
+
+def _import_realtime_engine(nemo_code_path: str):
+    """Import RealtimeStreamingInference from vtrinh's NeMo2.
+
+    Pre-importing nemo from nemo_code_path fills sys.modules before the
+    script's own sys.path.insert (hardcoded to cchen1's path) runs, so
+    vtrinh's NeMo2 modules are used throughout.
     """
+    if nemo_code_path not in sys.path:
+        sys.path.insert(0, nemo_code_path)
+
+    import nemo  # noqa: F401 — populates sys.modules from nemo_code_path
+    import nemo.collections.speechlm2  # noqa: F401
+
+    script_path = os.path.join(nemo_code_path, _INFER_SCRIPT_REL)
+    spec = importlib.util.spec_from_file_location(
+        "inference_streaming_realtime_niva_json", script_path
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.RealtimeStreamingInference
+
+
+def _iter_shar_recordings(shar_dir: str):
+    """Yield (recording_id, audio_bytes) from all recording.*.tar files."""
+    shar_path = Path(shar_dir)
+    tar_files = sorted(shar_path.glob("recording.*.tar"))
+    if not tar_files:
+        raise FileNotFoundError(f"No recording.*.tar files in {shar_dir}")
+    for tar_file in tar_files:
+        with tarfile.open(tar_file) as tf:
+            for member in tf.getmembers():
+                if member.name.endswith(".flac"):
+                    f = tf.extractfile(member)
+                    if f is not None:
+                        yield Path(member.name).stem, f.read()
+
+
+def _to_mono_wav(audio_bytes: bytes, target_sr: int = 16000) -> str:
+    """Write flac bytes to a temp mono WAV at target_sr. Caller must unlink."""
+    tmp_flac = tempfile.NamedTemporaryFile(suffix=".flac", delete=False)
+    tmp_flac.write(audio_bytes)
+    tmp_flac.close()
+
+    waveform, sr = torchaudio.load(tmp_flac.name)
+    os.unlink(tmp_flac.name)
+
+    if waveform.shape[0] > 1:
+        waveform = waveform[0:1]  # channel 0 = user audio
+    if sr != target_sr:
+        waveform = torchaudio.functional.resample(waveform, sr, target_sr)
+
+    tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    torchaudio.save(tmp_wav.name, waveform, target_sr)
+    tmp_wav.close()
+    return tmp_wav.name
+
+
+def _apply_overrides(cfg, extra_args: list) -> None:
+    """Apply --key [value] pairs from extra_args as flat OmegaConf overrides."""
     def _coerce(v: str):
         if v.lower() == "true":
             return True
@@ -72,7 +140,6 @@ def _apply_inference_overrides(cfg, extra_args: list) -> None:
             i += 1
             continue
         key = token.lstrip("-")
-        # peek at next token to decide if it's the value or the next flag
         if i + 1 < len(extra_args) and not extra_args[i + 1].startswith("--"):
             value = _coerce(extra_args[i + 1])
             i += 2
@@ -84,110 +151,100 @@ def _apply_inference_overrides(cfg, extra_args: list) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="conv_behav offline inference")
-    parser.add_argument("--model_path", required=True, help="HF-format checkpoint directory")
-    parser.add_argument("--shar_input_dir", required=True, help="Lhotse shar directory with user audio")
-    parser.add_argument("--output_dir", required=True, help="Root output dir; validation_logs/ written here")
-    parser.add_argument("--nemo_code_path", required=True, help="Path to NeMo codebase (prepended to sys.path so the right speechlm2 version is used)")
-    parser.add_argument("--dataset_name", default="conv_behav", help="Name used for output files / metadatas key")
-    parser.add_argument("--num_gpus", type=int, default=1)
-    parser.add_argument("--num_nodes", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--precision", default="bf16-true")
-    # All remaining --key [value] pairs are applied as flat OmegaConf overrides
-    # on model.cfg after loading the HF checkpoint.  This lets the config YAML
-    # pass inference knobs (temperature, top_p, force_turn_taking, use_codec_cache,
-    # inference_*_boost, etc.) the same way BBA/VB/FDB pass them via server_args.
+    parser = argparse.ArgumentParser(
+        description="conv_behav inference via NemotronVoiceChat (RealtimeStreamingInference)"
+    )
+    parser.add_argument("--model_path", required=True,
+                        help="vtrinh combined checkpoint (HF format); provides TTS weights")
+    parser.add_argument("--llm_checkpoint_path", required=True,
+                        help="Same combined checkpoint; provides LLM+perception weights")
+    parser.add_argument("--shar_input_dir", required=True,
+                        help="Lhotse shar directory (recording.*.tar + cuts.*.jsonl.gz)")
+    parser.add_argument("--output_dir", required=True,
+                        help="Root output dir; validation_logs/ written here")
+    parser.add_argument("--nemo_code_path", required=True,
+                        help="vtrinh NeMo2 root (…/code/eval_turn_taking/NeMo2)")
+    parser.add_argument("--speaker_reference", required=True,
+                        help="Speaker reference WAV for TTS voice cloning")
+    parser.add_argument("--dataset_name", default="conv_behav")
+    parser.add_argument("--num_frames_per_inference", type=int, default=3)
+    parser.add_argument("--buffer_size_frames", type=int, default=21)
+    parser.add_argument("--codec_token_history_size", type=int, default=60)
+    # All remaining --key [value] pairs are applied as OmegaConf overrides on
+    # engine.model.cfg after the engine is initialized (e.g. --force_turn_taking
+    # false, --temperature 0.8, --inference_guidance_scale 0.2, …).
     args, extra_args = parser.parse_known_args()
 
-    # Prepend Kevin's NeMo codebase so nemo.collections.speechlm2 resolves
-    # to the right version regardless of what is installed in the container.
-    sys.path.insert(0, args.nemo_code_path)
+    RealtimeStreamingInference = _import_realtime_engine(args.nemo_code_path)
 
-    torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", 0)))
-
-    from lightning.pytorch import Trainer
-    from nemo.collections.speechlm2 import DataModule, DuplexS2SDataset, DuplexS2SSpeechDecoderModel
-    from nemo.utils.exp_manager import exp_manager
-    from nemo.utils.trainer_utils import resolve_trainer_cfg
-
-    # Load model from HF-format checkpoint (config.json + weights).
-    # from_pretrained sets pretrained_weights=False so component checkpoints
-    # inside the config are not re-fetched; the trained weights are loaded directly.
-    model = DuplexS2SSpeechDecoderModel.from_pretrained(args.model_path)
-
-    # Apply flat OmegaConf overrides from extra_args (e.g. --temperature 0.0
-    # --force_turn_taking --use_codec_cache).  Flag args (no value) are set to True.
-    _apply_inference_overrides(model.cfg, extra_args)
-
-    # Use DDP only when more than one GPU is requested.
-    if args.num_gpus > 1:
-        strategy = {
-            "_target_": "lightning.pytorch.strategies.DDPStrategy",
-            "gradient_as_bucket_view": True,
-            "find_unused_parameters": True,
-        }
-        torch.distributed.init_process_group(backend="nccl")
-    else:
-        strategy = "auto"
-
-    trainer_cfg = OmegaConf.create({
-        "devices": args.num_gpus,
-        "num_nodes": args.num_nodes,
-        "accelerator": "gpu",
-        "precision": args.precision,
-        "logger": False,
-        "enable_checkpointing": False,
-        "use_distributed_sampler": False,
-        "strategy": strategy,
+    model_cfg = OmegaConf.create({
+        "model_path": args.model_path,
+        "llm_checkpoint_path": args.llm_checkpoint_path,
+        "speaker_reference": args.speaker_reference,
+        "buffer_size_frames": args.buffer_size_frames,
+        "codec_token_history_size": args.codec_token_history_size,
+        "decode_audio": True,
+        "compute_dtype": "bfloat16",
     })
-    trainer = Trainer(**resolve_trainer_cfg(trainer_cfg))
 
-    # exp_manager sets trainer.log_dir = output_dir, which ResultsLogger uses
-    # to write pred_wavs/ and metadatas/ under validation_logs/.
-    exp_mgr_cfg = OmegaConf.create({
-        "explicit_log_dir": args.output_dir,
-        "resume_if_exists": False,
-        "resume_ignore_no_checkpoint": True,
-        "create_checkpoint_callback": False,
-        "create_tensorboard_logger": False,
-    })
-    exp_manager(trainer, exp_mgr_cfg)
+    engine = RealtimeStreamingInference(model_cfg=model_cfg)
 
-    # Data config matching the structure expected by DataModule / DuplexS2SDataset.
-    data_cfg = OmegaConf.create({
-        "frame_length": 0.08,
-        "source_sample_rate": 16000,
-        "target_sample_rate": 22050,
-        "input_roles": ["user", "User"],
-        "output_roles": ["agent", "Assistant"],
-        "validation_ds": {
-            "datasets": {
-                args.dataset_name: {
-                    "shar_path": args.shar_input_dir,
+    if extra_args:
+        _apply_overrides(engine.model.cfg, extra_args)
+
+    pred_wavs_dir = Path(args.output_dir) / "validation_logs" / "pred_wavs"
+    metadata_dir = Path(args.output_dir) / "validation_logs" / "metadatas"
+    pred_wavs_dir.mkdir(parents=True, exist_ok=True)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    metadata_path = metadata_dir / f"{args.dataset_name}.json"
+
+    tts_sr = getattr(engine, "target_sample_rate", _TTS_SAMPLE_RATE)
+
+    n_done = 0
+    n_failed = 0
+    with open(metadata_path, "w") as meta_out:
+        for recording_id, audio_bytes in _iter_shar_recordings(args.shar_input_dir):
+            tmp_wav = None
+            try:
+                tmp_wav = _to_mono_wav(audio_bytes)
+
+                results = engine.inference_realtime_streaming(
+                    tmp_wav,
+                    num_frames_per_inference=args.num_frames_per_inference,
+                    explore_padding=False,
+                )
+
+                wav_out = pred_wavs_dir / f"{args.dataset_name}_{recording_id}.wav"
+                audio = results.get("audio")
+                if audio is not None:
+                    sf.write(str(wav_out), audio.float().cpu().numpy(), tts_sr)
+
+                meta_entry = {
+                    "audio_path": recording_id,
+                    "pred_text": results["text"][0],
+                    "pred_src_text": results["asr_text"][0],
                 }
-            },
-            "sample_rate": 22050,
-            "batch_size": args.batch_size,
-            "seed": 42,
-            "shard_seed": "randomized",
-        },
-    })
+                meta_out.write(json.dumps(meta_entry) + "\n")
+                meta_out.flush()
+                n_done += 1
+                print(f"[inference] {n_done} done: {recording_id}")
 
-    dataset = DuplexS2SDataset(
-        tokenizer=model.tokenizer,
-        frame_length=data_cfg.frame_length,
-        source_sample_rate=data_cfg.source_sample_rate,
-        target_sample_rate=data_cfg.target_sample_rate,
-        input_roles=data_cfg.input_roles,
-        output_roles=data_cfg.output_roles,
-    )
-    datamodule = DataModule(data_cfg, tokenizer=model.tokenizer, dataset=dataset)
+            except Exception as e:
+                print(f"[inference] ERROR {recording_id}: {e}", file=sys.stderr)
+                n_failed += 1
+            finally:
+                if tmp_wav and os.path.exists(tmp_wav):
+                    os.unlink(tmp_wav)
 
-    torch.set_float32_matmul_precision("medium")
-    torch.backends.cudnn.allow_tf32 = True
-
-    trainer.validate(model, datamodule)
+    print(f"[inference] Done. {n_done} ok, {n_failed} failed.")
+    if n_failed > 0 and (n_done + n_failed) > 0:
+        if n_failed / (n_done + n_failed) > 0.1:
+            print(
+                f"[inference] ERROR: failure rate too high "
+                f"({n_failed}/{n_done + n_failed})",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":
