@@ -45,6 +45,22 @@ from fastapi.responses import JSONResponse
 from .backends import BackendConfig, GenerationRequest, GenerationResult, get_backend
 from .session_manager import SessionManager
 
+
+def _load_tool_parser(path: str):
+    """Dynamically load a ToolParser subclass from a Python file."""
+    import importlib.util
+
+    from .tool_parser import ToolParser
+
+    spec = importlib.util.spec_from_file_location("_tool_parser_module", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for name in dir(module):
+        obj = getattr(module, name)
+        if isinstance(obj, type) and issubclass(obj, ToolParser) and obj is not ToolParser:
+            return obj()
+    raise ValueError(f"No ToolParser subclass found in {path}")
+
 # Configuration from environment
 HOST = os.getenv("UNIFIED_SERVER_HOST", "0.0.0.0")
 PORT = int(os.getenv("UNIFIED_SERVER_PORT", "8000"))
@@ -283,6 +299,16 @@ def create_app(
     session_ttl = extra_config.pop("session_ttl", 300.0) if extra_config else 300.0
     max_sessions = extra_config.pop("max_sessions", 100) if extra_config else 100
 
+    # Tool-call parser (BFCL function-channel eval only; no-op when absent)
+    tool_call_parser_path = extra_config.pop("tool_call_parser", None) if extra_config else None
+    use_function_channel_for_tool_calls = (
+        extra_config.pop("use_function_channel_for_tool_calls", False) if extra_config else False
+    )
+    tool_parser_instance = None
+    if tool_call_parser_path:
+        tool_parser_instance = _load_tool_parser(tool_call_parser_path)
+        print(f"[Server] Tool call parser loaded from {tool_call_parser_path}")
+
     app = FastAPI(
         title="Unified NeMo Inference Server",
         description=f"OpenAI-compatible API for NeMo model inference ({backend_type} backend)",
@@ -301,6 +327,9 @@ def create_app(
         "ignore_system_prompt": ignore_system_prompt,
         "session_ttl": session_ttl,
         "max_sessions": max_sessions,
+        # Tool-call parser (None → no-op, existing pipelines unaffected)
+        "tool_parser": tool_parser_instance,
+        "use_function_channel_for_tool_calls": use_function_channel_for_tool_calls,
     }
 
     @app.on_event("startup")
@@ -582,6 +611,19 @@ def create_app(
             # Build message content
             message_content = result.text or ""
 
+            # Tool-call extraction (BFCL function-channel eval; no-op when tool_parser is None)
+            tool_call_info = None
+            _tool_parser = server_config.get("tool_parser")
+            if _tool_parser is not None:
+                _use_fc = server_config.get("use_function_channel_for_tool_calls", False)
+                _fc_text = getattr(result, "function_channel_text", None)
+                _source = _fc_text if (_use_fc and _fc_text) else message_content
+                tool_call_info = _tool_parser.extract_tool_calls(_source or "")
+                if tool_call_info.tools_called:
+                    # Store raw function-channel text as the generation so
+                    # nemo-skills inference clients capture the <TOOLCALL> block.
+                    message_content = _source
+
             # Save outputs to files before sending response (in case client times out)
             import json as json_lib
             import os
@@ -605,6 +647,12 @@ def create_app(
                     "timestamp": timestamp,
                     "text": message_content,
                     "asr_text": result.asr_text,
+                    "function_channel_text": getattr(result, "function_channel_text", None),
+                    "tool_calls": (
+                        [{"name": tc.function.name, "arguments": tc.function.arguments}
+                         for tc in tool_call_info.tool_calls]
+                        if (tool_call_info and tool_call_info.tools_called) else None
+                    ),
                     "debug_info": result.debug_info,
                     "generation_time_ms": result.generation_time_ms,
                     "num_tokens_generated": result.num_tokens_generated,
@@ -652,7 +700,7 @@ def create_app(
                             "role": "assistant",
                             "content": final_content,
                         },
-                        "finish_reason": "stop",
+                        "finish_reason": "tool_calls" if (tool_call_info and tool_call_info.tools_called) else "stop",
                     }
                 ],
                 "usage": {
@@ -661,6 +709,17 @@ def create_app(
                     "total_tokens": -1,
                 },
             }
+
+            # Add structured tool_calls (OpenAI-compatible) when tools were called
+            if tool_call_info and tool_call_info.tools_called:
+                response["choices"][0]["message"]["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in tool_call_info.tool_calls
+                ]
 
             # Add audio to response if available
             if audio_output:

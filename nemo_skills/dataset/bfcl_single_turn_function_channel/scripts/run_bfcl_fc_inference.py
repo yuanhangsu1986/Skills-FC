@@ -1,0 +1,147 @@
+# Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+BFCL single-turn function-channel inference client.
+
+Reads prepared input.jsonl, sends each sample to a running serve_unified
+server (with --tool_call_parser + --use_function_channel_for_tool_calls +
+--decode_function_channel), and writes output.jsonl.
+
+Per-sample system prompts (tool definitions) are sent as the 'system' role
+message, so each request gets the right tool context.
+
+The 'generation' field in output.jsonl contains the raw function-channel text
+(e.g. '<TOOLCALL>[...]</TOOLCALL>'), which run_bfcl_fc_scoring.py parses.
+
+Usage:
+    python run_bfcl_fc_inference.py \
+        --server_url http://localhost:8000 \
+        --input_jsonl /data/bfcl_fc/simple_python/input.jsonl \
+        --output_jsonl /results/simple_python/output.jsonl \
+        [--poll_interval 30] [--max_poll_attempts 40]
+"""
+
+import argparse
+import base64
+import json
+import sys
+import time
+from pathlib import Path
+
+
+def _poll_server(server_url: str, interval: int, max_attempts: int) -> bool:
+    import urllib.request
+    health_url = server_url.rstrip("/") + "/health"
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urllib.request.urlopen(health_url, timeout=10) as resp:
+                data = json.loads(resp.read())
+                if data.get("status") == "healthy":
+                    print(f"[inference] Server ready (attempt {attempt})")
+                    return True
+        except Exception:
+            pass
+        print(f"[inference] Waiting for server... attempt {attempt}/{max_attempts}")
+        time.sleep(interval)
+    return False
+
+
+def _send_request(server_url: str, audio_bytes: bytes, system_prompt: str, timeout: int = 300) -> dict:
+    import urllib.request
+    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_audio",
+                        "input_audio": {"data": audio_b64, "format": "wav"},
+                    }
+                ],
+            },
+        ],
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        server_url.rstrip("/") + "/v1/chat/completions",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def main():
+    parser = argparse.ArgumentParser(description="BFCL function-channel inference client")
+    parser.add_argument("--server_url", required=True, help="Base URL of the serve_unified server")
+    parser.add_argument("--input_jsonl", required=True, help="Prepared input.jsonl from prepare.py")
+    parser.add_argument("--output_jsonl", required=True, help="Where to write output.jsonl")
+    parser.add_argument("--poll_interval", type=int, default=30, help="Seconds between server polls")
+    parser.add_argument("--max_poll_attempts", type=int, default=40, help="Max server poll attempts")
+    parser.add_argument("--request_timeout", type=int, default=300, help="Per-request HTTP timeout (s)")
+    args = parser.parse_args()
+
+    if not _poll_server(args.server_url, args.poll_interval, args.max_poll_attempts):
+        print("[inference] ERROR: Server did not become ready.", file=sys.stderr)
+        sys.exit(1)
+
+    input_path = Path(args.input_jsonl)
+    output_path = Path(args.output_jsonl)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    samples = [json.loads(line) for line in input_path.read_text().splitlines() if line.strip()]
+    print(f"[inference] Processing {len(samples)} samples from {input_path}")
+
+    with open(output_path, "w") as out:
+        for i, sample in enumerate(samples):
+            audio_path = sample["audio_path"]
+            system_prompt = sample["system_prompt"]
+
+            try:
+                with open(audio_path, "rb") as f:
+                    audio_bytes = f.read()
+            except Exception as e:
+                print(f"[inference] WARNING: could not read audio {audio_path}: {e}")
+                generation = ""
+            else:
+                try:
+                    response = _send_request(
+                        args.server_url, audio_bytes, system_prompt, args.request_timeout
+                    )
+                    generation = response["choices"][0]["message"].get("content", "")
+                except Exception as e:
+                    print(f"[inference] WARNING: request failed for {sample['id']}: {e}")
+                    generation = ""
+
+            out_entry = {
+                "id": sample["id"],
+                "generation": generation,
+                "expected_call": sample["expected_call"],
+                "required_fields": sample["required_fields"],
+                "question_text": sample.get("question_text", ""),
+            }
+            out.write(json.dumps(out_entry) + "\n")
+
+            if (i + 1) % 10 == 0:
+                print(f"[inference] {i + 1}/{len(samples)} done")
+
+    print(f"[inference] Wrote {len(samples)} entries to {output_path}")
+
+
+if __name__ == "__main__":
+    main()

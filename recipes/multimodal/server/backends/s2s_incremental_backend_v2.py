@@ -136,6 +136,10 @@ class S2SIncrementalV2Config(BackendConfig):
     inference_noise_scale: Optional[float] = None
     tts_sliding_window: Optional[int] = None
 
+    # When True, decode tokens_function_pred into function_channel_text.
+    # Off by default so existing VB/BBA/FDB pipelines are unaffected.
+    decode_function_channel: bool = False
+
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "S2SIncrementalV2Config":
         known_fields = {f.name for f in cls.__dataclass_fields__.values() if f.name != "extra_config"}
@@ -466,6 +470,10 @@ class S2SIncrementalBackendV2(InferenceBackend):
                 asr_text = output["asr_text"][0] if output.get("asr_text") else None
                 debug_info = output.get("debug_info", {})
 
+                function_channel_text = None
+                if self.v2_config.decode_function_channel:
+                    function_channel_text = self._decode_function_channel(output)
+
                 if self.v2_config.use_asr_as_response and asr_text:
                     cleaned = asr_text
                     cleaned = re.sub(r"<[\$|][^>]*[\$|]>", "", cleaned)
@@ -482,6 +490,7 @@ class S2SIncrementalBackendV2(InferenceBackend):
                     GenerationResult(
                         text=output_text,
                         asr_text=asr_text,
+                        function_channel_text=function_channel_text,
                         audio_bytes=audio_bytes,
                         audio_sample_rate=out_sr,
                         request_id=req.request_id,
@@ -549,6 +558,38 @@ class S2SIncrementalBackendV2(InferenceBackend):
         if self._wrapper is not None:
             return self._wrapper.abort_request(request_id)
         return False
+
+    # ------------------------------------------------------------------
+    # Function channel decoder (BFCL eval only; off by default)
+    # ------------------------------------------------------------------
+    def _decode_function_channel(self, output: Dict[str, Any]) -> Optional[str]:
+        """Decode tokens_function_pred → raw text (e.g. '<TOOLCALL>[...]</TOOLCALL>').
+
+        Only called when decode_function_channel=True in the backend config.
+        Returns None if the model produced no function tokens or decoding fails.
+        """
+        func_tokens = output.get("tokens_function_pred") or output.get("tokens_function")
+        tokens_len = output.get("tokens_len")
+        if func_tokens is None or tokens_len is None:
+            return None
+        try:
+            stt = getattr(self._model, "stt_model", None)
+            if stt is None:
+                return None
+            from nemo.collections.speechlm2.models.duplex_s2s_model import tokens_to_str
+            texts = tokens_to_str(
+                func_tokens,
+                tokens_len,
+                tokenizer=stt.tokenizer,
+                pad_id=stt.text_pad_id,
+                user_bos_id=stt.user_bos_id_text,
+                eval_text_turn_taking=False,
+                sil_id=None,
+            )
+            return texts[0] if texts else None
+        except Exception as e:
+            print(f"[S2SIncrementalV2] Warning: function channel decode failed: {e}")
+            return None
 
     # ------------------------------------------------------------------
     # Artifact / dual-channel helpers (server-side I/O, not in wrapper)

@@ -109,6 +109,9 @@ class GenerationResult:
     # ASR text output (user speech transcription from ASR channel)
     asr_text: Optional[str] = None
 
+    # Function channel text (decoded tool-call channel; None when not decoded)
+    function_channel_text: Optional[str] = None
+
     # Audio output (raw bytes, can be encoded to base64 for JSON)
     audio_bytes: Optional[bytes] = None
     audio_sample_rate: int = 16000

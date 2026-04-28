@@ -481,6 +481,24 @@ def main():
         help="Include per-frame alignment data in debug output (user/agent/ASR per frame)",
     )
 
+    # Tool-call parser (BFCL function-channel eval)
+    parser.add_argument(
+        "--tool_call_parser",
+        type=str,
+        default=None,
+        help="Path to a Python file containing a ToolParser subclass (enables tool-call extraction)",
+    )
+    parser.add_argument(
+        "--use_function_channel_for_tool_calls",
+        action="store_true",
+        help="Extract tool calls from the model's function channel instead of the main text output",
+    )
+    parser.add_argument(
+        "--decode_function_channel",
+        action="store_true",
+        help="Decode tokens_function_pred into function_channel_text (s2s_incremental_v2; required for --use_function_channel_for_tool_calls)",
+    )
+
     # Debug
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
 
@@ -690,6 +708,8 @@ def main():
             extra_config["inference_noise_scale"] = args.inference_noise_scale
         if args.tts_sliding_window is not None:
             extra_config["tts_sliding_window"] = args.tts_sliding_window
+        if args.decode_function_channel:
+            extra_config["decode_function_channel"] = True
         # Build vLLM configs when using a vLLM engine
         if "vllm" in args.engine_type:
             model_path = args.model
@@ -716,6 +736,12 @@ def main():
     if args.backend == "s2s_session":
         extra_config["session_ttl"] = args.session_ttl
         extra_config["max_sessions"] = args.max_sessions
+
+    # Tool-call parser (all backends; no-op when not provided)
+    if args.tool_call_parser:
+        extra_config["tool_call_parser"] = args.tool_call_parser
+    if args.use_function_channel_for_tool_calls:
+        extra_config["use_function_channel_for_tool_calls"] = True
 
     # Print configuration
     print("=" * 60)
