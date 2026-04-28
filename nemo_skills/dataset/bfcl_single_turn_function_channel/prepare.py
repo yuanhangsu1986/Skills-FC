@@ -21,7 +21,7 @@ Loads pre-synthesised audio from a HuggingFace BFCL dataset and writes:
 
 Each input.jsonl entry:
   {
-    "id":             "simple_python_0",
+    "id":             "simple_0",
     "audio_path":     "/abs/path/to/audio/<id>.wav",
     "system_prompt":  "Here is a list of functions...\n[{...}]",
     "question_text":  "...",          # text of the spoken question (for reference)
@@ -32,7 +32,7 @@ Each input.jsonl entry:
 Usage:
     python prepare.py \
         --output_dir /data/bfcl_fc \
-        --categories simple_python parallel \
+        --categories simple parallel \
         [--hf_dataset gorilla-llm/Berkeley-Function-Calling-Leaderboard] \
         [--hf_split test] \
         [--max_samples 100]

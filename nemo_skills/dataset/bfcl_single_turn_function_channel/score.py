@@ -94,7 +94,9 @@ def _compare_tool_call(
         if k not in ref_params:
             return False, [f"Unexpected parameter: {k}"]
 
-    req = required_fields.get(tool_name) or required_fields.get(ref_name)
+    req = required_fields.get(tool_name)
+    if req is None:
+        req = required_fields.get(ref_name)
     if req is None:
         return False, [f"No required-field metadata for '{tool_name}'"]
 

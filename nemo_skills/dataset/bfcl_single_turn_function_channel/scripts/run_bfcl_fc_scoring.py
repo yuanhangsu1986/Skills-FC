@@ -111,8 +111,12 @@ def score(
         # required_fields values are stored as [[param, type], ...] — compatible with List[Tuple]
         references.append((expected_call, required_fields))
 
-    accuracy = bfcl_match_score(candidates, references)
-    num_correct = round(accuracy * len(entries) / 100)
+    from nemo_skills.dataset.bfcl_single_turn_function_channel.score import _score_one
+    num_correct = sum(
+        _score_one(c, ref_call, req_fields)
+        for c, (ref_call, req_fields) in zip(candidates, references)
+    )
+    accuracy = round(num_correct * 100.0 / len(entries), 2)
     metrics = {
         "accuracy": accuracy,
         "num_samples": len(entries),

@@ -85,8 +85,15 @@ def build_infer_command(config: dict, category: str) -> str:
         f" --request_timeout {request_timeout}"
     )
 
-    # Start server in background, run inference, then always clean up server.
-    return f"{serve_cmd} & {infer_cmd}; _BFCL_EXIT=$?; kill %1 2>/dev/null; wait %1 2>/dev/null; exit $_BFCL_EXIT"
+    # Start server in background, then cd + run inference in the foreground shell.
+    # Explicit "cd /nemo_run/code &&" is required before the inference command because
+    # bash evaluates "&&" before "&", so get_cmd's prepended "cd /nemo_run/code &&" gets
+    # grouped into the background serve job and does not affect the foreground shell.
+    return (
+        f"{serve_cmd} & "
+        f"cd /nemo_run/code && {infer_cmd}; "
+        f"_BFCL_EXIT=$?; kill %1 2>/dev/null; wait %1 2>/dev/null; exit $_BFCL_EXIT"
+    )
 
 
 def build_score_command(config: dict, category: str, force: bool = False) -> str:
