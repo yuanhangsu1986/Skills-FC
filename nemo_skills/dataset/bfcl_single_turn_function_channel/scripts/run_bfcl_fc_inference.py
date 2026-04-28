@@ -159,6 +159,7 @@ def main():
                 "question_text": sample.get("question_text", ""),
             }
             out.write(json.dumps(out_entry) + "\n")
+            out.flush()
 
             if (i + 1) % 10 == 0:
                 print(f"[inference] {i + 1}/{len(samples)} done")

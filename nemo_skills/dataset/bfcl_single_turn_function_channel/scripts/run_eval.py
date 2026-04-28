@@ -85,7 +85,8 @@ def build_infer_command(config: dict, category: str) -> str:
         f" --request_timeout {request_timeout}"
     )
 
-    # Wrap server+client in a compound command { } so that any installation_command
+    # Kill any stale server process left on the port by a previous job on the same node,
+    # then wrap server+client in a compound command { } so that any installation_command
     # prepended by install_packages_wrap (via "&&") runs synchronously before either
     # process starts.  Without the braces, bash operator precedence (&&  before  &)
     # would group the install guard with the server into the background job, leaving
@@ -93,7 +94,9 @@ def build_infer_command(config: dict, category: str) -> str:
     # The explicit "cd /nemo_run/code &&" is still needed before infer_cmd because
     # get_cmd prepends its own "cd /nemo_run/code &&" which gets absorbed into the
     # background server side inside the braces.
+    port_cleanup = f"fuser -k {port}/tcp 2>/dev/null; sleep 1"
     return (
+        f"{port_cleanup}; "
         f"{{ {serve_cmd} & "
         f"cd /nemo_run/code && {infer_cmd}; "
         f"_BFCL_EXIT=$?; kill %1 2>/dev/null; wait %1 2>/dev/null; exit $_BFCL_EXIT; }}"
@@ -124,6 +127,7 @@ def run_inference_stage(config: dict, category: str, expname: str, dry_run: bool
 
     print("\n--- Stage 1: Running inference (serve + infer) ---")
     log_dir = str(Path(config["output_dir"]) / "eval-results" / category / "summarized-results")
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
     run_cmd(
         ctx=wrap_arguments(""),
         cluster=config["cluster"],
@@ -144,6 +148,7 @@ def run_scoring_stage(config: dict, category: str, expname: str, run_after, dry_
     """Submit the scoring job."""
     print("\n--- Stage 2: Running scoring ---")
     log_dir = str(Path(config["output_dir"]) / "eval-results" / category / "summarized-results")
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
     run_cmd(
         ctx=wrap_arguments(""),
         cluster=config["cluster"],
