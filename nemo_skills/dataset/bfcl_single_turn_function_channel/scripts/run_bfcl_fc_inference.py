@@ -20,7 +20,8 @@ server (with --tool_call_parser + --use_function_channel_for_tool_calls +
 --decode_function_channel), and writes output.jsonl.
 
 Per-sample system prompts (tool definitions) are sent as the 'system' role
-message, so each request gets the right tool context.
+message and tools are passed in OpenAI format so the server activates the
+function channel for each request.
 
 The 'generation' field in output.jsonl contains the raw function-channel text
 (e.g. '<TOOLCALL>[...]</TOOLCALL>'), which run_bfcl_fc_scoring.py parses.
@@ -30,7 +31,7 @@ Usage:
         --server_url http://localhost:8000 \
         --input_jsonl /data/bfcl_fc/simple_python/input.jsonl \
         --output_jsonl /results/simple_python/output.jsonl \
-        [--poll_interval 30] [--max_poll_attempts 40]
+        [--poll_interval 30] [--max_poll_attempts 40] [--max_workers 2]
 """
 
 import argparse
@@ -38,6 +39,7 @@ import base64
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -73,7 +75,7 @@ def _poll_server(server_url: str, interval: int, max_attempts: int) -> bool:
     return False
 
 
-def _send_request(server_url: str, audio_bytes: bytes, system_prompt: str, timeout: int = 300) -> dict:
+def _send_request(server_url: str, audio_bytes: bytes, system_prompt: str, tools: list, timeout: int = 300) -> dict:
     import urllib.request
     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
     payload = {
@@ -89,6 +91,7 @@ def _send_request(server_url: str, audio_bytes: bytes, system_prompt: str, timeo
                 ],
             },
         ],
+        "tools": tools,
     }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -101,6 +104,44 @@ def _send_request(server_url: str, audio_bytes: bytes, system_prompt: str, timeo
         return json.loads(resp.read())
 
 
+def _process_sample(server_url: str, sample: dict, timeout: int) -> tuple[dict, bool]:
+    """Process a single sample; returns (out_entry, failed)."""
+    audio_path = sample["audio_path"]
+    system_prompt = sample["system_prompt"]
+    tools = sample.get("tools", [])
+
+    try:
+        with open(audio_path, "rb") as f:
+            audio_bytes = f.read()
+    except Exception as e:
+        print(f"[inference] WARNING: could not read audio {audio_path}: {e}")
+        generation = ""
+        failed = True
+    else:
+        try:
+            response = _send_request(server_url, audio_bytes, system_prompt, tools, timeout)
+            message = response["choices"][0]["message"]
+            raw_tool_calls = message.get("tool_calls") or []
+            if raw_tool_calls:
+                generation = _tool_calls_to_generation(raw_tool_calls)
+            else:
+                generation = message.get("content", "")
+            failed = False
+        except Exception as e:
+            print(f"[inference] WARNING: request failed for {sample['id']}: {e}")
+            generation = ""
+            failed = True
+
+    out_entry = {
+        "id": sample["id"],
+        "generation": generation,
+        "expected_call": sample["expected_call"],
+        "required_fields": sample["required_fields"],
+        "question_text": sample.get("question_text", ""),
+    }
+    return out_entry, failed
+
+
 def main():
     parser = argparse.ArgumentParser(description="BFCL function-channel inference client")
     parser.add_argument("--server_url", required=True, help="Base URL of the serve_unified server")
@@ -109,6 +150,7 @@ def main():
     parser.add_argument("--poll_interval", type=int, default=30, help="Seconds between server polls")
     parser.add_argument("--max_poll_attempts", type=int, default=40, help="Max server poll attempts")
     parser.add_argument("--request_timeout", type=int, default=300, help="Per-request HTTP timeout (s)")
+    parser.add_argument("--max_workers", type=int, default=2, help="Concurrent requests (should match server batch_size)")
     args = parser.parse_args()
 
     if not _poll_server(args.server_url, args.poll_interval, args.max_poll_attempts):
@@ -122,47 +164,24 @@ def main():
     samples = [json.loads(line) for line in input_path.read_text().splitlines() if line.strip()]
     print(f"[inference] Processing {len(samples)} samples from {input_path}")
 
+    # Submit all requests upfront; the executor caps concurrency at max_workers.
+    # Iterating futures in submission order gives ordered, streaming writes while
+    # keeping the server's batch continuously filled.
     n_failed = 0
-    with open(output_path, "w") as out:
-        for i, sample in enumerate(samples):
-            audio_path = sample["audio_path"]
-            system_prompt = sample["system_prompt"]
-
-            try:
-                with open(audio_path, "rb") as f:
-                    audio_bytes = f.read()
-            except Exception as e:
-                print(f"[inference] WARNING: could not read audio {audio_path}: {e}")
-                generation = ""
-                n_failed += 1
-            else:
-                try:
-                    response = _send_request(
-                        args.server_url, audio_bytes, system_prompt, args.request_timeout
-                    )
-                    message = response["choices"][0]["message"]
-                    raw_tool_calls = message.get("tool_calls") or []
-                    if raw_tool_calls:
-                        generation = _tool_calls_to_generation(raw_tool_calls)
-                    else:
-                        generation = message.get("content", "")
-                except Exception as e:
-                    print(f"[inference] WARNING: request failed for {sample['id']}: {e}")
-                    generation = ""
+    with ThreadPoolExecutor(max_workers=args.max_workers) as pool:
+        futures = [
+            pool.submit(_process_sample, args.server_url, sample, args.request_timeout)
+            for sample in samples
+        ]
+        with open(output_path, "w") as out:
+            for i, future in enumerate(futures):
+                out_entry, failed = future.result()
+                if failed:
                     n_failed += 1
-
-            out_entry = {
-                "id": sample["id"],
-                "generation": generation,
-                "expected_call": sample["expected_call"],
-                "required_fields": sample["required_fields"],
-                "question_text": sample.get("question_text", ""),
-            }
-            out.write(json.dumps(out_entry) + "\n")
-            out.flush()
-
-            if (i + 1) % 10 == 0:
-                print(f"[inference] {i + 1}/{len(samples)} done")
+                out.write(json.dumps(out_entry) + "\n")
+                out.flush()
+                if (i + 1) % 10 == 0:
+                    print(f"[inference] {i + 1}/{len(samples)} done")
 
     print(f"[inference] Wrote {len(samples)} entries to {output_path} ({n_failed} failures)")
     if n_failed > 0:

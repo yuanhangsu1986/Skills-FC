@@ -99,11 +99,13 @@ def _iter_shar_recordings(shar_dir: str):
 def _to_mono_wav(audio_bytes: bytes, target_sr: int = 16000) -> str:
     """Write flac bytes to a temp mono WAV at target_sr. Caller must unlink."""
     tmp_flac = tempfile.NamedTemporaryFile(suffix=".flac", delete=False)
-    tmp_flac.write(audio_bytes)
-    tmp_flac.close()
-
-    waveform, sr = torchaudio.load(tmp_flac.name)
-    os.unlink(tmp_flac.name)
+    try:
+        tmp_flac.write(audio_bytes)
+        tmp_flac.close()
+        waveform, sr = torchaudio.load(tmp_flac.name)
+    finally:
+        if os.path.exists(tmp_flac.name):
+            os.unlink(tmp_flac.name)
 
     if waveform.shape[0] > 1:
         waveform = waveform[0:1]  # channel 0 = user audio

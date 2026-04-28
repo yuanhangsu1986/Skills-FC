@@ -17,7 +17,6 @@ server_gpus: 1
 
 server_args: >-
   --backend s2s_incremental_v2
-  --decode_audio
   --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
   --num_frames_per_inference 3
   --engine_type vllm_llm_vllm_eartts
@@ -26,7 +25,6 @@ server_args: >-
   --use_codec_cache
   --buffer_size_frames 21
   --codec_token_history_size 60
-  --pad_audio_to_sec 40
   --matmul_precision medium
   --vllm_gpu_memory_utilization 0.35
   --vllm_max_model_len 8192

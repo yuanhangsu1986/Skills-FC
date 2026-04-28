@@ -51,10 +51,11 @@ def load_config(path: str) -> dict:
 
 
 def build_inference_command(config: dict) -> str:
+    llm_checkpoint_path = config.get("llm_checkpoint_path", config["model"])
     cmd = (
         f"python nemo_skills/dataset/conv_behav/scripts/run_inference.py"
         f" --model_path {config['model']}"
-        f" --llm_checkpoint_path {config['llm_checkpoint_path']}"
+        f" --llm_checkpoint_path {llm_checkpoint_path}"
         f" --shar_input_dir {config['shar_input_dir']}"
         f" --output_dir {config['output_dir']}/eval-results"
         f" --nemo_code_path {config['nemo_code_path']}"

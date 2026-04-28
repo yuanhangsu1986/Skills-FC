@@ -164,11 +164,16 @@ def prepare_category(
             expected_call = _parse_reference(ref_raw, tools)
             required_fields = _build_required_fields(tools)
             system_prompt = _build_system_prompt(tools)
+            openai_tools = [
+                {"type": "function", "function": {**t, "name": _normalise_tool_name(t["name"])}}
+                for t in tools
+            ]
 
             entry = {
                 "id": sample_id,
                 "audio_path": wav_path,
                 "system_prompt": system_prompt,
+                "tools": openai_tools,
                 "question_text": question_text,
                 "expected_call": expected_call,
                 "required_fields": required_fields,
