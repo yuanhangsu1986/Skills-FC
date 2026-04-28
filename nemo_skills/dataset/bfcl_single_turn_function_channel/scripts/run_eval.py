@@ -85,14 +85,18 @@ def build_infer_command(config: dict, category: str) -> str:
         f" --request_timeout {request_timeout}"
     )
 
-    # Start server in background, then cd + run inference in the foreground shell.
-    # Explicit "cd /nemo_run/code &&" is required before the inference command because
-    # bash evaluates "&&" before "&", so get_cmd's prepended "cd /nemo_run/code &&" gets
-    # grouped into the background serve job and does not affect the foreground shell.
+    # Wrap server+client in a compound command { } so that any installation_command
+    # prepended by install_packages_wrap (via "&&") runs synchronously before either
+    # process starts.  Without the braces, bash operator precedence (&&  before  &)
+    # would group the install guard with the server into the background job, leaving
+    # the client to run immediately in the foreground before the guard completes.
+    # The explicit "cd /nemo_run/code &&" is still needed before infer_cmd because
+    # get_cmd prepends its own "cd /nemo_run/code &&" which gets absorbed into the
+    # background server side inside the braces.
     return (
-        f"{serve_cmd} & "
+        f"{{ {serve_cmd} & "
         f"cd /nemo_run/code && {infer_cmd}; "
-        f"_BFCL_EXIT=$?; kill %1 2>/dev/null; wait %1 2>/dev/null; exit $_BFCL_EXIT"
+        f"_BFCL_EXIT=$?; kill %1 2>/dev/null; wait %1 2>/dev/null; exit $_BFCL_EXIT; }}"
     )
 
 

@@ -46,7 +46,7 @@ server_args: >-
   --decode_function_channel
   --tool_call_parser /nemo_run/code/recipes/multimodal/server/tool_calling/nemotron_v2_voicechat_toolcall_parser.py
   --use_function_channel_for_tool_calls
-  --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bfcl_fc_artifacts
+  --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_sampling/bfcl_fc_artifacts
   --batch_size 2
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_FC
   --pip_install "hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
@@ -60,7 +60,7 @@ request_timeout: 300    # per-request HTTP timeout in seconds
 
 # Paths — run prepare.py once to populate data_dir
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bfcl_fc_data
-output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bfcl_fc
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_sampling/bfcl_fc
 
 categories:
   - simple
