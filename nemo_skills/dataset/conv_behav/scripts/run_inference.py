@@ -59,20 +59,30 @@ _INFER_SCRIPT_REL = (
 _TTS_SAMPLE_RATE = 22050
 
 
-def _import_realtime_engine(nemo_code_path: str):
+def _import_realtime_engine(nemo_code_path: str, inference_nemo_path: str = None):
     """Import RealtimeStreamingInference from vtrinh's NeMo2.
 
-    Pre-importing nemo from nemo_code_path fills sys.modules before the
-    script's own sys.path.insert (hardcoded to cchen1's path) runs, so
-    vtrinh's NeMo2 modules are used throughout.
+    nemo_code_path:       NeMo2 root used for Python imports. Must contain
+                          nemo.collections.speechlm2.models.nemotron_voicechat
+                          (requires a post-Feb-2026 NeMo2 checkout).
+    inference_nemo_path:  NeMo2 root that contains the inference script at
+                          _INFER_SCRIPT_REL. Defaults to nemo_code_path.
+                          Set this when the script lives in a different NeMo2
+                          checkout than the one providing nemo imports.
+
+    Pre-importing nemo from nemo_code_path locks it into sys.modules before
+    the inference script's own sys.path.insert runs, so the correct NeMo2
+    modules are used throughout.
     """
+    script_root = inference_nemo_path or nemo_code_path
+
     if nemo_code_path not in sys.path:
         sys.path.insert(0, nemo_code_path)
 
-    import nemo  # noqa: F401 — populates sys.modules from nemo_code_path
+    import nemo  # noqa: F401 — locks nemo from nemo_code_path into sys.modules
     import nemo.collections.speechlm2  # noqa: F401
 
-    script_path = os.path.join(nemo_code_path, _INFER_SCRIPT_REL)
+    script_path = os.path.join(script_root, _INFER_SCRIPT_REL)
     spec = importlib.util.spec_from_file_location(
         "inference_streaming_realtime_niva_json", script_path
     )
@@ -165,7 +175,10 @@ def main():
     parser.add_argument("--output_dir", required=True,
                         help="Root output dir; validation_logs/ written here")
     parser.add_argument("--nemo_code_path", required=True,
-                        help="vtrinh NeMo2 root (…/code/eval_turn_taking/NeMo2)")
+                        help="NeMo2 root used for Python imports; must have nemotron_voicechat (post-Feb-2026 checkout)")
+    parser.add_argument("--inference_nemo_path", default=None,
+                        help="NeMo2 root containing the inference script; defaults to nemo_code_path. "
+                             "Set when the script lives in a different NeMo2 than the one providing nemo imports.")
     parser.add_argument("--speaker_reference", required=True,
                         help="Speaker reference WAV for TTS voice cloning")
     parser.add_argument("--dataset_name", default="conv_behav")
@@ -177,7 +190,7 @@ def main():
     # false, --temperature 0.8, --inference_guidance_scale 0.2, …).
     args, extra_args = parser.parse_known_args()
 
-    RealtimeStreamingInference = _import_realtime_engine(args.nemo_code_path)
+    RealtimeStreamingInference = _import_realtime_engine(args.nemo_code_path, args.inference_nemo_path)
 
     model_cfg = OmegaConf.create({
         "model_path": args.model_path,

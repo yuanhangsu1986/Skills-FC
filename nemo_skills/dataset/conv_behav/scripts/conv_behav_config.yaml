@@ -20,10 +20,26 @@ partition: batch_block1,batch_block3,batch_block4
 model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
 
 # ---------------------------------------------------------------------------
-# NeMo codebase path — needed by run_scoring.py to locate
-# scripts/speech_eval/eval_conversation_behavior.py.
+# NeMo codebase paths.
+#
+# nemo_code_path:       NeMo2 root used for Python imports.  Must contain
+#                       nemo.collections.speechlm2.models.nemotron_voicechat
+#                       (requires a post-Feb-2026 vtrinh NeMo2 checkout).
+#                       Also needed by run_scoring.py to locate
+#                       scripts/speech_eval/eval_conversation_behavior.py.
+#
+# inference_nemo_path:  (optional) NeMo2 root that contains the inference
+#                       script at:
+#                         scripts/training/iad/s2s/sdv2_hf/conv/nano_9b/
+#                           eartts/inference_streaming_realtime_niva_json.py
+#                       Defaults to nemo_code_path when omitted.
+#                       Set this only when the inference script lives in a
+#                       different NeMo2 checkout than the one used for imports
+#                       (e.g. nemo_code_path has nemotron_voicechat but not
+#                       the script, or vice versa).
 # ---------------------------------------------------------------------------
 nemo_code_path: /lustre/fsw/portfolios/llmservice/users/kevinhu/s2s/NeMo
+# inference_nemo_path: ???   # defaults to nemo_code_path
 
 # ---------------------------------------------------------------------------
 # Data

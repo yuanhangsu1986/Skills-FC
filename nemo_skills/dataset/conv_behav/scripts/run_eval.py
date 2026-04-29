@@ -65,6 +65,8 @@ def build_inference_command(config: dict) -> str:
         f" --buffer_size_frames {config.get('buffer_size_frames', 21)}"
         f" --codec_token_history_size {config.get('codec_token_history_size', 60)}"
     )
+    if config.get("inference_nemo_path"):
+        cmd += f" --inference_nemo_path {config['inference_nemo_path']}"
     if config.get("inference_args"):
         cmd += f" {config['inference_args']}"
     return cmd
