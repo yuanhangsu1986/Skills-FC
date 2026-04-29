@@ -145,6 +145,7 @@ def run_inference_stage(config: dict, category: str, expname: str, dry_run: bool
         log_dir=log_dir,
         reuse_code=False,
         dry_run=dry_run,
+        exclusive=config.get("exclusive"),
     )
     return True
 
