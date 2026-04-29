@@ -73,6 +73,7 @@ nohup python -m nemo_skills.inference.server.serve_unified \
   --tool_call_parser /nemo_run/code/recipes/multimodal/server/tool_calling/nemotron_v2_voicechat_toolcall_parser.py \
   --use_function_channel_for_tool_calls \
   --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_sampling/bfcl_fc_artifacts \
+  --no_save_session_artifacts \
   --batch_size 1 > /tmp/server.log 2>&1 &
 
 # ── 7. Watch server logs (separate terminal) ─────────────────────────────────

@@ -568,12 +568,25 @@ class S2SIncrementalBackendV2(InferenceBackend):
     # Function channel decoder (BFCL eval only; off by default)
     # ------------------------------------------------------------------
     def _decode_function_channel(self, output: Dict[str, Any]) -> Optional[str]:
-        """Decode tokens_function_pred → raw text (e.g. '<TOOLCALL>[...]</TOOLCALL>').
+        """Decode function channel → raw text (e.g. '<TOOLCALL>[...]</TOOLCALL>').
 
         Only called when decode_function_channel=True in the backend config.
         Returns None if the model produced no function tokens or decoding fails.
+
+        Tries pre-decoded text first (function_text), then falls back to
+        decoding raw tokens (tokens_function_pred / tokens_function / function_tokens).
         """
-        func_tokens = output.get("tokens_function_pred") or output.get("tokens_function")
+        # Use pre-decoded text if available (current model outputs function_text directly)
+        func_text = output.get("function_text")
+        if func_text is not None:
+            result = func_text[0] if isinstance(func_text, list) else func_text
+            return result if result else None
+
+        func_tokens = (
+            output.get("tokens_function_pred")
+            or output.get("tokens_function")
+            or output.get("function_tokens")
+        )
         tokens_len = output.get("tokens_len")
         if func_tokens is None or tokens_len is None:
             print(
