@@ -1,7 +1,7 @@
 # conv_behav evaluation — sampling decoding
 #
-# Uses temperature=0.8, force_turn_taking=false.  Matches the sampling setting
-# used across BBA / VB / FDB / BFCL sampling configs.
+# Uses force_turn_taking=false (model decides turn-taking).  Matches the
+# sampling setting used across BBA / VB / FDB / BFCL sampling configs.
 #
 # Run:
 #   python nemo_skills/dataset/conv_behav/scripts/run_eval.py \
@@ -14,23 +14,20 @@ cluster: s2s_eval_oci_iad_oncluster
 partition: batch_block1,batch_block3,batch_block4
 
 # ---------------------------------------------------------------------------
-# Model — vtrinh combined checkpoint (HF format).
-# model_path provides TTS weights; llm_checkpoint_path provides LLM+perception
-# weights.  For a combined checkpoint both paths point to the same directory.
+# Model — HuggingFace-format checkpoint directory (produced by to_hf.py).
+# Must contain config.json + model weights.
 # ---------------------------------------------------------------------------
 model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
-llm_checkpoint_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
 
 # ---------------------------------------------------------------------------
-# NeMo codebase — vtrinh's NeMo2 repo on the cluster.
-# Used by run_inference.py (RealtimeStreamingInference) and run_scoring.py.
+# NeMo codebase paths.
+#
+# inference_nemo_code_path:  vtrinh's NeMo2 root (post-Feb-2026 checkout with
+#                            s2s_duplex_stt_infer.py + nemotron_voicechat).
+# nemo_code_path:            kevinhu's NeMo root for scoring only.
 # ---------------------------------------------------------------------------
-nemo_code_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/code/eval_turn_taking/NeMo2
-
-# ---------------------------------------------------------------------------
-# Speaker reference for TTS voice cloning
-# ---------------------------------------------------------------------------
-speaker_reference: /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
+inference_nemo_code_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/code/NeMo2-merge/NeMo2-private_tts_fix_Mar_20
+nemo_code_path: /lustre/fsw/portfolios/llmservice/users/kevinhu/s2s/NeMo
 
 # ---------------------------------------------------------------------------
 # Data
@@ -44,32 +41,11 @@ dataset_name: team_20251124
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_sampling/conv_behav
 
 # ---------------------------------------------------------------------------
-# Streaming inference parameters (named args in run_inference.py)
+# Inference settings
 # ---------------------------------------------------------------------------
-num_frames_per_inference: 3
-buffer_size_frames: 21
-codec_token_history_size: 60
-
-# ---------------------------------------------------------------------------
-# Inference — extra args applied as OmegaConf overrides on engine.model.cfg
-# after initialization.  force_turn_taking=false for sampling.
-# ---------------------------------------------------------------------------
-inference_args: >-
-  --force_turn_taking false
-  --temperature 0.8
-  --top_p 0.9
-  --repetition_penalty 1.2
-  --use_codec_cache
-  --use_perception_cache
-  --inference_pad_boost 0
-  --inference_bos_boost 0
-  --inference_eos_boost 0
-  --inference_user_pad_boost 0
-  --inference_user_bos_boost 0
-  --inference_user_eos_boost 0
-  --inference_guidance_scale 0.2
-  --inference_top_p_or_k 0.95
-  --inference_noise_scale 0.001
+num_gpus: 8
+num_nodes: 1
+force_turn_taking: false
 
 # ---------------------------------------------------------------------------
 # Scoring thresholds

@@ -1,0 +1,74 @@
+# Minimal Hydra config for conv_behav evaluation via s2s_duplex_stt_infer.py.
+# Dynamic values (model, shar_path, output_dir, force_turn_taking) are injected
+# via ++ CLI overrides in run_eval.py.  Architecture config is merged in
+# automatically from the checkpoint's config.json.
+#
+# Usage (run via run_eval.py — do not call directly):
+#   export PYTHONPATH=/path/to/NeMo2-private_tts_fix_Mar_20:$PYTHONPATH
+#   python /path/to/NeMo2-private_tts_fix_Mar_20/examples/speechlm2/s2s_duplex_stt_infer.py \
+#     --config-path=/nemo_run/code/nemo_skills/dataset/conv_behav/scripts \
+#     --config-name=conv_behav_infer \
+#     ++model.pretrained_s2s_model=/path/to/checkpoint \
+#     ++exp_manager.explicit_log_dir=/path/to/output/eval-results \
+#     '++data.validation_ds.datasets.team_20251124.shar_path=/path/to/shar' \
+#     ++model.force_turn_taking=false
+
+ckpt_path: null
+
+trainer:
+  devices: -1
+  accelerator: gpu
+  num_nodes: 1
+  precision: bf16-true
+  logger: false
+  enable_checkpointing: false
+  use_distributed_sampler: false
+  max_steps: 1000000
+  limit_train_batches: 1
+  val_check_interval: 1
+  limit_val_batches: null
+  log_every_n_steps: 10
+  num_sanity_val_steps: 0
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 1
+  strategy:
+    _target_: lightning.pytorch.strategies.DDPStrategy
+    gradient_as_bucket_view: true
+    find_unused_parameters: true
+
+model:
+  pretrained_s2s_model: ???
+  eval_text_turn_taking: true
+  force_align_user_text: false
+  predict_user_text: true
+  incremental_loading: true
+  use_function_head: true
+  force_turn_taking: false
+
+data:
+  frame_length: 0.08
+  source_sample_rate: 16000
+  target_sample_rate: 22050
+  input_roles: ["user", "User"]
+  output_roles: ["agent", "Assistant"]
+  early_interruption_prob: 0.0
+  add_val_prompt: true
+  add_mcq_prompt: 2
+
+  validation_ds:
+    sample_rate: ${data.target_sample_rate}
+    batch_size: 1
+    seed: 42
+    shard_seed: "randomized"
+    datasets: {}
+
+exp_manager:
+  exp_dir: null
+  explicit_log_dir: ???
+  name: conv_behav
+  create_tensorboard_logger: false
+  create_checkpoint_callback: false
+  use_datetime_version: false
+  resume_if_exists: false
+  resume_ignore_no_checkpoint: true
+  create_wandb_logger: false

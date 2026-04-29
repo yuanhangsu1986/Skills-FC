@@ -1,7 +1,7 @@
 # conv_behav (conversational behavior) evaluation config
 #
-# Evaluates a DuplexS2SSpeechDecoderModel on turn-taking, barge-in,
-# back-channeling, and user EOU detection using real conversation recordings.
+# Evaluates a DuplexSTTModel on turn-taking, barge-in, back-channeling,
+# and user EOU detection using real conversation recordings.
 #
 # Run:
 #   python nemo_skills/dataset/conv_behav/scripts/run_eval.py \
@@ -22,24 +22,21 @@ model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_
 # ---------------------------------------------------------------------------
 # NeMo codebase paths.
 #
-# nemo_code_path:       NeMo2 root used for Python imports.  Must contain
-#                       nemo.collections.speechlm2.models.nemotron_voicechat
-#                       (requires a post-Feb-2026 vtrinh NeMo2 checkout).
-#                       Also needed by run_scoring.py to locate
-#                       scripts/speech_eval/eval_conversation_behavior.py.
+# inference_nemo_code_path:  vtrinh's NeMo2 root used for inference.  Must
+#                            contain both:
+#                              examples/speechlm2/s2s_duplex_stt_infer.py
+#                              nemo/collections/speechlm2/models/
+#                                nemotron_voicechat.py
+#                            (requires a post-Feb-2026 NeMo2 checkout, e.g.
+#                            NeMo2-private_tts_fix_Mar_20).
 #
-# inference_nemo_path:  (optional) NeMo2 root that contains the inference
-#                       script at:
-#                         scripts/training/iad/s2s/sdv2_hf/conv/nano_9b/
-#                           eartts/inference_streaming_realtime_niva_json.py
-#                       Defaults to nemo_code_path when omitted.
-#                       Set this only when the inference script lives in a
-#                       different NeMo2 checkout than the one used for imports
-#                       (e.g. nemo_code_path has nemotron_voicechat but not
-#                       the script, or vice versa).
+# nemo_code_path:            kevinhu's NeMo root used for scoring only.
+#                            Must contain:
+#                              scripts/speech_eval/
+#                                eval_conversation_behavior.py
 # ---------------------------------------------------------------------------
+inference_nemo_code_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/code/NeMo2-merge/NeMo2-private_tts_fix_Mar_20
 nemo_code_path: /lustre/fsw/portfolios/llmservice/users/kevinhu/s2s/NeMo
-# inference_nemo_path: ???   # defaults to nemo_code_path
 
 # ---------------------------------------------------------------------------
 # Data
@@ -61,10 +58,8 @@ output_dir: ???
 # ---------------------------------------------------------------------------
 # Inference settings
 # ---------------------------------------------------------------------------
-num_gpus: 1
+num_gpus: 8
 num_nodes: 1
-batch_size: 1
-precision: bf16-true
 force_turn_taking: true
 
 # ---------------------------------------------------------------------------

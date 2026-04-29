@@ -16,13 +16,12 @@
 Run conv_behav (conversational behavior) evaluation.
 
 Pipeline stages:
-  1. inference  — loads NemotronVoiceChat via RealtimeStreamingInference
-                  (vtrinh's NeMo2), runs per-frame streaming inference on
-                  lhotse shar recordings; produces
-                    <output_dir>/validation_logs/pred_wavs/
-                    <output_dir>/validation_logs/metadatas/<dataset_name>.json
-  2. scoring    — calls eval_conversation_behavior.py from the NeMo codebase,
-                  parses its output, writes metrics.json
+  1. inference  — runs s2s_duplex_stt_infer.py (PyTorch Lightning + Hydra)
+                  from vtrinh's NeMo2 (inference_nemo_code_path); produces
+                    <output_dir>/eval-results/validation_logs/pred_wavs/
+                    <output_dir>/eval-results/validation_logs/metadatas/<dataset_name>.json
+  2. scoring    — calls eval_conversation_behavior.py from kevinhu's NeMo
+                  (nemo_code_path), parses its output, writes metrics.json
 
 Both stages are submitted as Slurm jobs via run_cmd.  Stage 2 runs after
 stage 1 via run_after dependency.
@@ -36,7 +35,6 @@ Usage:
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import yaml
@@ -51,22 +49,25 @@ def load_config(path: str) -> dict:
 
 
 def build_inference_command(config: dict) -> str:
-    llm_checkpoint_path = config.get("llm_checkpoint_path", config["model"])
+    infer_nemo = config["inference_nemo_code_path"]
+    infer_script = f"{infer_nemo}/examples/speechlm2/s2s_duplex_stt_infer.py"
+    # Absolute path inside the container where our code is mounted.
+    config_path = "/nemo_run/code/nemo_skills/dataset/conv_behav/scripts"
+    dataset_name = config["dataset_name"]
+    force_turn_taking = str(config.get("force_turn_taking", False)).lower()
+    num_nodes = config.get("num_nodes", 1)
+
     cmd = (
-        f"python nemo_skills/dataset/conv_behav/scripts/run_inference.py"
-        f" --model_path {config['model']}"
-        f" --llm_checkpoint_path {llm_checkpoint_path}"
-        f" --shar_input_dir {config['shar_input_dir']}"
-        f" --output_dir {config['output_dir']}/eval-results"
-        f" --nemo_code_path {config['nemo_code_path']}"
-        f" --speaker_reference {config['speaker_reference']}"
-        f" --dataset_name {config['dataset_name']}"
-        f" --num_frames_per_inference {config.get('num_frames_per_inference', 3)}"
-        f" --buffer_size_frames {config.get('buffer_size_frames', 21)}"
-        f" --codec_token_history_size {config.get('codec_token_history_size', 60)}"
+        f"export PYTHONPATH={infer_nemo}:${{PYTHONPATH:-}} && "
+        f"python {infer_script}"
+        f" --config-path={config_path}"
+        f" --config-name=conv_behav_infer"
+        f" trainer.num_nodes={num_nodes}"
+        f" ++model.pretrained_s2s_model={config['model']}"
+        f" ++exp_manager.explicit_log_dir={config['output_dir']}/eval-results"
+        f" '++data.validation_ds.datasets.{dataset_name}.shar_path={config['shar_input_dir']}'"
+        f" ++model.force_turn_taking={force_turn_taking}"
     )
-    if config.get("inference_nemo_path"):
-        cmd += f" --inference_nemo_path {config['inference_nemo_path']}"
     if config.get("inference_args"):
         cmd += f" {config['inference_args']}"
     return cmd
@@ -92,19 +93,21 @@ def build_scoring_command(config: dict) -> str:
 
 def run_inference_stage(config: dict, expname: str, dry_run: bool) -> bool:
     """Submit inference job. Returns True if submitted (False if skipped)."""
-    output_jsonl = Path(f"{config['output_dir']}/eval-results/validation_logs/metadatas/{config['dataset_name']}.json")
-    if output_jsonl.exists() and not config.get("scoring_force", False):
-        print(f"\n--- Stage 1: Skipping inference (found {output_jsonl}) ---")
+    output_json = Path(
+        f"{config['output_dir']}/eval-results/validation_logs/metadatas/{config['dataset_name']}.json"
+    )
+    if output_json.exists() and not config.get("scoring_force", False):
+        print(f"\n--- Stage 1: Skipping inference (found {output_json}) ---")
         return False
 
-    print("\n--- Stage 1: Running offline inference ---")
+    print("\n--- Stage 1: Running inference (s2s_duplex_stt_infer.py) ---")
     log_dir = str(Path(config["output_dir"]) / "eval-results" / "summarized-results")
     run_cmd(
         ctx=wrap_arguments(""),
         cluster=config["cluster"],
         command=build_inference_command(config),
         container=config.get("inference_container"),
-        num_gpus=config.get("num_gpus", 1),
+        num_gpus=config.get("num_gpus", 8),
         num_nodes=config.get("num_nodes", 1),
         partition=config.get("partition"),
         expname=expname,
@@ -164,7 +167,8 @@ def main():
     parser.add_argument("--output_dir", help="Override output directory")
     parser.add_argument("--shar_input_dir", help="Override shar input directory")
     parser.add_argument("--dataset_name", help="Override dataset name")
-    parser.add_argument("--nemo_code_path", help="Override NeMo codebase path")
+    parser.add_argument("--nemo_code_path", help="Override NeMo codebase path (for scoring)")
+    parser.add_argument("--inference_nemo_code_path", help="Override vtrinh NeMo2 path (for inference)")
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--inference_only", action="store_true")
     parser.add_argument("--scoring_only", action="store_true")
@@ -173,7 +177,7 @@ def main():
 
     config = load_config(args.config)
 
-    for key in ["model", "output_dir", "shar_input_dir", "dataset_name", "nemo_code_path"]:
+    for key in ["model", "output_dir", "shar_input_dir", "dataset_name", "nemo_code_path", "inference_nemo_code_path"]:
         if getattr(args, key, None) is not None:
             config[key] = getattr(args, key)
     if args.dry_run:
@@ -185,7 +189,6 @@ def main():
     if args.scoring_force:
         config["scoring_force"] = True
 
-    # Append git commit hash to output_dir for reproducibility.
     output_dir = config.get("output_dir", "")
     if output_dir:
         commit_hash = get_git_commit_hash()
