@@ -98,6 +98,8 @@ def main():
                 q_audio_full = Path(args.data_dir) / q_audio_rel
                 if q_audio_full.exists():
                     out_row["question_asr"] = transcribe(str(q_audio_full))
+                else:
+                    print(f"  [{i+1}/{len(rows)}] WARNING: question audio not found: {q_audio_full}", file=sys.stderr)
 
         out_rows.append(out_row)
 
