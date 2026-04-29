@@ -122,6 +122,9 @@ def _process_sample(server_url: str, sample: dict, timeout: int) -> tuple[dict, 
             response = _send_request(server_url, audio_bytes, system_prompt, tools, timeout)
             message = response["choices"][0]["message"]
             raw_tool_calls = message.get("tool_calls") or []
+            finish_reason = response["choices"][0].get("finish_reason")
+            print(f"[inference] {sample['id']} | finish_reason: {finish_reason} | "
+                  f"content: {message.get('content', '')!r} | tool_calls: {raw_tool_calls}")
             if raw_tool_calls:
                 generation = _tool_calls_to_generation(raw_tool_calls)
             else:
