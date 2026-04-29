@@ -51,8 +51,11 @@ def load_config(path: str) -> dict:
 def build_inference_command(config: dict) -> str:
     infer_nemo = config["inference_nemo_code_path"]
     infer_script = f"{infer_nemo}/examples/speechlm2/s2s_duplex_stt_infer.py"
-    # Absolute path inside the container where our code is mounted.
-    config_path = "/nemo_run/code/nemo_skills/dataset/conv_behav/scripts"
+    # Use the cluster-side inference config (has full model architecture incl. pretrained_llm).
+    # Falls back to our minimal conv_behav_infer.yaml for testing without the cluster config.
+    _base_dir = "/lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026"
+    config_path = config.get("inference_config_path", f"{_base_dir}/config/inference")
+    config_name = config.get("inference_config_name", "infer_nano_9b_team_20251124_s2t")
     dataset_name = config["dataset_name"]
     force_turn_taking = str(config.get("force_turn_taking", False)).lower()
     num_nodes = config.get("num_nodes", 1)
@@ -61,8 +64,9 @@ def build_inference_command(config: dict) -> str:
         f"export PYTHONPATH={infer_nemo}:${{PYTHONPATH:-}} && "
         f"python {infer_script}"
         f" --config-path={config_path}"
-        f" --config-name=conv_behav_infer"
+        f" --config-name={config_name}"
         f" trainer.num_nodes={num_nodes}"
+        f" ++ckpt_path=null"
         f" ++model.pretrained_s2s_model={config['model']}"
         f" ++exp_manager.explicit_log_dir={config['output_dir']}/eval-results"
         f" '++data.validation_ds.datasets.{dataset_name}.shar_path={config['shar_input_dir']}'"

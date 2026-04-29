@@ -469,6 +469,9 @@ class S2SIncrementalBackendV2(InferenceBackend):
                 output_text = output["text"][0] if output.get("text") else ""
                 asr_text = output["asr_text"][0] if output.get("asr_text") else None
                 debug_info = output.get("debug_info", {})
+                del output
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
                 function_channel_text = None
                 if self.v2_config.decode_function_channel:
@@ -508,6 +511,8 @@ class S2SIncrementalBackendV2(InferenceBackend):
             finally:
                 if temp_file_path and os.path.exists(temp_file_path):
                     os.unlink(temp_file_path)
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
         return results
 
@@ -571,6 +576,11 @@ class S2SIncrementalBackendV2(InferenceBackend):
         func_tokens = output.get("tokens_function_pred") or output.get("tokens_function")
         tokens_len = output.get("tokens_len")
         if func_tokens is None or tokens_len is None:
+            print(
+                f"[S2SIncrementalV2] Warning: model did not output function channel tokens "
+                f"(keys in output: {list(output.keys())}). "
+                "Check that the server was started with the correct FC flags."
+            )
             return None
         try:
             stt = getattr(self._model, "stt_model", None)
@@ -588,8 +598,9 @@ class S2SIncrementalBackendV2(InferenceBackend):
             )
             return texts[0] if texts else None
         except Exception as e:
-            print(f"[S2SIncrementalV2] Warning: function channel decode failed: {e}")
-            return None
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"[S2SIncrementalV2] Function channel decode failed: {e}") from e
 
     # ------------------------------------------------------------------
     # Artifact / dual-channel helpers (server-side I/O, not in wrapper)

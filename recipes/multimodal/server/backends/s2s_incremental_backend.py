@@ -742,16 +742,23 @@ class S2SIncrementalBackend(InferenceBackend):
                         f"[DEBUG TTS frame {current_frame_idx}] prev_audio_tokens shape: {code.shape}, values: {code[0, 0, :5]}"
                     )
 
-                code, past_key_values = self._model.tts_model.infer_codes_one_step(
-                    current_subword_id=current_subword_id,
-                    prev_subword_id=prev_subword_id,
-                    current_subword_mask=current_subword_mask,
-                    prev_audio_tokens=code,
-                    past_key_values=past_key_values,
-                    guidance_enabled=True,
-                    generation_config=self.generation_config,
-                    ignore_eos_flag_stop=True,
-                )
+                try:
+                    code, past_key_values = self._model.tts_model.infer_codes_one_step(
+                        current_subword_id=current_subword_id,
+                        prev_subword_id=prev_subword_id,
+                        current_subword_mask=current_subword_mask,
+                        prev_audio_tokens=code,
+                        past_key_values=past_key_values,
+                        guidance_enabled=True,
+                        generation_config=self.generation_config,
+                        ignore_eos_flag_stop=True,
+                    )
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    raise RuntimeError(
+                        f"[S2SIncremental] TTS infer_codes_one_step failed at frame {current_frame_idx}: {e}"
+                    ) from e
 
                 # Debug TTS output for first few frames
                 if current_frame_idx < 3:
@@ -791,8 +798,17 @@ class S2SIncrementalBackend(InferenceBackend):
                 print(f"[DEBUG] audio_toks_buffer dtype: {audio_toks_buffer.dtype}")
                 print(f"[DEBUG] audio_toks_buffer sample values: {audio_toks_buffer[0, :3, :5]}")
 
-            with fp32_precision(), torch.no_grad():
-                decoded_audio, _ = self._model.tts_model.audio_codec.decode(audio_toks_buffer, len_audio_toks_buffer)
+            try:
+                with fp32_precision(), torch.no_grad():
+                    decoded_audio, _ = self._model.tts_model.audio_codec.decode(
+                        audio_toks_buffer, len_audio_toks_buffer
+                    )
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                raise RuntimeError(
+                    f"[S2SIncremental] Audio codec decode failed at frame {frame_idx}: {e}"
+                ) from e
 
             # Debug: print decoded audio info
             if frame_idx == 0:

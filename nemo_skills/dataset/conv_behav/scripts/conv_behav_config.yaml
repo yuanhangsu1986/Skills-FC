@@ -36,6 +36,11 @@ model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_
 #                                eval_conversation_behavior.py
 # ---------------------------------------------------------------------------
 inference_nemo_code_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/code/NeMo2-merge/NeMo2-private_tts_fix_Mar_20
+# inference_config_path: Hydra --config-path for s2s_duplex_stt_infer.py.
+# Defaults to vtrinh's cluster config dir which has the full model architecture
+# (pretrained_llm, perception, etc.) required by DuplexSTTModel.__init__.
+inference_config_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/config/inference
+inference_config_name: infer_nano_9b_team_20251124_s2t
 nemo_code_path: /lustre/fsw/portfolios/llmservice/users/kevinhu/s2s/NeMo
 
 # ---------------------------------------------------------------------------
