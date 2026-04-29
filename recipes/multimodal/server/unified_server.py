@@ -281,6 +281,31 @@ def extract_system_prompt(messages: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
+def merge_tools_into_system_prompt(
+    tools: List[Dict[str, Any]], system_prompt: Optional[str]
+) -> Optional[str]:
+    """Append tools to system_prompt if not already embedded by the client.
+
+    Priority / fallback logic:
+    - If client already embedded tool names in system_prompt → return unchanged (client owns it).
+    - If tools present and not yet in system_prompt → append as JSON (server owns it).
+    - If no tools from either source → return system_prompt unchanged.
+    """
+    if not tools:
+        return system_prompt
+    # Check if any tool name already appears in system_prompt (client pre-embedded).
+    for tool in tools:
+        func = tool.get("function") if isinstance(tool, dict) else None
+        name = func.get("name", "") if isinstance(func, dict) else ""
+        if name and system_prompt and name in system_prompt:
+            return system_prompt
+    # Tools not yet in system_prompt — append as JSON so the model can see them.
+    tool_text = "Here is a list of functions in JSON format:\n" + json.dumps(tools, indent=4)
+    if system_prompt:
+        return system_prompt + "\n\n" + tool_text
+    return tool_text
+
+
 def create_app(
     backend_type: str = BACKEND_TYPE,
     model_path: str = MODEL_PATH,
@@ -514,6 +539,12 @@ def create_app(
             audio_bytes_list = extract_audio_from_messages(messages)
             text = extract_text_from_messages(messages)
             system_prompt = extract_system_prompt(messages)
+
+            # Merge top-level "tools" field into system_prompt if not already embedded.
+            # Fallback order: client-embedded tools in system_prompt → server-extracted tools
+            # from HTTP payload → neither (proceed without tools).
+            tools = request.get("tools", []) or []
+            system_prompt = merge_tools_into_system_prompt(tools, system_prompt)
 
             # Honor ignore_system_prompt setting
             if server_config.get("ignore_system_prompt", False):
