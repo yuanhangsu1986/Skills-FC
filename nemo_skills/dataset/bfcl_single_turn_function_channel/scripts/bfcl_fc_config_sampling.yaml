@@ -74,7 +74,6 @@ scoring_installation_command: ""
 expname: bfcl_fc_sampling
 # max_samples: 50
 
-exclusive: true
 inference_only: false
 scoring_only: false
 scoring_force: false

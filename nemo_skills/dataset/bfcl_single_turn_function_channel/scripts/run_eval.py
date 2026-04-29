@@ -99,7 +99,7 @@ def build_infer_command(config: dict, category: str) -> str:
     # The explicit "cd /nemo_run/code &&" is still needed before infer_cmd because
     # get_cmd prepends its own "cd /nemo_run/code &&" which gets absorbed into the
     # background server side inside the braces.
-    port_cleanup = f"fuser -k {port}/tcp 2>/dev/null; sleep 1"
+    port_cleanup = f"fuser -k {port}/tcp 2>/dev/null; sleep 10"
     return (
         f"{port_cleanup}; "
         f"{{ {serve_cmd} & "
