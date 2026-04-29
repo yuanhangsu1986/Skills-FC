@@ -69,6 +69,7 @@ def build_inference_command(config: dict) -> str:
         f" ++ckpt_path=null"
         f" ++model.pretrained_s2s_model={config['model']}"
         f" ++exp_manager.explicit_log_dir={config['output_dir']}/eval-results"
+        f" exp_manager.create_wandb_logger=false"
         f" '++data.validation_ds.datasets.{dataset_name}.shar_path={config['shar_input_dir']}'"
         f" ++model.force_turn_taking={force_turn_taking}"
     )

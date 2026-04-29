@@ -235,6 +235,7 @@ class S2SIncrementalBackendV2(InferenceBackend):
             "force_turn_taking_threshold": cfg.force_turn_taking_threshold,
             "force_turn_taking_pad_window": cfg.force_turn_taking_pad_window,
             "inference_guidance_enabled": cfg.inference_guidance_enabled,
+            "decode_function_channel": cfg.decode_function_channel,
         }
 
         for boost_key in (

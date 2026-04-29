@@ -145,8 +145,12 @@ def _compare_tool_call(
                 if tv != rv:
                     errors.append(f"Mismatch at '{param}'")
         else:
-            if tv != rv:
-                errors.append(f"Mismatch at '{param}': {tv} != {rv}")
+            if isinstance(rv, list):
+                if tv not in rv:
+                    errors.append(f"Mismatch at '{param}': {tv} not in {rv}")
+            else:
+                if tv != rv:
+                    errors.append(f"Mismatch at '{param}': {tv} != {rv}")
 
     return len(errors) == 0, errors
 
