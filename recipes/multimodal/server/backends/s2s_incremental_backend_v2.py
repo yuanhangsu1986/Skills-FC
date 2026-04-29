@@ -470,13 +470,12 @@ class S2SIncrementalBackendV2(InferenceBackend):
                 output_text = output["text"][0] if output.get("text") else ""
                 asr_text = output["asr_text"][0] if output.get("asr_text") else None
                 debug_info = output.get("debug_info", {})
-                del output
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
                 function_channel_text = None
                 if self.v2_config.decode_function_channel:
                     function_channel_text = self._decode_function_channel(output)
+                del output
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
                 if self.v2_config.use_asr_as_response and asr_text:
                     cleaned = asr_text
