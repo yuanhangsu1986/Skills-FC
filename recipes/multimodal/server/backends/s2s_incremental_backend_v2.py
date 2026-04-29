@@ -371,6 +371,7 @@ class S2SIncrementalBackendV2(InferenceBackend):
         num_frames_per_inference: int = None,
         request_id: Optional[str] = None,
         system_prompt: Optional[str] = None,
+        max_new_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Run streaming inference on an audio file.
 
@@ -389,6 +390,7 @@ class S2SIncrementalBackendV2(InferenceBackend):
             request_id=request_id,
             pad_audio_to_sec=pad_to,
             system_prompt=sys_prompt,
+            max_new_tokens=max_new_tokens,
         )
 
         result["input_audio_path"] = audio_path
@@ -434,6 +436,7 @@ class S2SIncrementalBackendV2(InferenceBackend):
                     num_frames_per_inference=self.v2_config.num_frames_per_inference,
                     request_id=req.request_id,
                     system_prompt=req.system_prompt,
+                    max_new_tokens=req.max_new_tokens or self.config.max_new_tokens,
                 )
 
                 audio_bytes = None

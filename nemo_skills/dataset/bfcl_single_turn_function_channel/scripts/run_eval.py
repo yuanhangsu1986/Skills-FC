@@ -76,6 +76,7 @@ def build_infer_command(config: dict, category: str) -> str:
     )
 
     max_workers = config.get("max_workers", 2)
+    max_tokens = config.get("max_tokens", 256)
 
     infer_cmd = (
         f"python nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_bfcl_fc_inference.py"
@@ -86,6 +87,7 @@ def build_infer_command(config: dict, category: str) -> str:
         f" --max_poll_attempts {max_poll_attempts}"
         f" --request_timeout {request_timeout}"
         f" --max_workers {max_workers}"
+        f" --max_tokens {max_tokens}"
     )
 
     # Kill any stale server process left on the port by a previous job on the same node,

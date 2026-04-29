@@ -86,7 +86,8 @@ python -u /nemo_run/code/nemo_skills/dataset/bfcl_single_turn_function_channel/s
   --output_jsonl /tmp/debug_output.jsonl \
   --max_workers 1 \
   --poll_interval 10 \
-  --max_poll_attempts 60
+  --max_poll_attempts 60 \
+  --max_tokens 512
 ```
 
 ## Notes

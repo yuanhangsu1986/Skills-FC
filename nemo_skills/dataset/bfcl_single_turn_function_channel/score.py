@@ -112,6 +112,14 @@ def _compare_tool_call(
         if rv in ("", None):
             continue
 
+        # Coerce string values to the expected numeric/bool type so that
+        # model outputs like "10" match reference integers like 10.
+        if isinstance(tv, str) and python_type in (int, float, bool):
+            try:
+                tv = tv.lower() in ("true", "1", "yes") if python_type == bool else python_type(tv)
+            except (ValueError, TypeError):
+                pass
+
         if python_type == float and isinstance(tv, int):
             tv = float(tv)
 

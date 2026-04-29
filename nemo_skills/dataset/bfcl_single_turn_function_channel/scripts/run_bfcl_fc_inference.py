@@ -75,7 +75,14 @@ def _poll_server(server_url: str, interval: int, max_attempts: int) -> bool:
     return False
 
 
-def _send_request(server_url: str, audio_bytes: bytes, system_prompt: str, tools: list, timeout: int = 300) -> dict:
+def _send_request(
+    server_url: str,
+    audio_bytes: bytes,
+    system_prompt: str,
+    tools: list,
+    timeout: int = 300,
+    max_tokens: int = 512,
+) -> dict:
     import urllib.request
     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
     payload = {
@@ -92,6 +99,7 @@ def _send_request(server_url: str, audio_bytes: bytes, system_prompt: str, tools
             },
         ],
         "tools": tools,
+        "max_tokens": max_tokens,
     }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -104,7 +112,7 @@ def _send_request(server_url: str, audio_bytes: bytes, system_prompt: str, tools
         return json.loads(resp.read())
 
 
-def _process_sample(server_url: str, sample: dict, timeout: int) -> tuple[dict, bool]:
+def _process_sample(server_url: str, sample: dict, timeout: int, max_tokens: int) -> tuple[dict, bool]:
     """Process a single sample; returns (out_entry, failed)."""
     audio_path = sample["audio_path"]
     system_prompt = sample["system_prompt"]
@@ -119,7 +127,7 @@ def _process_sample(server_url: str, sample: dict, timeout: int) -> tuple[dict, 
         failed = True
     else:
         try:
-            response = _send_request(server_url, audio_bytes, system_prompt, tools, timeout)
+            response = _send_request(server_url, audio_bytes, system_prompt, tools, timeout, max_tokens)
             message = response["choices"][0]["message"]
             raw_tool_calls = message.get("tool_calls") or []
             finish_reason = response["choices"][0].get("finish_reason")
@@ -154,6 +162,7 @@ def main():
     parser.add_argument("--max_poll_attempts", type=int, default=40, help="Max server poll attempts")
     parser.add_argument("--request_timeout", type=int, default=300, help="Per-request HTTP timeout (s)")
     parser.add_argument("--max_workers", type=int, default=2, help="Concurrent requests (should match server batch_size)")
+    parser.add_argument("--max_tokens", type=int, default=512, help="Max tokens per request; caps generation to prevent runaway inference on GPU(s)")
     args = parser.parse_args()
 
     if not _poll_server(args.server_url, args.poll_interval, args.max_poll_attempts):
@@ -173,7 +182,7 @@ def main():
     n_failed = 0
     with ThreadPoolExecutor(max_workers=args.max_workers) as pool:
         futures = [
-            pool.submit(_process_sample, args.server_url, sample, args.request_timeout)
+            pool.submit(_process_sample, args.server_url, sample, args.request_timeout, args.max_tokens)
             for sample in samples
         ]
         with open(output_path, "w") as out:
