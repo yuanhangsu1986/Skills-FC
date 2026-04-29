@@ -36,6 +36,9 @@ model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_
 #                                eval_conversation_behavior.py
 # ---------------------------------------------------------------------------
 inference_nemo_code_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/code/NeMo2-merge/NeMo2-private_tts_fix_Mar_20
+# HF model ID or path for the LLM backbone inside DuplexSTTModel.
+# Needed because the HF-format checkpoint's config.json does not carry pretrained_llm.
+pretrained_llm: nvidia/NVIDIA-Nemotron-Nano-9B-v2
 # inference_config_path: Hydra --config-path for s2s_duplex_stt_infer.py.
 # Defaults to vtrinh's cluster config dir which has the full model architecture
 # (pretrained_llm, perception, etc.) required by DuplexSTTModel.__init__.

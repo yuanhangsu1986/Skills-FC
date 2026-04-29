@@ -68,6 +68,7 @@ def build_inference_command(config: dict) -> str:
         f" trainer.num_nodes={num_nodes}"
         f" ++ckpt_path=null"
         f" ++model.pretrained_s2s_model={config['model']}"
+        f" ++model.pretrained_llm={config['pretrained_llm']}"
         f" ++exp_manager.explicit_log_dir={config['output_dir']}/eval-results"
         f" exp_manager.create_wandb_logger=false"
         f" '++data.validation_ds.datasets.{dataset_name}.shar_path={config['shar_input_dir']}'"
@@ -174,6 +175,7 @@ def main():
     parser.add_argument("--dataset_name", help="Override dataset name")
     parser.add_argument("--nemo_code_path", help="Override NeMo codebase path (for scoring)")
     parser.add_argument("--inference_nemo_code_path", help="Override vtrinh NeMo2 path (for inference)")
+    parser.add_argument("--pretrained_llm", help="Override LLM backbone HF model ID or path")
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--inference_only", action="store_true")
     parser.add_argument("--scoring_only", action="store_true")
@@ -182,7 +184,7 @@ def main():
 
     config = load_config(args.config)
 
-    for key in ["model", "output_dir", "shar_input_dir", "dataset_name", "nemo_code_path", "inference_nemo_code_path"]:
+    for key in ["model", "output_dir", "shar_input_dir", "dataset_name", "nemo_code_path", "inference_nemo_code_path", "pretrained_llm"]:
         if getattr(args, key, None) is not None:
             config[key] = getattr(args, key)
     if args.dry_run:

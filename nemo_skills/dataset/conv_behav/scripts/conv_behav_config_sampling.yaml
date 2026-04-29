@@ -27,6 +27,7 @@ model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_
 # nemo_code_path:            kevinhu's NeMo root for scoring only.
 # ---------------------------------------------------------------------------
 inference_nemo_code_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/code/NeMo2-merge/NeMo2-private_tts_fix_Mar_20
+pretrained_llm: nvidia/NVIDIA-Nemotron-Nano-9B-v2
 inference_config_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/config/inference
 inference_config_name: infer_nano_9b_team_20251124_s2t
 nemo_code_path: /lustre/fsw/portfolios/llmservice/users/kevinhu/s2s/NeMo
