@@ -16,7 +16,7 @@ Parse `$ARGUMENTS` as `key=value` tokens (whitespace-delimited). Supported keys:
 | `bba` | Absolute path to BBA output dir (contains `eval-results/bba_aggregate/`) |
 | `bfcl` | Absolute path to BFCL output dir (contains `eval-results/{category}/`) |
 | `conv_behav` | Absolute path to conv_behav output dir (contains `eval-results/metrics.json`) |
-| `output` | Absolute path for the output HTML file (default: `./scorecard.html` in cwd) |
+| `output` | Absolute path for the output HTML file (default: `asset/scorecard.html` in the repo root) |
 
 Any subset of benchmarks may be provided. Benchmarks with no path supplied are shown as "Not run" in the scorecard.
 
@@ -76,7 +76,7 @@ Headline: TT-F1 %.
 ## Step 1 — Parse arguments and read all metrics
 
 1. Parse `$ARGUMENTS` into a dict (split on `=`, first `=` only).
-2. Set `OUTPUT_PATH` from `output` key, defaulting to `./scorecard.html`.
+2. Set `OUTPUT_PATH` from `output` key. If not provided, default to `<repo_root>/asset/scorecard.html` where `<repo_root>` is the directory containing the `asset/` folder (i.e., the parent of the directory containing this skill file).
 3. For each provided benchmark directory, read the relevant metrics files using the Read tool. For missing files, set values to `None`.
 4. Build a data summary dict in your context — you will pass this into the Python script as embedded literals.
 

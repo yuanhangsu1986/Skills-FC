@@ -12,14 +12,21 @@ throttling submission so the SLURM queue never exceeds the cluster's max-jobs li
 ## Quick start
 
 ```bash
-# Run all six benchmarks with default configs
+# Run all six benchmarks, both greedy and sampling (default)
 bash asset/run_all_benchmarks.sh
 
-# Run a subset
-bash asset/run_all_benchmarks.sh --benchmarks bba,bfcl
+# Greedy only
+bash asset/run_all_benchmarks.sh --eval_mode greedy
 
-# Override model + code (must always be specified together)
+# Sampling only
+bash asset/run_all_benchmarks.sh --eval_mode sampling
+
+# Run a subset in sampling mode
+bash asset/run_all_benchmarks.sh --eval_mode sampling --benchmarks bba,bfcl
+
+# Override model + code for a greedy-only run (must always be paired)
 bash asset/run_all_benchmarks.sh \
+  --eval_mode greedy \
   --model /lustre/path/to/checkpoint \
   --code_path /lustre/path/to/NeMo_code
 
@@ -44,6 +51,7 @@ Default order when `--benchmarks` is omitted: `vb_nonmcq vb_mcq fdb bba bfcl con
 
 | Flag | Description | Default |
 |------|-------------|---------|
+| `--eval_mode MODE` | `greedy`, `sampling`, or `greedy+sampling`. Selects the matching `*_greedy.yaml` / `*_sampling.yaml` configs. `greedy+sampling` runs all benchmarks greedy-first, then repeats for sampling. | `greedy+sampling` |
 | `--benchmarks LIST` | Comma-separated subset of benchmark names | all six, in listed order |
 | `--config_vb_nonmcq PATH` | Config YAML for VoiceBench non-MCQ | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_config_fc_greedy.yaml` |
 | `--config_vb_mcq PATH` | Config YAML for VoiceBench MCQ | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_mcq_config_fc_greedy.yaml` |
@@ -126,3 +134,5 @@ To produce a single aggregate scorecard across all benchmarks:
 ```
 
 Any subset of benchmark paths may be supplied; missing benchmarks are shown as "Not run".
+The scorecard is written to **`asset/scorecard.html`** in the repo root by default.
+Override with `output=<absolute_path>`.

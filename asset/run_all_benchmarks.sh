@@ -32,13 +32,12 @@ BBA_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bba/scripts/run_bba_eval.py"
 BFCL_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py"
 CONV_BEHAV_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/run_eval.py"
 
-# Default configs — point at the greedy variants; override with --config_* flags.
-DEFAULT_CONFIG_VB_NONMCQ="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_config_fc_greedy.yaml"
-DEFAULT_CONFIG_VB_MCQ="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_mcq_config_fc_greedy.yaml"
-DEFAULT_CONFIG_FDB="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml"
-DEFAULT_CONFIG_BBA="${REPO_ROOT}/nemo_skills/dataset/bba/scripts/bba_config_fc_greedy.yaml"
-DEFAULT_CONFIG_BFCL="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_greedy.yaml"
-DEFAULT_CONFIG_CONV_BEHAV="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/conv_behav_config_greedy.yaml"
+# Config base directories — used by config_for() to derive default YAML paths.
+VB_BASE="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts"
+FDB_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts"
+BBA_BASE="${REPO_ROOT}/nemo_skills/dataset/bba/scripts"
+BFCL_BASE="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts"
+CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
 
 # ---------------------------------------------------------------------------
 # Argument defaults
@@ -46,13 +45,16 @@ DEFAULT_CONFIG_CONV_BEHAV="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/c
 ALL_BENCHMARKS="vb_nonmcq vb_mcq fdb bba bfcl conv_behav"
 SELECTED_BENCHMARKS=""
 
-CONFIG_VB_NONMCQ="$DEFAULT_CONFIG_VB_NONMCQ"
-CONFIG_VB_MCQ="$DEFAULT_CONFIG_VB_MCQ"
-CONFIG_FDB="$DEFAULT_CONFIG_FDB"
-CONFIG_BBA="$DEFAULT_CONFIG_BBA"
-CONFIG_BFCL="$DEFAULT_CONFIG_BFCL"
-CONFIG_CONV_BEHAV="$DEFAULT_CONFIG_CONV_BEHAV"
+# Left empty until resolve_configs() fills them from --eval_mode.
+# Individual --config_* flags override the resolved defaults.
+CONFIG_VB_NONMCQ=""
+CONFIG_VB_MCQ=""
+CONFIG_FDB=""
+CONFIG_BBA=""
+CONFIG_BFCL=""
+CONFIG_CONV_BEHAV=""
 
+EVAL_MODE="greedy+sampling"
 MODEL_OVERRIDE=""
 CODE_PATH_OVERRIDE=""
 MAX_JOBS_OVERRIDE=""
@@ -73,18 +75,25 @@ waits until a slot is free.
 Benchmark names: vb_nonmcq  vb_mcq  fdb  bba  bfcl  conv_behav
 
 Options:
-  --benchmarks LIST          Comma-separated subset of the benchmark names above.
-                             Default: all in the order listed above.
-  --config_vb_nonmcq  PATH  Config YAML for VoiceBench non-MCQ
-  --config_vb_mcq     PATH  Config YAML for VoiceBench MCQ
-  --config_fdb        PATH  Config YAML for FDB
-  --config_bba        PATH  Config YAML for BBA
-  --config_bfcl       PATH  Config YAML for BFCL
-  --config_conv_behav PATH  Config YAML for conv_behav
-  --model             PATH  Override the model checkpoint for every benchmark
-  --code_path         PATH  Override the NeMo source code path for every benchmark
-                            (must be set whenever --model is set; each checkpoint
-                            ships with its own NeMo code)
+  --eval_mode         MODE  Decoding mode (default: greedy+sampling).
+                            Accepted values:
+                              greedy           — greedy configs only
+                              sampling         — sampling configs only
+                              greedy+sampling  — greedy first, then sampling
+                            Selects the matching *_greedy.yaml / *_sampling.yaml
+                            config for each benchmark automatically.
+  --benchmarks LIST         Comma-separated subset of the benchmark names above.
+                            Default: all in the order listed above.
+  --config_vb_nonmcq  PATH Config YAML for VoiceBench non-MCQ (overrides --eval_mode)
+  --config_vb_mcq     PATH Config YAML for VoiceBench MCQ     (overrides --eval_mode)
+  --config_fdb        PATH Config YAML for FDB                 (overrides --eval_mode)
+  --config_bba        PATH Config YAML for BBA                 (overrides --eval_mode)
+  --config_bfcl       PATH Config YAML for BFCL                (overrides --eval_mode)
+  --config_conv_behav PATH Config YAML for conv_behav          (overrides --eval_mode)
+  --model             PATH  Override the model checkpoint for every benchmark.
+                            Must be paired with --code_path.
+  --code_path         PATH  Override the NeMo source code directory for every
+                            benchmark. Must be paired with --model.
   --max_jobs          N     Override SLURM job limit (auto-detected by default)
   --poll_interval     N     Seconds between SLURM queue checks (default: 60)
   --dry_run                 Pass --dry_run to every benchmark script
@@ -97,22 +106,34 @@ EOF
 # ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --benchmarks)        SELECTED_BENCHMARKS="$2"; shift 2 ;;
-        --config_vb_nonmcq)  CONFIG_VB_NONMCQ="$2";   shift 2 ;;
-        --config_vb_mcq)     CONFIG_VB_MCQ="$2";       shift 2 ;;
-        --config_fdb)        CONFIG_FDB="$2";           shift 2 ;;
-        --config_bba)        CONFIG_BBA="$2";           shift 2 ;;
-        --config_bfcl)       CONFIG_BFCL="$2";          shift 2 ;;
-        --config_conv_behav) CONFIG_CONV_BEHAV="$2";    shift 2 ;;
-        --model)             MODEL_OVERRIDE="$2";        shift 2 ;;
-        --code_path)         CODE_PATH_OVERRIDE="$2";   shift 2 ;;
-        --max_jobs)          MAX_JOBS_OVERRIDE="$2";    shift 2 ;;
-        --poll_interval)     POLL_INTERVAL="$2";         shift 2 ;;
-        --dry_run)           DRY_RUN=true;               shift ;;
+        --eval_mode)         EVAL_MODE="$2";            shift 2 ;;
+        --benchmarks)        SELECTED_BENCHMARKS="$2";  shift 2 ;;
+        --config_vb_nonmcq)  CONFIG_VB_NONMCQ="$2";    shift 2 ;;
+        --config_vb_mcq)     CONFIG_VB_MCQ="$2";        shift 2 ;;
+        --config_fdb)        CONFIG_FDB="$2";            shift 2 ;;
+        --config_bba)        CONFIG_BBA="$2";            shift 2 ;;
+        --config_bfcl)       CONFIG_BFCL="$2";           shift 2 ;;
+        --config_conv_behav) CONFIG_CONV_BEHAV="$2";     shift 2 ;;
+        --model)             MODEL_OVERRIDE="$2";         shift 2 ;;
+        --code_path)         CODE_PATH_OVERRIDE="$2";    shift 2 ;;
+        --max_jobs)          MAX_JOBS_OVERRIDE="$2";     shift 2 ;;
+        --poll_interval)     POLL_INTERVAL="$2";          shift 2 ;;
+        --dry_run)           DRY_RUN=true;                shift ;;
         --help|-h)           usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
 done
+
+# Validate eval mode and expand to an ordered list of individual modes.
+case "$EVAL_MODE" in
+    greedy)                          EVAL_MODES="greedy" ;;
+    sampling)                        EVAL_MODES="sampling" ;;
+    greedy+sampling|sampling+greedy) EVAL_MODES="greedy sampling" ;;
+    *)
+        echo "ERROR: --eval_mode must be 'greedy', 'sampling', or 'greedy+sampling', got: '$EVAL_MODE'" >&2
+        exit 1
+        ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Resolve benchmark list
@@ -130,6 +151,36 @@ for b in $BENCHMARKS; do
         exit 1
     fi
 done
+
+# ---------------------------------------------------------------------------
+# Config resolution
+# ---------------------------------------------------------------------------
+# Returns the YAML path for a given benchmark + decoding mode.
+# If the user supplied an explicit --config_<name> override, that takes
+# precedence over the mode-derived default for both greedy and sampling.
+config_for() {
+    local name="$1" mode="$2"
+    case "$name" in
+        vb_nonmcq)
+            echo "${CONFIG_VB_NONMCQ:-${VB_BASE}/vb_matched_demo_v2_02mar_config_fc_${mode}.yaml}"
+            ;;
+        vb_mcq)
+            echo "${CONFIG_VB_MCQ:-${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc_${mode}.yaml}"
+            ;;
+        fdb)
+            echo "${CONFIG_FDB:-${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc_${mode}.yaml}"
+            ;;
+        bba)
+            echo "${CONFIG_BBA:-${BBA_BASE}/bba_config_fc_${mode}.yaml}"
+            ;;
+        bfcl)
+            echo "${CONFIG_BFCL:-${BFCL_BASE}/bfcl_fc_config_${mode}.yaml}"
+            ;;
+        conv_behav)
+            echo "${CONFIG_CONV_BEHAV:-${CB_BASE}/conv_behav_config_${mode}.yaml}"
+            ;;
+    esac
+}
 
 # ---------------------------------------------------------------------------
 # SLURM helpers
@@ -220,30 +271,13 @@ wait_for_slot() {
 }
 
 # ---------------------------------------------------------------------------
-# Model + code_path consistency checks
+# Model + code_path validation
 # ---------------------------------------------------------------------------
 
-# Returns the code_path embedded in a config YAML.
-# Handles two conventions:
-#   1. --code_path <path>  inside the server_args multi-line string
-#   2. nemo_code_path: <path>  as a top-level YAML field (conv_behav)
-_extract_code_path() {
-    local config="$1"
-    local cp
-    cp=$(grep -oP '(?<=--code_path )\S+' "$config" | head -1)
-    if [[ -z "$cp" ]]; then
-        cp=$(grep -E '^nemo_code_path:[[:space:]]' "$config" | head -1 \
-             | sed 's/^nemo_code_path:[[:space:]]*//')
-    fi
-    echo "$cp"
-}
-
-# Validates that all selected benchmarks agree on model AND code_path.
-# When both --model and --code_path are supplied the overrides are applied
-# uniformly, so no cross-config check is needed.
-# If only one of the two is supplied, we error: they must travel together.
-check_consistency() {
-    # Paired-override validation
+# --model and --code_path must always be specified together because each
+# checkpoint ships with its own NeMo source code.  When neither is given,
+# each benchmark simply uses whatever is in its own config YAML.
+check_model_code_path() {
     if [[ -n "$MODEL_OVERRIDE" && -z "$CODE_PATH_OVERRIDE" ]]; then
         echo "" >&2
         echo "ERROR: --model was specified without --code_path." >&2
@@ -259,83 +293,10 @@ check_consistency() {
         echo "" >&2
         exit 1
     fi
-
-    # Both overrides supplied — no cross-config check needed.
-    if [[ -n "$MODEL_OVERRIDE" && -n "$CODE_PATH_OVERRIDE" ]]; then
+    if [[ -n "$MODEL_OVERRIDE" ]]; then
         echo " Model        : $MODEL_OVERRIDE"
         echo " Code path    : $CODE_PATH_OVERRIDE"
-        return
     fi
-
-    # Neither override: read values from each config and verify they agree.
-    local -a models=()
-    local -a code_paths=()
-    local -a bnames=()
-    local config model cp bname
-
-    for bname in $BENCHMARKS; do
-        case "$bname" in
-            vb_nonmcq)  config="$CONFIG_VB_NONMCQ" ;;
-            vb_mcq)     config="$CONFIG_VB_MCQ" ;;
-            fdb)        config="$CONFIG_FDB" ;;
-            bba)        config="$CONFIG_BBA" ;;
-            bfcl)       config="$CONFIG_BFCL" ;;
-            conv_behav) config="$CONFIG_CONV_BEHAV" ;;
-        esac
-
-        if [[ ! -f "$config" ]]; then
-            echo "WARNING: Config not found, skipping consistency check: $config" >&2
-            continue
-        fi
-
-        model=$(grep -E '^model:[[:space:]]' "$config" | head -1 \
-                | sed 's/^model:[[:space:]]*//')
-        cp=$(_extract_code_path "$config")
-
-        if [[ -z "$model" ]]; then
-            echo "WARNING: No 'model:' in $config — skipping for $bname" >&2
-            continue
-        fi
-        if [[ -z "$cp" ]]; then
-            echo "WARNING: No code_path in $config — skipping for $bname" >&2
-            continue
-        fi
-
-        models+=("$model")
-        code_paths+=("$cp")
-        bnames+=("$bname")
-    done
-
-    [[ ${#models[@]} -eq 0 ]] && return
-
-    local first_model="${models[0]}"
-    local first_cp="${code_paths[0]}"
-    local model_mismatch=false
-    local cp_mismatch=false
-
-    for i in "${!models[@]}"; do
-        [[ "${models[$i]}"      != "$first_model" ]] && model_mismatch=true
-        [[ "${code_paths[$i]}"  != "$first_cp"    ]] && cp_mismatch=true
-    done
-
-    if [[ "$model_mismatch" == "true" || "$cp_mismatch" == "true" ]]; then
-        echo "" >&2
-        echo "ERROR: Benchmarks reference different model/code_path combinations." >&2
-        echo "Pass --model PATH --code_path PATH to use the same pair for all, or" >&2
-        echo "align the fields in the config YAMLs." >&2
-        echo "" >&2
-        printf '  %-15s  %-70s  %s\n' "benchmark" "model" "code_path" >&2
-        printf '  %-15s  %-70s  %s\n' "---------" "-----" "---------" >&2
-        for i in "${!bnames[@]}"; do
-            printf '  %-15s  %-70s  %s\n' \
-                "${bnames[$i]}" "${models[$i]}" "${code_paths[$i]}" >&2
-        done
-        echo "" >&2
-        exit 1
-    fi
-
-    echo " Model        : $first_model"
-    echo " Code path    : $first_cp"
 }
 
 # ---------------------------------------------------------------------------
@@ -374,21 +335,14 @@ extra_args() {
 
 run_benchmark() {
     local name="$1"
+    local mode="$2"
     local -a extra=()
     while IFS= read -r arg; do
         extra+=("$arg")
     done < <(extra_args)
 
-    # Resolve per-benchmark config; patch into a temp file when overrides are active.
     local base_config
-    case "$name" in
-        vb_nonmcq)  base_config="$CONFIG_VB_NONMCQ" ;;
-        vb_mcq)     base_config="$CONFIG_VB_MCQ" ;;
-        fdb)        base_config="$CONFIG_FDB" ;;
-        bba)        base_config="$CONFIG_BBA" ;;
-        bfcl)       base_config="$CONFIG_BFCL" ;;
-        conv_behav) base_config="$CONFIG_CONV_BEHAV" ;;
-    esac
+    base_config=$(config_for "$name" "$mode")
 
     local config="$base_config"
     local tmp_config=""
@@ -403,6 +357,7 @@ run_benchmark() {
     echo ""
     echo "======================================================================"
     printf ' %-30s  %s\n' "Benchmark:" "$name"
+    printf ' %-30s  %s\n' "Mode:" "$mode"
     printf ' %-30s  %s\n' "Started:" "$(date '+%Y-%m-%d %H:%M:%S')"
     printf ' %-30s  %s\n' "Config:" "$base_config"
     [[ -n "$tmp_config" ]] && printf ' %-30s  %s\n' "Patched config:" "$tmp_config"
@@ -436,14 +391,16 @@ run_benchmark() {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+check_model_code_path
+
 echo ""
 echo "======================================================================"
 echo " S2S FC Benchmark Runner"
 echo "======================================================================"
-echo " Benchmarks  : $BENCHMARKS"
+echo " Eval mode    : $EVAL_MODE"
+echo " Benchmarks   : $BENCHMARKS"
 echo " Poll interval: ${POLL_INTERVAL}s"
 echo " Dry run      : $DRY_RUN"
-check_consistency
 
 # Resolve job limit
 if [[ -n "$MAX_JOBS_OVERRIDE" ]]; then
@@ -460,12 +417,16 @@ else
 fi
 echo "======================================================================"
 
-# Submit benchmarks one at a time
-for benchmark in $BENCHMARKS; do
-    if [[ -n "$MAX_JOBS" && "$DRY_RUN" != "true" ]]; then
-        wait_for_slot "$MAX_JOBS" "$benchmark"
-    fi
-    run_benchmark "$benchmark"
+# Submit all benchmarks for each mode in order (greedy first, then sampling).
+for mode in $EVAL_MODES; do
+    echo ""
+    echo "--- Mode: $mode ---"
+    for benchmark in $BENCHMARKS; do
+        if [[ -n "$MAX_JOBS" && "$DRY_RUN" != "true" ]]; then
+            wait_for_slot "$MAX_JOBS" "$benchmark ($mode)"
+        fi
+        run_benchmark "$benchmark" "$mode"
+    done
 done
 
 echo ""
