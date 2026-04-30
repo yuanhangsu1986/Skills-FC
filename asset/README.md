@@ -36,16 +36,16 @@ bash asset/run_all_benchmarks.sh --dry_run
 
 ## Benchmark names
 
-| Name | Dataset |
-|------|---------|
-| `vb_nonmcq` | VoiceBench non-MCQ subtests (sd_qa, alpacaeval, ifeval, …) |
-| `vb_mcq` | VoiceBench MCQ subtests (bbh, openbookqa, mmsu) |
-| `fdb` | Full-Duplex Bench (pause, backchannel, turn-taking, interruption) |
-| `bba` | BigBench Audio (formal_fallacies, navigate, object_counting, web_of_lies) |
-| `bfcl` | BFCL single-turn function-channel (simple, parallel, multiple, …) |
-| `conv_behav` | Conversational Behavior (turn-taking, barge-in, back-channeling) |
+| Name | Approx. samples | Dataset |
+|------|----------------|---------|
+| `conv_behav` | 60 | Conversational Behavior (turn-taking, barge-in, back-channeling) |
+| `fdb` | ~727 | Full-Duplex Bench (pause, backchannel, turn-taking, interruption) |
+| `bba` | 1,000 | BigBench Audio (formal_fallacies, navigate, object_counting, web_of_lies) |
+| `bfcl` | 1,240 | BFCL single-turn function-channel (simple, parallel, multiple, …) |
+| `vb_mcq` | ~4,500–10,000 | VoiceBench MCQ subtests (bbh, openbookqa, mmsu) |
+| `vb_nonmcq` | ~4,000–6,000+ | VoiceBench non-MCQ subtests (sd_qa, alpacaeval, ifeval, …) |
 
-Default order when `--benchmarks` is omitted: `vb_nonmcq vb_mcq fdb bba bfcl conv_behav`.
+Default order when `--benchmarks` is omitted (smallest to largest): `conv_behav fdb bba bfcl vb_mcq vb_nonmcq`.
 
 ## Options
 

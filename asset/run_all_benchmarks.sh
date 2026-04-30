@@ -42,7 +42,7 @@ CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
 # ---------------------------------------------------------------------------
 # Argument defaults
 # ---------------------------------------------------------------------------
-ALL_BENCHMARKS="vb_nonmcq vb_mcq fdb bba bfcl conv_behav"
+ALL_BENCHMARKS="conv_behav fdb bba bfcl vb_mcq vb_nonmcq"
 SELECTED_BENCHMARKS=""
 
 # Left empty until resolve_configs() fills them from --eval_mode.
@@ -152,6 +152,15 @@ for b in $BENCHMARKS; do
     fi
 done
 
+# Reorder to size order (ALL_BENCHMARKS is already ordered smallest → largest).
+ordered=""
+for b in $ALL_BENCHMARKS; do
+    if [[ " $BENCHMARKS " =~ " $b " ]]; then
+        ordered="$ordered $b"
+    fi
+done
+BENCHMARKS="${ordered# }"
+
 # ---------------------------------------------------------------------------
 # Config resolution
 # ---------------------------------------------------------------------------
@@ -203,7 +212,7 @@ detect_max_jobs() {
     # 2. QOS MaxSubmitJobsPerUser — iterate over every QOS assigned to the user
     local qos_list
     qos_list=$(sacctmgr show association user="$USER" format=QOS \
-        -n -P 2>/dev/null \
+        -n 2>/dev/null \
         | tr ',' '\n' | tr -d ' ' | grep -v '^$' | sort -u | head -10 || true)
     while IFS= read -r qos; do
         [[ -z "$qos" ]] && continue
