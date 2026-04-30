@@ -48,7 +48,7 @@ model:
 data:
   frame_length: 0.08
   source_sample_rate: 16000
-  target_sample_rate: 22050
+  target_sample_rate: 16000
   input_roles: ["user", "User"]
   output_roles: ["agent", "Assistant"]
   early_interruption_prob: 0.0

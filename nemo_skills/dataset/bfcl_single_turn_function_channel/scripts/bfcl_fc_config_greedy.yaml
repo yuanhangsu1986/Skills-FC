@@ -72,6 +72,7 @@ categories:
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py && ln -sf $(which python3) /usr/local/bin/python"
 scoring_installation_command: ""
 
+decoding_mode: greedy
 expname: bfcl_fc_greedy
 # max_samples: 50
 

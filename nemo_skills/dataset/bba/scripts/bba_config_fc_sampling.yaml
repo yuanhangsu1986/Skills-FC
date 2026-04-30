@@ -80,6 +80,7 @@ system_message: "Answer the question with a single word."
 
 inference_overrides: ""
 
+decoding_mode: sampling
 expname: bba_fc_sampling
 # max_samples: 50
 

@@ -99,6 +99,7 @@ def score(
     eval_results_dir: str,
     category: str,
     input_jsonl: str = "output_asr.jsonl",
+    decoding_mode: str = "greedy",
     force: bool = False,
     judge_model: str = None,
     api_type: str = "nvidia",
@@ -173,7 +174,7 @@ def score(
         except Exception:
             pass
 
-    existing_metrics[benchmark_key] = {"greedy": metrics}
+    existing_metrics[benchmark_key] = {decoding_mode: metrics}
     metrics_file.write_text(json.dumps(existing_metrics, indent=2))
 
     print("\n" + "=" * 60)
@@ -193,6 +194,7 @@ def main():
     parser.add_argument("--eval_results_dir", required=True, help="Path to eval-results/{category}/ directory")
     parser.add_argument("--category", required=True, choices=["formal_fallacies", "navigate", "object_counting", "web_of_lies"])
     parser.add_argument("--input_jsonl", default="output_asr.jsonl", help="JSONL file to score (default: output_asr.jsonl)")
+    parser.add_argument("--decoding_mode", default="greedy", choices=["greedy", "sampling"], help="Key under which metrics are stored in metrics.json")
     parser.add_argument("--force", action="store_true", help="Re-run scoring even if metrics.json exists")
     parser.add_argument("--judge_model", required=True, help="LLM judge model (e.g. aws/anthropic/bedrock-claude-sonnet-4-6)")
     parser.add_argument("--api_type", default="nvidia", help="API type for judge")
@@ -203,6 +205,7 @@ def main():
         eval_results_dir=args.eval_results_dir,
         category=args.category,
         input_jsonl=args.input_jsonl,
+        decoding_mode=args.decoding_mode,
         force=args.force,
         judge_model=args.judge_model,
         api_type=args.api_type,

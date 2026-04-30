@@ -17,11 +17,12 @@ Run conv_behav (conversational behavior) evaluation.
 
 Pipeline stages:
   1. inference  — runs s2s_duplex_stt_infer.py (PyTorch Lightning + Hydra)
-                  from vtrinh's NeMo2 (inference_nemo_code_path); produces
+                  from nemo_code_path; produces
                     <output_dir>/eval-results/validation_logs/pred_wavs/
                     <output_dir>/eval-results/validation_logs/metadatas/<dataset_name>.json
-  2. scoring    — calls eval_conversation_behavior.py from kevinhu's NeMo
-                  (nemo_code_path), parses its output, writes metrics.json
+  2. scoring    — calls eval_conversation_behavior.py from
+                  <inference_nemo_code_path>/scripts/speech_eval/,
+                  parses its output, writes metrics.json
 
 Both stages are submitted as Slurm jobs via run_cmd.  Stage 2 runs after
 stage 1 via run_after dependency.
@@ -48,21 +49,37 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+
+
 def build_inference_command(config: dict) -> str:
-    infer_nemo = config["inference_nemo_code_path"]
-    infer_script = f"{infer_nemo}/examples/speechlm2/s2s_duplex_stt_infer.py"
-    # Use the cluster-side inference config (has full model architecture incl. pretrained_llm).
-    # Falls back to our minimal conv_behav_infer.yaml for testing without the cluster config.
-    _base_dir = "/lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026"
-    config_path = config.get("inference_config_path", f"{_base_dir}/config/inference")
-    config_name = config.get("inference_config_name", "infer_nano_9b_team_20251124_s2t")
+    nemo_code_path = config["nemo_code_path"]
+    infer_script = f"{nemo_code_path}/examples/speechlm2/s2s_duplex_stt_infer.py"
+
+    config_path = config.get("inference_config_path", "")
+    config_name = config.get("inference_config_name", "")
+    if config_path and config_name and (Path(config_path) / f"{config_name}.yaml").exists():
+        pass  # use designated config
+    else:
+        if config_path:
+            print(f"[warn] {config_path}/{config_name}.yaml not found, falling back to conv_behav_infer.yaml")
+        config_path = str(_SCRIPTS_DIR)
+        config_name = "conv_behav_infer"
+
     dataset_name = config["dataset_name"]
     force_turn_taking = str(config.get("force_turn_taking", False)).lower()
     num_nodes = config.get("num_nodes", 1)
+    num_gpus = config.get("num_gpus", 1)
+    launcher = f"torchrun --nproc_per_node={num_gpus}" if num_gpus > 1 else "python"
+
+    hf_home = config.get("hf_home", "")
+    env_prefix = f"export PYTHONPATH={nemo_code_path}:${{PYTHONPATH:-}}"
+    if hf_home:
+        env_prefix += f" && export HF_HOME={hf_home}"
 
     cmd = (
-        f"export PYTHONPATH={infer_nemo}:${{PYTHONPATH:-}} && "
-        f"python {infer_script}"
+        f"{env_prefix} && "
+        f"{launcher} {infer_script}"
         f" --config-path={config_path}"
         f" --config-name={config_name}"
         f" trainer.num_nodes={num_nodes}"
@@ -73,6 +90,7 @@ def build_inference_command(config: dict) -> str:
         f" exp_manager.create_wandb_logger=false"
         f" '++data.validation_ds.datasets.{dataset_name}.shar_path={config['shar_input_dir']}'"
         f" ++model.force_turn_taking={force_turn_taking}"
+        f" trainer.devices={num_gpus}"
     )
     if config.get("inference_args"):
         cmd += f" {config['inference_args']}"
@@ -80,12 +98,15 @@ def build_inference_command(config: dict) -> str:
 
 
 def build_scoring_command(config: dict) -> str:
+    eval_script = f"{config['nemo_code_path']}/scripts/speech_eval/eval_conversation_behavior.py"
+    decoding_mode = "greedy" if config.get("force_turn_taking", False) else "sampling"
     cmd = (
         f"python nemo_skills/dataset/conv_behav/scripts/run_scoring.py"
         f" --output_dir {config['output_dir']}/eval-results"
         f" --shar_input_dir {config['shar_input_dir']}"
         f" --dataset_name {config['dataset_name']}"
-        f" --nemo_code_path {config['nemo_code_path']}"
+        f" --eval_script_path {eval_script}"
+        f" --decoding_mode {decoding_mode}"
         f" --barge_in_threshold_sec {config.get('barge_in_threshold_sec', 1.5)}"
         f" --tt_latency_threshold_sec {config.get('tt_latency_threshold_sec', 1.5)}"
         f" --tt_precision_buffer_sec {config.get('tt_precision_buffer_sec', 1.0)}"
@@ -107,19 +128,21 @@ def run_inference_stage(config: dict, expname: str, dry_run: bool) -> bool:
         return False
 
     print("\n--- Stage 1: Running inference (s2s_duplex_stt_infer.py) ---")
+    num_gpus = config.get("num_gpus", 1)
     log_dir = str(Path(config["output_dir"]) / "eval-results" / "summarized-results")
     run_cmd(
         ctx=wrap_arguments(""),
         cluster=config["cluster"],
         command=build_inference_command(config),
         container=config.get("inference_container"),
-        num_gpus=config.get("num_gpus", 8),
+        num_gpus=num_gpus,
         num_nodes=config.get("num_nodes", 1),
         partition=config.get("partition"),
         expname=expname,
         installation_command=config.get("installation_command"),
         log_dir=log_dir,
         reuse_code=False,
+        exclusive=True if num_gpus >= 8 else None,
         dry_run=dry_run,
     )
     return True
@@ -173,8 +196,7 @@ def main():
     parser.add_argument("--output_dir", help="Override output directory")
     parser.add_argument("--shar_input_dir", help="Override shar input directory")
     parser.add_argument("--dataset_name", help="Override dataset name")
-    parser.add_argument("--nemo_code_path", help="Override NeMo codebase path (for scoring)")
-    parser.add_argument("--inference_nemo_code_path", help="Override vtrinh NeMo2 path (for inference)")
+    parser.add_argument("--nemo_code_path", help="Override NeMo path (inference + scoring script)")
     parser.add_argument("--pretrained_llm", help="Override LLM backbone HF model ID or path")
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--inference_only", action="store_true")
@@ -184,7 +206,7 @@ def main():
 
     config = load_config(args.config)
 
-    for key in ["model", "output_dir", "shar_input_dir", "dataset_name", "nemo_code_path", "inference_nemo_code_path", "pretrained_llm"]:
+    for key in ["model", "output_dir", "shar_input_dir", "dataset_name", "nemo_code_path", "pretrained_llm"]:
         if getattr(args, key, None) is not None:
             config[key] = getattr(args, key)
     if args.dry_run:

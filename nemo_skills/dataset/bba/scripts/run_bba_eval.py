@@ -52,10 +52,12 @@ def load_config(config_path: str) -> dict:
 
 def build_score_command(config: dict, category: str, force: bool = False) -> str:
     eval_results_dir = f"{config['output_dir']}/eval-results/{category}"
+    decoding_mode = config.get("decoding_mode", "greedy")
     cmd_args = [
         f"python nemo_skills/dataset/bba/scripts/run_bba_scoring.py",
         f"--eval_results_dir {eval_results_dir}",
         f"--category {category}",
+        f"--decoding_mode {decoding_mode}",
     ]
     if force:
         cmd_args.append("--force")

@@ -81,6 +81,7 @@ system_message: "Answer the question with a single word."
 
 inference_overrides: ""
 
+decoding_mode: greedy
 expname: bba_fc
 # max_samples: 50
 

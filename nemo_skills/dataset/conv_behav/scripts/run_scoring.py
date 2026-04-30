@@ -15,7 +15,7 @@
 """
 Scoring wrapper for conv_behav evaluation.
 
-Calls eval_conversation_behavior.py from the NeMo codebase (nemo_code_path),
+Calls eval_conversation_behavior.py (eval_script_path),
 parses its printed output, and writes metrics.json under output_dir.
 
 Metrics written:
@@ -45,7 +45,7 @@ Usage:
         --output_dir /path/to/output \
         --shar_input_dir /path/to/lhotse_shar \
         --dataset_name team_20251124 \
-        --nemo_code_path /path/to/NeMo \
+        --eval_script_path /path/to/NeMo/scripts/speech_eval/eval_conversation_behavior.py \
         [--barge_in_threshold_sec 1.5] \
         [--tt_latency_threshold_sec 1.5] \
         [--tt_precision_buffer_sec 1.0] \
@@ -153,7 +153,8 @@ def score(
     output_dir: str,
     shar_input_dir: str,
     dataset_name: str,
-    nemo_code_path: str,
+    eval_script_path: str,
+    decoding_mode: str = "greedy",
     barge_in_threshold_sec: float = 1.5,
     tt_latency_threshold_sec: float = 1.5,
     tt_precision_buffer_sec: float = 1.0,
@@ -181,7 +182,7 @@ def score(
         print(f"[scoring] Error: {jsonl_with_timestamp} not found. Run inference first.", file=sys.stderr)
         return 1
 
-    eval_script = Path(nemo_code_path) / "scripts" / "speech_eval" / "eval_conversation_behavior.py"
+    eval_script = Path(eval_script_path)
     if not eval_script.exists():
         print(f"[scoring] Error: {eval_script} not found.", file=sys.stderr)
         return 1
@@ -222,7 +223,7 @@ def score(
         except Exception:
             pass
 
-    existing_metrics[benchmark_key] = {"greedy": metrics}
+    existing_metrics[benchmark_key] = {decoding_mode: metrics}
     metrics_file.write_text(json.dumps(existing_metrics, indent=2))
 
     print(f"\n[scoring] Metrics saved to {metrics_file}")
@@ -234,7 +235,8 @@ def main():
     parser.add_argument("--output_dir", required=True, help="Root output dir (contains validation_logs/)")
     parser.add_argument("--shar_input_dir", required=True, help="Lhotse shar directory with user audio")
     parser.add_argument("--dataset_name", required=True, help="Dataset name used during inference")
-    parser.add_argument("--nemo_code_path", required=True, help="Path to NeMo codebase containing eval_conversation_behavior.py")
+    parser.add_argument("--eval_script_path", required=True, help="Path to eval_conversation_behavior.py")
+    parser.add_argument("--decoding_mode", default="greedy", choices=["greedy", "sampling"], help="Key under which metrics are stored in metrics.json")
     parser.add_argument("--barge_in_threshold_sec", type=float, default=1.5)
     parser.add_argument("--tt_latency_threshold_sec", type=float, default=1.5)
     parser.add_argument("--tt_precision_buffer_sec", type=float, default=1.0)
@@ -247,7 +249,8 @@ def main():
         output_dir=args.output_dir,
         shar_input_dir=args.shar_input_dir,
         dataset_name=args.dataset_name,
-        nemo_code_path=args.nemo_code_path,
+        eval_script_path=args.eval_script_path,
+        decoding_mode=args.decoding_mode,
         barge_in_threshold_sec=args.barge_in_threshold_sec,
         tt_latency_threshold_sec=args.tt_latency_threshold_sec,
         tt_precision_buffer_sec=args.tt_precision_buffer_sec,

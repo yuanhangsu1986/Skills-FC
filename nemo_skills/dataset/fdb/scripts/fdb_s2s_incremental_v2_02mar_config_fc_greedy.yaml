@@ -74,6 +74,7 @@ scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad s
 
 inference_overrides: ""
 
+decoding_mode: greedy
 expname: fdb_v1_0_s2s_incremental_v2_02mar_fc_greedy
 # max_samples: 50
 
