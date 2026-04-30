@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Full-Duplex-Bench — Analysis Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#0d1117; --bg2:#161b22; --bg3:#21262d; --bd:#30363d;
+  --tx:#e6edf3; --tx2:#8b949e; --ac:#58a6ff;
+  --gr:#3fb950; --rd:#f85149; --or:#e3633c; --yl:#d29922;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;padding:24px;max-width:1400px;margin:0 auto}
+h1{font-size:1.6em;font-weight:700;margin-bottom:4px}
+h2{font-size:1.2em;font-weight:600;margin:36px 0 8px;color:var(--ac);padding-top:12px}
+h3{font-size:1em;font-weight:600;margin:20px 0 10px}
+a{color:var(--ac)}
+.dim-desc{color:var(--tx2);font-size:0.9em;margin-bottom:16px;border-left:3px solid var(--bd);padding-left:12px}
+.nav{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+.nav a{background:var(--bg3);border:1px solid var(--bd);border-radius:20px;padding:4px 14px;font-size:0.82em;text-decoration:none;color:var(--tx2)}
+.nav a:hover{color:var(--ac);border-color:var(--ac)}
+.sum-dashboard{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:16px 0}
+.sum-tile{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;cursor:pointer;transition:border-color .15s}
+.sum-tile:hover{border-color:var(--ac)}
+.tiles{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0 20px}
+.tile{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:14px 18px;min-width:130px;flex:1}
+.charts-2col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+.chart-box{height:280px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:16px}
+.card{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:16px;margin-bottom:14px}
+.card-header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--bd)}
+.card-body{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.col-left,.col-right{display:flex;flex-direction:column;gap:10px}
+.block{background:var(--bg3);border-radius:6px;padding:10px 12px}
+.block-label{font-size:0.75em;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.scroll-pre{font-family:"SFMono-Regular",Consolas,monospace;font-size:0.8em;white-space:pre-wrap;word-break:break-word;overflow-y:auto;max-height:100px;color:var(--tx)}
+.analysis-box{margin-top:10px;background:var(--bg3);border-radius:6px;padding:8px 12px;font-size:0.85em;color:var(--tx2);border-left:3px solid var(--yl)}
+.aplayer{width:100%;height:34px;margin-top:4px;border-radius:4px;accent-color:var(--ac)}
+.conclusions{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+.conc-box{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:16px}
+.conc-box ul{padding-left:18px;color:var(--tx2);font-size:0.88em}
+.conc-box li{margin-bottom:8px}
+.section-sep{border:none;border-top:1px solid var(--bd);margin:40px 0}
+@media(max-width:900px){.sum-dashboard,.charts-2col,.card-body,.conclusions{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<h1>Full-Duplex-Bench — Analysis Report</h1>
+<div style="color:var(--tx2);margin-bottom:12px">Model: <b style="color:var(--tx)">fdb_fc_db133c48</b> &nbsp;·&nbsp; Date: <b style="color:var(--tx)">2026-04-26</b> &nbsp;·&nbsp; <a href="https://arxiv.org/abs/2503.04721" target="_blank">arXiv 2503.04721</a></div>
+
+<nav class="nav">
+  <a href="#interruption">User Interruption</a>
+  <a href="#pause-candor">Pause Handling (Candor)</a>
+  <a href="#pause-synthetic">Pause Handling (Synthetic)</a>
+  <a href="#turn-taking">Smooth Turn-Taking</a>
+  <a href="#conclusions">Conclusions</a>
+</nav>
+
+<h2 style="margin-top:20px">Summary Dashboard</h2>
+<div class="sum-dashboard"><a href="#interruption" style="text-decoration:none">
+<div class="sum-tile" style="border-top:3px solid #3fb950">
+  <div style="font-size:0.78em;font-weight:600;color:var(--tx2);margin-bottom:4px">User Interruption</div>
+  <div style="font-size:1.5em;font-weight:700;color:#3fb950">97.0%</div>
+  <div style="font-size:0.75em;color:var(--tx2)">TOR (↑)</div>
+  <div style="font-size:0.72em;color:var(--tx2);margin-top:3px">Latency=339ms · Rating=3.96/5</div>
+</div></a><a href="#pause-candor" style="text-decoration:none">
+<div class="sum-tile" style="border-top:3px solid #f85149">
+  <div style="font-size:0.78em;font-weight:600;color:var(--tx2);margin-bottom:4px">Pause (Candor)</div>
+  <div style="font-size:1.5em;font-weight:700;color:#f85149">70.4%</div>
+  <div style="font-size:0.75em;color:var(--tx2)">TOR (↓)</div>
+  <div style="font-size:0.72em;color:var(--tx2);margin-top:3px"></div>
+</div></a><a href="#pause-synthetic" style="text-decoration:none">
+<div class="sum-tile" style="border-top:3px solid #f85149">
+  <div style="font-size:0.78em;font-weight:600;color:var(--tx2);margin-bottom:4px">Pause (Synthetic)</div>
+  <div style="font-size:1.5em;font-weight:700;color:#f85149">86.9%</div>
+  <div style="font-size:0.75em;color:var(--tx2)">TOR (↓)</div>
+  <div style="font-size:0.72em;color:var(--tx2);margin-top:3px"></div>
+</div></a><a href="#turn-taking" style="text-decoration:none">
+<div class="sum-tile" style="border-top:3px solid #3fb950">
+  <div style="font-size:0.78em;font-weight:600;color:var(--tx2);margin-bottom:4px">Smooth Turn-Taking</div>
+  <div style="font-size:1.5em;font-weight:700;color:#3fb950">84.0%</div>
+  <div style="font-size:0.75em;color:var(--tx2)">TOR (↑)</div>
+  <div style="font-size:0.72em;color:var(--tx2);margin-top:3px">Latency=307ms</div>
+</div></a></div>
+
+<hr class="section-sep">
+
+<!-- ═══════════════════════════════════════════ INTERRUPTION ══ -->
+<section id="interruption">
+<h2>§1 — User Interruption</h2>
+<p class="dim-desc">The model is speaking when the user interrupts mid-sentence (synthetic data, 200 samples). Ideal behavior: immediately stop, acknowledge the interruption, and respond coherently to the new topic. <b>TOR should be high</b> (model responds); <b>latency should be low</b>; <b>GPT-4o rating (1–5) should be high</b> (coherent, relevant response). Reference: Moshi TOR=1.000; dGSLM GPT score=0.201 (worst).</p>
+<div class="tiles"><div class="tile" style="border-top:3px solid #3fb950"><div style="font-size:1.8em;font-weight:700;color:#3fb950">97.0%</div><div style="font-size:0.82em;color:var(--tx2);margin-top:2px">TOR</div><div style="font-size:0.78em;color:var(--tx2);margin-top:2px">higher is better</div></div><div class="tile" style="border-top:3px solid #3fb950"><div style="font-size:1.8em;font-weight:700;color:#3fb950">339ms</div><div style="font-size:0.82em;color:var(--tx2);margin-top:2px">Latency</div><div style="font-size:0.78em;color:var(--tx2);margin-top:2px">lower is better</div></div><div class="tile" style="border-top:3px solid #d29922"><div style="font-size:1.8em;font-weight:700;color:#d29922">3.96/5</div><div style="font-size:0.82em;color:var(--tx2);margin-top:2px">GPT Rating</div><div style="font-size:0.78em;color:var(--tx2);margin-top:2px">higher is better</div></div></div>
+<div class="charts-2col">
+  <div class="chart-box"><h3 style="margin-bottom:8px">GPT-4o Rating Distribution</h3><canvas id="intRating"></canvas></div>
+  <div class="chart-box"><h3 style="margin-bottom:8px">Response Latency Distribution</h3><canvas id="intLatency"></canvas></div>
+</div>
+<h3>Example Cards (8: 4 best + 4 worst ratings)</h3>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#1</span><span style="color:var(--tx2);font-size:0.85em">idx 92</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOR=1 ✓</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Rating 5/5</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 320ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Dialogue Context + Interruption</div><div style="font-size:0.85em;margin-bottom:6px"><b>Context:</b> How often should I change the oil in my car?</div><div style="font-size:0.85em"><b>Interruption:</b> Oh, before I forget, can you remind me to call the mechanic tomorrow?</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_92/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">Sure thing. I'll send a friendly reminder to your phone.</pre></div><div class="block" style="border-left:3px solid var(--or)"><div class="block-label" style="color:var(--or)">GPT-4o Analysis</div><div style="font-size:0.85em;color:var(--tx2)">The user's interrupting turn is a request for a reminder to call the mechanic tomorrow, deviating from the original topic about oil changes. The AI's response is acknowledging this request and promising to send a reminder, which is exactly what the user asked for, although its ability to actually se</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_92/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Rating <b>5/5</b>. The user's interrupting turn is a request for a reminder to call the mechanic tomorrow, deviating from the original topic about oil changes. The AI's response is acknowledging this request and promisi</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#2</span><span style="color:var(--tx2);font-size:0.85em">idx 93</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOR=1 ✓</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Rating 5/5</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 320ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Dialogue Context + Interruption</div><div style="font-size:0.85em;margin-bottom:6px"><b>Context:</b> What are some healthy snacks I can eat during work?</div><div style="font-size:0.85em"><b>Interruption:</b> By the way, what's for dinner tonight?</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_93/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">I'm just an AI. I don't have personal experiences with dinner time. But I do know a lot of people enjoy different dinners depending on their taste preferences and dietary needs. Do you want some suggestions for healthy dinner options?</pre></div><div class="block" style="border-left:3px solid var(--or)"><div class="block-label" style="color:var(--or)">GPT-4o Analysis</div><div style="font-size:0.85em;color:var(--tx2)">The user's interrupting turn shifts the topic abruptly from healthy work snacks to dinner plans, asking &quot;what's for dinner tonight?&quot; The AI acknowledges its lack of personal experience with dinner but then offers to provide suggestions for healthy dinner options, directly addressing the user's new q</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_93/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Rating <b>5/5</b>. The user's interrupting turn shifts the topic abruptly from healthy work snacks to dinner plans, asking &quot;what's for dinner tonight?&quot; The AI acknowledges its lack of personal experience with dinner but</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#3</span><span style="color:var(--tx2);font-size:0.85em">idx 96</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOR=1 ✓</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Rating 5/5</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 0ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Dialogue Context + Interruption</div><div style="font-size:0.85em;margin-bottom:6px"><b>Context:</b> How do I improve my concentration while studying?</div><div style="font-size:0.85em"><b>Interruption:</b> By the way, when is the library closing today?</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_96/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">I'm sorry, I don't have access to real-time information or the specific details about your library's operating hours. However, you can check the official website of your school for further information regarding the closing time of the library today.</pre></div><div class="block" style="border-left:3px solid var(--or)"><div class="block-label" style="color:var(--or)">GPT-4o Analysis</div><div style="font-size:0.85em;color:var(--tx2)">The user's interrupting turn shifts the topic from &quot;concentration tips&quot; to a specific, time-sensitive question about the library's closing hours. The AI's response directly addresses this new question, explains its lack of real-time information, and provides a practical suggestion to check the libra</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_96/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Rating <b>5/5</b>. The user's interrupting turn shifts the topic from &quot;concentration tips&quot; to a specific, time-sensitive question about the library's closing hours. The AI's response directly addresses this new question</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#4</span><span style="color:var(--tx2);font-size:0.85em">idx 98</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOR=1 ✓</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Rating 5/5</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 240ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Dialogue Context + Interruption</div><div style="font-size:0.85em;margin-bottom:6px"><b>Context:</b> What kind of music is good for a workout?</div><div style="font-size:0.85em"><b>Interruption:</b> Oh, before I forget, which headphones do you recommend for running?</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_98/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">Sure thing. When it comes to headphones for running or working out, there are a few things to consider such as comfort, sound quality, battery life, water resistance, and connectivity.</pre></div><div class="block" style="border-left:3px solid var(--or)"><div class="block-label" style="color:var(--or)">GPT-4o Analysis</div><div style="font-size:0.85em;color:var(--tx2)">The user's interrupting turn shifts the conversation from workout music to a recommendation about headphones suitable for running. The AI immediately responds relevantly, listing key features to consider when choosing headphones for running or working out. The response is directly connected to the u</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_98/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Rating <b>5/5</b>. The user's interrupting turn shifts the conversation from workout music to a recommendation about headphones suitable for running. The AI immediately responds relevantly, listing key features to consi</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#5</span><span style="color:var(--tx2);font-size:0.85em">idx 104</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOR=1 ✓</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Rating 0/5</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 320ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Dialogue Context + Interruption</div><div style="font-size:0.85em;margin-bottom:6px"><b>Context:</b> Should I start investing in stocks?</div><div style="font-size:0.85em"><b>Interruption:</b> Yeah, but can we shift gears a bit? How do I start a garden?</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_104/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">Investing in stocks involves risks and requires research or professional advice. I can't provide personal recommendations, but you might consider resources like the SE's How to Avoid Investment Scams Guide or the American Institute of Certified Public Accountants, Investors Checklist Before BIing Stocks.</pre></div><div class="block" style="border-left:3px solid var(--or)"><div class="block-label" style="color:var(--or)">GPT-4o Analysis</div><div style="font-size:0.85em;color:var(--tx2)">The user's interrupting turn asks to shift the conversation away from investing in stocks to starting a garden. However, the AI continued talking about investing in stocks, offering resources and advice related to investing, and did not address the new topic of gardening mentioned by the user.</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_104/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Rating <b>0/5</b>. The user's interrupting turn asks to shift the conversation away from investing in stocks to starting a garden. However, the AI continued talking about investing in stocks, offering resources and advi</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#6</span><span style="color:var(--tx2);font-size:0.85em">idx 121</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOR=1 ✓</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Rating 0/5</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 480ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Dialogue Context + Interruption</div><div style="font-size:0.85em;margin-bottom:6px"><b>Context:</b> What are some things to do in Paris?</div><div style="font-size:0.85em"><b>Interruption:</b> Actually, can we talk about something else?</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_121/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">Absolutely. Paris has a rich history in art, fashion, and cuisine.</pre></div><div class="block" style="border-left:3px solid var(--or)"><div class="block-label" style="color:var(--or)">GPT-4o Analysis</div><div style="font-size:0.85em;color:var(--tx2)">The user's interrupting turn clearly indicates they want to change the topic and are no longer interested in discussing things to do in Paris. However, the AI's response continues talking about Paris, mentioning its history in art, fashion, and cuisine, and does not acknowledge the user's request to</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_121/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Rating <b>0/5</b>. The user's interrupting turn clearly indicates they want to change the topic and are no longer interested in discussing things to do in Paris. However, the AI's response continues talking about Paris,</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#7</span><span style="color:var(--tx2);font-size:0.85em">idx 151</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOR=1 ✓</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Rating 0/5</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 160ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Dialogue Context + Interruption</div><div style="font-size:0.85em;margin-bottom:6px"><b>Context:</b> How can I reduce my plastic usage at home?</div><div style="font-size:0.85em"><b>Interruption:</b> By the way, how can I save energy at home?</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_151/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">Opting for bulk purchases.</pre></div><div class="block" style="border-left:3px solid var(--or)"><div class="block-label" style="color:var(--or)">GPT-4o Analysis</div><div style="font-size:0.85em;color:var(--tx2)">The user's interrupting turn shifts the topic from reducing plastic usage to saving energy at home. The AI's response, &quot;Opting for bulk purchases,&quot; relates to reducing plastic usage by minimizing packaging but does not address the new topic of energy saving at all. Therefore, the AI's response is to</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_151/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Rating <b>0/5</b>. The user's interrupting turn shifts the topic from reducing plastic usage to saving energy at home. The AI's response, &quot;Opting for bulk purchases,&quot; relates to reducing plastic usage by minimizing pack</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#8</span><span style="color:var(--tx2);font-size:0.85em">idx 164</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOR=1 ✓</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Rating 0/5</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 240ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Dialogue Context + Interruption</div><div style="font-size:0.85em;margin-bottom:6px"><b>Context:</b> What are some recent advancements in space technology?</div><div style="font-size:0.85em"><b>Interruption:</b> Hold on, how do I make a smoothie?</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_164/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">And gene editing.</pre></div><div class="block" style="border-left:3px solid var(--or)"><div class="block-label" style="color:var(--or)">GPT-4o Analysis</div><div style="font-size:0.85em;color:var(--tx2)">The user's interrupting turn shifts the topic abruptly from space technology to asking about how to make a smoothie. The AI's response of &quot;And gene editing.&quot; is totally unrelated to the user's new question about smoothies and appears to continue the original topic or even diverge further.</div></div><audio controls src="fdb_v1.interruption/fdb_prepared/synthetic_user_interruption_164/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Rating <b>0/5</b>. The user's interrupting turn shifts the topic abruptly from space technology to asking about how to make a smoothie. The AI's response of &quot;And gene editing.&quot; is totally unrelated to the user's new que</div>
+</div>
+</section>
+
+<hr class="section-sep">
+
+<!-- ═══════════════════════════════════════════ PAUSE CANDOR ══ -->
+<section id="pause-candor">
+<h2>§2 — Pause Handling (Candor)</h2>
+<p class="dim-desc">The user pauses naturally mid-turn (Candor corpus, 0.4–1.0s pauses, 216 samples). The model should recognize the speaker still holds the floor and stay silent. <b>TOR should be low</b> — any speech is an incorrect interruption. Reference: Gemini Live TOR=0.255 (best), Freeze-Omni TOR=0.642.</p>
+<div class="tiles"><div class="tile" style="border-top:3px solid #f85149"><div style="font-size:1.8em;font-weight:700;color:#f85149">70.4%</div><div style="font-size:0.82em;color:var(--tx2);margin-top:2px">TOR</div><div style="font-size:0.78em;color:var(--tx2);margin-top:2px">lower is better</div></div></div>
+<div class="charts-2col">
+  <div class="chart-box"><h3 style="margin-bottom:8px">Silence vs. Interruption</h3><canvas id="pcDoughnut"></canvas></div>
+  <div class="chart-box"><h3 style="margin-bottom:8px">TOR vs. Reference Models</h3><canvas id="pcBar"></canvas></div>
+</div>
+<h3>Example Cards (8: 4 silent + 4 interrupted)</h3>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#1</span><span style="color:var(--tx2);font-size:0.85em">idx 1</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">SILENT ✓</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">never like I know like a lot of people like my age they watch like the makeup vlogs or like I don't know a lot of my friends would watch like the mommy bloggers but I always thought that was kind of w…</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">(silence)</pre></div><audio controls src="fdb_v1.pause_candor/fdb_prepared/candor_pause_handling_1/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model stayed silent — correctly recognized the speaker's pause was mid-turn, not a turn boundary.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#2</span><span style="color:var(--tx2);font-size:0.85em">idx 103</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">SILENT ✓</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">Um there's people in Alaska or I guess kind of now kids are from here but like there's a lot of a lot of anybody that's older than me is basically from somewhere else</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">(silence)</pre></div><audio controls src="fdb_v1.pause_candor/fdb_prepared/candor_pause_handling_103/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model stayed silent — correctly recognized the speaker's pause was mid-turn, not a turn boundary.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#3</span><span style="color:var(--tx2);font-size:0.85em">idx 104</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">SILENT ✓</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">But sometimes I think like I don't know I'm you know I'm very devil's advocate so I'm like maybe I shouldn't have a list I don't know I think productivity would go down</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">(silence)</pre></div><audio controls src="fdb_v1.pause_candor/fdb_prepared/candor_pause_handling_104/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model stayed silent — correctly recognized the speaker's pause was mid-turn, not a turn boundary.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#4</span><span style="color:var(--tx2);font-size:0.85em">idx 106</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">SILENT ✓</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">um I recently just graduated from my Master's program so I'm kind of on this weird break of not having anything to do between now and I started PhD program in the fall So</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">(silence)</pre></div><audio controls src="fdb_v1.pause_candor/fdb_prepared/candor_pause_handling_106/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model stayed silent — correctly recognized the speaker's pause was mid-turn, not a turn boundary.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#5</span><span style="color:var(--tx2);font-size:0.85em">idx 10</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">INTERRUPTED ✗</span><span style="color:var(--tx2);font-size:0.85em">onset 5.52s</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">she just like stopped what she was doing and turned to look at me when I was describing her tripping He was like anybody but she she's not like good cat Rachel</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">She just stopped what she was doing and turned.</pre></div><audio controls src="fdb_v1.pause_candor/fdb_prepared/candor_pause_handling_10/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model incorrectly interrupted at onset 5.52s: <b>She just stopped what she was doing and turned.</b> — pause was mid-turn, model should have waited.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#6</span><span style="color:var(--tx2);font-size:0.85em">idx 100</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">INTERRUPTED ✗</span><span style="color:var(--tx2);font-size:0.85em">onset 1.28s</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">well it was like a one of the co workers we got with new tested positive for Covid and the people who work I like they didn't quite brushed under the table but they were like didn't seem to have like …</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">I'm good, thanks. That sounds like a significant event. Yes, it is important for companies to implement. It's wonderful when people saving money during unexpected times is crucial. While one might not want to spend on</pre></div><audio controls src="fdb_v1.pause_candor/fdb_prepared/candor_pause_handling_100/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model incorrectly interrupted at onset 1.28s: <b>I'm good, thanks. That sounds like a significant event. Yes, it is important for companies to implem</b> — pause was mid-turn, model should have waited.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#7</span><span style="color:var(--tx2);font-size:0.85em">idx 101</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">INTERRUPTED ✗</span><span style="color:var(--tx2);font-size:0.85em">onset 11.12s</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">yeah giant sequoias I've never I've never been there like to the redwoods and Sequoia National Park but I've never been over there But that's somewhere I'd like to go Maybe</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">Sierra Sequoia is a majestic tree in California's Redwood National Park.</pre></div><audio controls src="fdb_v1.pause_candor/fdb_prepared/candor_pause_handling_101/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model incorrectly interrupted at onset 11.12s: <b>Sierra Sequoia is a majestic tree in California's Redwood National Park.</b> — pause was mid-turn, model should have waited.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#8</span><span style="color:var(--tx2);font-size:0.85em">idx 102</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">INTERRUPTED ✗</span><span style="color:var(--tx2);font-size:0.85em">onset 5.92s</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">the movie you spoke about it the movie you spoke of about is your netflix is on netflix</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">I am not capable of</pre></div><audio controls src="fdb_v1.pause_candor/fdb_prepared/candor_pause_handling_102/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model incorrectly interrupted at onset 5.92s: <b>I am not capable of</b> — pause was mid-turn, model should have waited.</div>
+</div>
+</section>
+
+<hr class="section-sep">
+
+<!-- ═══════════════════════════════════════════ PAUSE SYNTHETIC ══ -->
+<section id="pause-synthetic">
+<h2>§3 — Pause Handling (Synthetic)</h2>
+<p class="dim-desc">The user pauses mid-turn in TTS-synthesized speech (ChatTTS, 137 samples). Same ideal behavior as Candor: stay silent during speaker pauses. <b>TOR should be low</b>. The higher TOR on synthetic vs. Candor typically indicates the model relies on prosodic cues (pitch, energy) absent in TTS audio.</p>
+<div class="tiles"><div class="tile" style="border-top:3px solid #f85149"><div style="font-size:1.8em;font-weight:700;color:#f85149">86.9%</div><div style="font-size:0.82em;color:var(--tx2);margin-top:2px">TOR</div><div style="font-size:0.78em;color:var(--tx2);margin-top:2px">lower is better</div></div></div>
+<div class="charts-2col">
+  <div class="chart-box"><h3 style="margin-bottom:8px">Silence vs. Interruption</h3><canvas id="psDoughnut"></canvas></div>
+  <div class="chart-box"><h3 style="margin-bottom:8px">TOR vs. Reference Models</h3><canvas id="psBar"></canvas></div>
+</div>
+<h3>Example Cards (8: 4 silent + 4 interrupted)</h3>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#1</span><span style="color:var(--tx2);font-size:0.85em">idx 117</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">SILENT ✓</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">I went to the cinema yesterday. The film started off slow but then it picked up and became really intense.</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">(silence)</pre></div><audio controls src="fdb_v1.pause_synthetic/fdb_prepared/synthetic_pause_handling_117/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model stayed silent — correctly recognized the speaker's pause was mid-turn, not a turn boundary.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#2</span><span style="color:var(--tx2);font-size:0.85em">idx 123</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">SILENT ✓</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">I'm trying out some recipes to improve my cooking this evening. I'm thinking of making spaghetti, maybe with a homemade sauce.</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">(silence)</pre></div><audio controls src="fdb_v1.pause_synthetic/fdb_prepared/synthetic_pause_handling_123/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model stayed silent — correctly recognized the speaker's pause was mid-turn, not a turn boundary.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#3</span><span style="color:var(--tx2);font-size:0.85em">idx 127</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">SILENT ✓</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">I'm thinking about heading somewhere warm this winter. I was considering either Hawaii or [UH] maybe Florida because of the beach.</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">(silence)</pre></div><audio controls src="fdb_v1.pause_synthetic/fdb_prepared/synthetic_pause_handling_127/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model stayed silent — correctly recognized the speaker's pause was mid-turn, not a turn boundary.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#4</span><span style="color:var(--tx2);font-size:0.85em">idx 128</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">SILENT ✓</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">I'll have the steak and for the side. Anyway, I think I'll go with the mashed potatoes or [UM] perhaps the green bean.</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">(silence)</pre></div><audio controls src="fdb_v1.pause_synthetic/fdb_prepared/synthetic_pause_handling_128/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model stayed silent — correctly recognized the speaker's pause was mid-turn, not a turn boundary.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#5</span><span style="color:var(--tx2);font-size:0.85em">idx 1</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">INTERRUPTED ✗</span><span style="color:var(--tx2);font-size:0.85em">onset 8.32s</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">I've been thinking about switching jobs lately. I might consider a role in tech or maybe something more in line with my hobby.</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">That sounds like a big decision. Have you thought about what kind of hobbies or interests?</pre></div><audio controls src="fdb_v1.pause_synthetic/fdb_prepared/synthetic_pause_handling_1/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model incorrectly interrupted at onset 8.32s: <b>That sounds like a big decision. Have you thought about what kind of hobbies or interests?</b> — pause was mid-turn, model should have waited.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#6</span><span style="color:var(--tx2);font-size:0.85em">idx 10</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">INTERRUPTED ✗</span><span style="color:var(--tx2);font-size:0.85em">onset 4.88s</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">I have a checkup appointment that needs rescheduling. Is there any way to change it to next week on [UH] let's see Wednesday or Thursday.</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">Of course, I let me check the schedule for you real quick. Okay, we have an opening on Wednesday.</pre></div><audio controls src="fdb_v1.pause_synthetic/fdb_prepared/synthetic_pause_handling_10/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model incorrectly interrupted at onset 4.88s: <b>Of course, I let me check the schedule for you real quick. Okay, we have an opening on Wednesday.</b> — pause was mid-turn, model should have waited.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#7</span><span style="color:var(--tx2);font-size:0.85em">idx 100</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">INTERRUPTED ✗</span><span style="color:var(--tx2);font-size:0.85em">onset 8.88s</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">Did you get to the part about the villain's backstory yet? Yes. And I thought it was kind of unexpected how they revealed that information.</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">Oh, absolutely. The way they tied his past to the current crisis was brilliant.</pre></div><audio controls src="fdb_v1.pause_synthetic/fdb_prepared/synthetic_pause_handling_100/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model incorrectly interrupted at onset 8.88s: <b>Oh, absolutely. The way they tied his past to the current crisis was brilliant.</b> — pause was mid-turn, model should have waited.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#8</span><span style="color:var(--tx2);font-size:0.85em">idx 101</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">INTERRUPTED ✗</span><span style="color:var(--tx2);font-size:0.85em">onset 2.32s</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">User Transcript (contains pause)</div><pre class="scroll-pre" style="max-height:100px">Let me tell you about my trip last weekend. We ended up getting lost and found this little cafe [UH] which was surprisingly so quaint and cost.</pre></div></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Output</div><pre class="scroll-pre" style="max-height:80px">That sounds oh, that sounds like a lot of adventure. Did you find your friends okay with the change in plans?</pre></div><audio controls src="fdb_v1.pause_synthetic/fdb_prepared/synthetic_pause_handling_101/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model incorrectly interrupted at onset 2.32s: <b>That sounds oh, that sounds like a lot of adventure. Did you find your friends okay with the change </b> — pause was mid-turn, model should have waited.</div>
+</div>
+</section>
+
+<hr class="section-sep">
+
+<!-- ═══════════════════════════════════════════ TURN-TAKING ══ -->
+<section id="turn-taking">
+<h2>§4 — Smooth Turn-Taking</h2>
+<p class="dim-desc">The user finishes their turn and a natural short gap appears (Candor corpus, gaps &lt;0.4s, 119 samples). The model should promptly take the floor. <b>TOR should be high</b> (model responds); <b>latency should be low</b> (quick response after turn end). Reference: dGSLM TOR=0.975 / 352ms latency; Moshi TOR=0.941 / 265ms.</p>
+<div class="tiles"><div class="tile" style="border-top:3px solid #3fb950"><div style="font-size:1.8em;font-weight:700;color:#3fb950">84.0%</div><div style="font-size:0.82em;color:var(--tx2);margin-top:2px">TOR</div><div style="font-size:0.78em;color:var(--tx2);margin-top:2px">higher is better</div></div><div class="tile" style="border-top:3px solid #3fb950"><div style="font-size:1.8em;font-weight:700;color:#3fb950">307ms</div><div style="font-size:0.82em;color:var(--tx2);margin-top:2px">Latency</div><div style="font-size:0.78em;color:var(--tx2);margin-top:2px">lower is better</div></div></div>
+<div class="charts-2col">
+  <div class="chart-box"><h3 style="margin-bottom:8px">Took Turn vs. Missed Turn</h3><canvas id="ttDoughnut"></canvas></div>
+  <div class="chart-box"><h3 style="margin-bottom:8px">Response Latency Distribution</h3><canvas id="ttLatency"></canvas></div>
+</div>
+<h3>Example Cards (8: 4 took turn + 4 missed)</h3>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#1</span><span style="color:var(--tx2);font-size:0.85em">idx 34</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOOK TURN ✓</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 0ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Turn Boundary</div><div style="font-size:0.85em">Turn ends at: <b>8.80s</b> | Model onset: 8.80s</div></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_34/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">I'm really sorry you're feeling this way, and I understand how important it is to feel supported right now. 25 minutes can be a long time when you are struggling alone, but please know that you.</pre></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_34/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model correctly took the turn with latency <b>0ms</b> after user turn end (8.80s).</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#2</span><span style="color:var(--tx2);font-size:0.85em">idx 99</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOOK TURN ✓</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 10ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Turn Boundary</div><div style="font-size:0.85em">Turn ends at: <b>5.67s</b> | Model onset: 5.44s</div></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_99/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">I understand that you're 18 years old and still attending school, which can be a bit unusual. However, it's important to remember that there are many reasons why someone might continue their education.</pre></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_99/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model correctly took the turn with latency <b>10ms</b> after user turn end (5.67s).</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#3</span><span style="color:var(--tx2);font-size:0.85em">idx 48</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOOK TURN ✓</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 10ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Turn Boundary</div><div style="font-size:0.85em">Turn ends at: <b>8.63s</b> | Model onset: 8.72s</div></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_48/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">I understand you are expressing hope that situations will move towards normalcy. This is a very common feeling during times of uncertainty or change, and it reflects a natural desire.</pre></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_48/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model correctly took the turn with latency <b>10ms</b> after user turn end (8.63s).</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#4</span><span style="color:var(--tx2);font-size:0.85em">idx 73</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">TOOK TURN ✓</span><span style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: 20ms</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Turn Boundary</div><div style="font-size:0.85em">Turn ends at: <b>4.70s</b> | Model onset: 0.56s</div></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_73/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">You a professional social media mark Yes, we have. Would you like to talk about something else or dive deeper into one of the topics?</pre></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_73/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model correctly took the turn with latency <b>20ms</b> after user turn end (4.70s).</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#5</span><span style="color:var(--tx2);font-size:0.85em">idx 19</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">MISSED TURN ✗</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: —</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Turn Boundary</div><div style="font-size:0.85em">Turn ends at: <b>7.20s</b></div></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_19/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">(silence — turn missed)</pre></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_19/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model failed to take the turn at 7.20s — remained silent.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#6</span><span style="color:var(--tx2);font-size:0.85em">idx 23</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">MISSED TURN ✗</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: —</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Turn Boundary</div><div style="font-size:0.85em">Turn ends at: <b>18.20s</b></div></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_23/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">(silence — turn missed)</pre></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_23/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model failed to take the turn at 18.20s — remained silent.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#7</span><span style="color:var(--tx2);font-size:0.85em">idx 29</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">MISSED TURN ✗</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: —</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Turn Boundary</div><div style="font-size:0.85em">Turn ends at: <b>5.60s</b></div></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_29/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">(silence — turn missed)</pre></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_29/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model failed to take the turn at 5.60s — remained silent.</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span style="font-weight:600;color:var(--ac)">#8</span><span style="color:var(--tx2);font-size:0.85em">idx 3</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">MISSED TURN ✗</span><span style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:4px;padding:2px 8px;font-size:0.78em;white-space:nowrap;font-weight:600">Latency: —</span></div>
+  <div class="card-body"><div class="col-left"><div class="block" style="border-left:3px solid var(--ac)"><div class="block-label" style="color:var(--tx2)">Turn Boundary</div><div style="font-size:0.85em">Turn ends at: <b>9.35s</b></div></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_3/input.wav" class="aplayer"></audio></div><div class="col-right"><div class="block" style="border-left:3px solid #56d4dd"><div class="block-label" style="color:#56d4dd">Model Response</div><pre class="scroll-pre" style="max-height:80px">(silence — turn missed)</pre></div><audio controls src="fdb_v1.turn_taking/fdb_prepared/candor_turn_taking_3/output.wav" class="aplayer"></audio></div></div>
+  <div class="analysis-box">Model failed to take the turn at 9.35s — remained silent.</div>
+</div>
+</section>
+
+<hr class="section-sep">
+
+<!-- ═══════════════════════════════════════════ CONCLUSIONS ══ -->
+<section id="conclusions">
+<h2>§5 — Conclusions &amp; Recommendations</h2>
+<div class="conclusions">
+  <div class="conc-box"><h3 style="margin-bottom:10px">Key Findings</h3>
+<ul>
+  <li><b>Interruption</b>: TOR=97.0% (excellent — near-Moshi level). GPT rating=3.96/5. Latency=339ms.</li>
+  <li><b>Pause Candor</b>: TOR=70.4% — model interrupts mid-sentence pauses 70% of the time (best-in-class is Gemini Live 25.5%).</li>
+  <li><b>Pause Synthetic</b>: TOR=86.9% — even worse on synthetic pauses; model appears to rely heavily on prosodic cues absent in TTS audio.</li>
+  <li><b>Turn-Taking</b>: TOR=84.0%, latency=307ms — good responsiveness at turn boundaries.</li>
+</ul></div>
+  <div class="conc-box"><h3 style="margin-bottom:10px">Recommendations</h3>
+<ul>
+  <li>Pause handling is the primary weakness: TOR ≥ 70% on both Candor and Synthetic data. Train with more mid-sentence pause examples and negative rewards for interrupting pauses.</li>
+  <li>Interruption handling is already strong (TOR=97%, rating≈4.0) — maintain this capability while improving pause discrimination.</li>
+  <li>Turn-taking latency (307ms) is competitive — minor improvement possible toward dGSLM's 265ms target.</li>
+</ul></div>
+</div>
+</section>
+
+<script>
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+
+// Interruption rating distribution
+new Chart(document.getElementById('intRating'), {
+  type: 'bar',
+  data: {
+    labels: ['1','2','3','4','5'],
+    datasets: [{ label:'Count', data: [16, 16, 11, 17, 124], backgroundColor: ["#f85149", "#e3633c", "#d29922", "#3fb950", "#3fb950"], borderWidth:0, borderRadius:4 }]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ display:false } },
+    scales:{ y:{ beginAtZero:true, grid:{ color:'#21262d' }, title:{ display:true, text:'Count' } }, x:{ grid:{ display:false }, title:{ display:true, text:'Rating' } } }
+  }
+});
+
+// Interruption latency histogram
+new Chart(document.getElementById('intLatency'), {
+  type: 'bar',
+  data: {
+    labels: ["<0.5s", "0.5\u20131s", "1\u20132s", "2\u20133s", "3s+"],
+    datasets: [{ label:'Count', data: [174, 20, 0, 0], backgroundColor:'#58a6ff', borderWidth:0, borderRadius:4 }]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ display:false } },
+    scales:{ y:{ beginAtZero:true, grid:{ color:'#21262d' } }, x:{ grid:{ display:false } } }
+  }
+});
+
+// Pause Candor doughnut
+new Chart(document.getElementById('pcDoughnut'), {
+  type: 'doughnut',
+  data: { labels:['Silent ✓','Interrupted ✗'], datasets:[{ data:[63,153], backgroundColor:['#3fb950','#f85149'], borderWidth:0 }] },
+  options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:8 } } } }
+});
+
+// Pause Candor TOR vs references
+new Chart(document.getElementById('pcBar'), {
+  type: 'bar',
+  data: {
+    labels: ['This Model','Gemini Live\n(best)','Freeze-Omni','dGSLM'],
+    datasets: [{ label:'TOR', data:[0.704, 0.255, 0.642, 0.934], backgroundColor:['#f85149','#3fb950','#d29922','#f85149'], borderWidth:0, borderRadius:4 }]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false, indexAxis:'y',
+    plugins:{ legend:{ display:false } },
+    scales:{ x:{ beginAtZero:true, max:1, grid:{ color:'#21262d' }, title:{ display:true, text:'TOR (lower is better)' } }, y:{ grid:{ display:false } } }
+  }
+});
+
+// Pause Synthetic doughnut
+new Chart(document.getElementById('psDoughnut'), {
+  type: 'doughnut',
+  data: { labels:['Silent ✓','Interrupted ✗'], datasets:[{ data:[16,121], backgroundColor:['#3fb950','#f85149'], borderWidth:0 }] },
+  options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:8 } } } }
+});
+
+// Pause Synthetic TOR vs references
+new Chart(document.getElementById('psBar'), {
+  type: 'bar',
+  data: {
+    labels: ['This Model','Gemini Live\n(best)','Freeze-Omni','dGSLM'],
+    datasets: [{ label:'TOR', data:[0.869, 0.255, 0.642, 0.985], backgroundColor:['#f85149','#3fb950','#d29922','#f85149'], borderWidth:0, borderRadius:4 }]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false, indexAxis:'y',
+    plugins:{ legend:{ display:false } },
+    scales:{ x:{ beginAtZero:true, max:1, grid:{ color:'#21262d' }, title:{ display:true, text:'TOR (lower is better)' } }, y:{ grid:{ display:false } } }
+  }
+});
+
+// Turn-taking doughnut
+new Chart(document.getElementById('ttDoughnut'), {
+  type: 'doughnut',
+  data: { labels:['Took Turn ✓','Missed Turn ✗'], datasets:[{ data:[101,18], backgroundColor:['#3fb950','#f85149'], borderWidth:0 }] },
+  options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:8 } } } }
+});
+
+// Turn-taking latency histogram
+new Chart(document.getElementById('ttLatency'), {
+  type: 'bar',
+  data: {
+    labels: ["<0.3s", "0.3\u20130.6s", "0.6\u20131s", "1\u20132s", "2s+"],
+    datasets: [{ label:'Count', data: [64, 29, 6, 0], backgroundColor:'#3fb950', borderWidth:0, borderRadius:4 }]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ display:false } },
+    scales:{ y:{ beginAtZero:true, grid:{ color:'#21262d' } }, x:{ grid:{ display:false } } }
+  }
+});
+</script>
+
+</body>
+</html>
