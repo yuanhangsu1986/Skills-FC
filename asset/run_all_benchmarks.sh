@@ -25,6 +25,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMMIT=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 VB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts/generate_from_api_and_score_official.py"
 FDB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/run_eval.py"
@@ -57,9 +58,11 @@ CONFIG_CONV_BEHAV=""
 EVAL_MODE="greedy+sampling"
 MODEL_OVERRIDE=""
 CODE_PATH_OVERRIDE=""
+OUTPUT_DIR_OVERRIDE=""
 MAX_JOBS_OVERRIDE=""
 POLL_INTERVAL=60
 DRY_RUN=false
+FORCE_RERUN=false
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -90,6 +93,10 @@ Options:
   --config_bba        PATH Config YAML for BBA                 (overrides --eval_mode)
   --config_bfcl       PATH Config YAML for BFCL                (overrides --eval_mode)
   --config_conv_behav PATH Config YAML for conv_behav          (overrides --eval_mode)
+  --output_dir        PATH  Redirect all benchmark outputs under PATH/{mode}
+                            (e.g. PATH/greedy, PATH/sampling). The Python scripts
+                            will further append the git commit hash. If unset,
+                            each benchmark uses its own output_dir from its YAML.
   --model             PATH  Override the model checkpoint for every benchmark.
                             Must be paired with --code_path.
   --code_path         PATH  Override the NeMo source code directory for every
@@ -97,6 +104,7 @@ Options:
   --max_jobs          N     Override SLURM job limit (auto-detected by default)
   --poll_interval     N     Seconds between SLURM queue checks (default: 60)
   --dry_run                 Pass --dry_run to every benchmark script
+  --force_rerun             Re-run all benchmarks even if results already exist
   --help                    Show this message and exit
 EOF
 }
@@ -114,11 +122,13 @@ while [[ $# -gt 0 ]]; do
         --config_bba)        CONFIG_BBA="$2";            shift 2 ;;
         --config_bfcl)       CONFIG_BFCL="$2";           shift 2 ;;
         --config_conv_behav) CONFIG_CONV_BEHAV="$2";     shift 2 ;;
+        --output_dir)        OUTPUT_DIR_OVERRIDE="$2";    shift 2 ;;
         --model)             MODEL_OVERRIDE="$2";         shift 2 ;;
         --code_path)         CODE_PATH_OVERRIDE="$2";    shift 2 ;;
         --max_jobs)          MAX_JOBS_OVERRIDE="$2";     shift 2 ;;
         --poll_interval)     POLL_INTERVAL="$2";          shift 2 ;;
         --dry_run)           DRY_RUN=true;                shift ;;
+        --force_rerun)       FORCE_RERUN=true;            shift ;;
         --help|-h)           usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -189,6 +199,49 @@ config_for() {
             echo "${CONFIG_CONV_BEHAV:-${CB_BASE}/conv_behav_config_${mode}.yaml}"
             ;;
     esac
+}
+
+# ---------------------------------------------------------------------------
+# Output dir resolution + completion detection
+# ---------------------------------------------------------------------------
+
+# Returns the fully-resolved output dir for a benchmark+mode, including the
+# git commit hash suffix that Python scripts append.
+resolve_output_dir() {
+    local name="$1" mode="$2"
+    if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+        echo "${OUTPUT_DIR_OVERRIDE}/${mode}_${COMMIT}"
+    else
+        local config yaml_dir
+        config=$(config_for "$name" "$mode")
+        yaml_dir=$(grep -m1 '^output_dir:' "$config" 2>/dev/null | sed 's/^output_dir: *//')
+        echo "${yaml_dir}_${COMMIT}"
+    fi
+}
+
+# Echoes the path of the first result file found for a benchmark+mode
+# (a metrics.json under eval-results/ or a report.html in the output dir),
+# or nothing if no results exist yet.
+find_benchmark_result() {
+    local name="$1" mode="$2"
+    local outdir
+    outdir=$(resolve_output_dir "$name" "$mode")
+    [[ -d "$outdir" ]] || return 0
+    local f
+    f=$(find "${outdir}/eval-results" -name "metrics.json" -maxdepth 2 2>/dev/null | head -1)
+    [[ -n "$f" ]] && { echo "$f"; return; }
+    f=$(find "${outdir}" -name "report.html" -maxdepth 1 2>/dev/null | head -1)
+    [[ -n "$f" ]] && echo "$f"
+}
+
+# Echoes the path of the aggregate scorecard if it exists:
+# checks output_dir/scorecard.html first, then asset/scorecard.html (CWD-relative).
+find_scorecard() {
+    if [[ -n "$OUTPUT_DIR_OVERRIDE" && -f "${OUTPUT_DIR_OVERRIDE}/scorecard.html" ]]; then
+        echo "${OUTPUT_DIR_OVERRIDE}/scorecard.html"
+    elif [[ -f "${SCRIPT_DIR}/scorecard.html" ]]; then
+        echo "${SCRIPT_DIR}/scorecard.html"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -350,6 +403,13 @@ run_benchmark() {
         extra+=("$arg")
     done < <(extra_args)
 
+    # --output_dir override: each mode gets its own subdirectory so greedy and
+    # sampling results never collide.  The Python scripts append the git commit
+    # hash, producing e.g. OUTPUT_DIR_OVERRIDE/greedy_a1b2c3d.
+    if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+        extra+=("--output_dir" "${OUTPUT_DIR_OVERRIDE}/${mode}")
+    fi
+
     local base_config
     base_config=$(config_for "$name" "$mode")
 
@@ -408,8 +468,11 @@ echo " S2S FC Benchmark Runner"
 echo "======================================================================"
 echo " Eval mode    : $EVAL_MODE"
 echo " Benchmarks   : $BENCHMARKS"
+[[ -n "$OUTPUT_DIR_OVERRIDE" ]] && echo " Output dir   : $OUTPUT_DIR_OVERRIDE/{mode}_{commit}"
 echo " Poll interval: ${POLL_INTERVAL}s"
 echo " Dry run      : $DRY_RUN"
+echo " Force rerun  : $FORCE_RERUN"
+echo " Commit       : $COMMIT"
 
 # Resolve job limit
 if [[ -n "$MAX_JOBS_OVERRIDE" ]]; then
@@ -426,11 +489,29 @@ else
 fi
 echo "======================================================================"
 
+# If the aggregate scorecard already exists, all benchmarks are considered done.
+if [[ "$FORCE_RERUN" != "true" ]]; then
+    SCORECARD=$(find_scorecard)
+    if [[ -n "$SCORECARD" ]]; then
+        echo ""
+        echo "Scorecard found: $SCORECARD"
+        echo "All benchmarks appear complete. Use --force_rerun to re-run anyway."
+        exit 0
+    fi
+fi
+
 # Submit all benchmarks for each mode in order (greedy first, then sampling).
 for mode in $EVAL_MODES; do
     echo ""
     echo "--- Mode: $mode ---"
     for benchmark in $BENCHMARKS; do
+        if [[ "$FORCE_RERUN" != "true" ]]; then
+            result=$(find_benchmark_result "$benchmark" "$mode")
+            if [[ -n "$result" ]]; then
+                echo "  Skipping $benchmark ($mode): results found at $result"
+                continue
+            fi
+        fi
         if [[ -n "$MAX_JOBS" && "$DRY_RUN" != "true" ]]; then
             wait_for_slot "$MAX_JOBS" "$benchmark ($mode)"
         fi

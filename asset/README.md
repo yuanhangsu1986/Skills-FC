@@ -64,6 +64,7 @@ Default order when `--benchmarks` is omitted (smallest to largest): `conv_behav 
 | `--max_jobs N` | Hard-code the SLURM job limit instead of auto-detecting | auto-detected |
 | `--poll_interval N` | Seconds between SLURM queue checks while waiting | `60` |
 | `--dry_run` | Pass `--dry_run` to every benchmark script; no jobs submitted | `false` |
+| `--force_rerun` | Re-run all benchmarks even if results already exist | `false` |
 | `--help` | Print usage and exit | |
 
 ## How job throttling works
@@ -129,10 +130,13 @@ After benchmarks complete, use the Claude Code skills in this directory to gener
 
 To produce a single aggregate scorecard across all benchmarks:
 
-```
-/make-scorecard vb_nonmcq=<PATH> vb_mcq=<PATH> fdb=<PATH> bba=<PATH> bfcl=<PATH> conv_behav=<PATH>
+```bash
+# Default: output dirs auto-detected from each benchmark's config YAML + current git commit
+/make-scorecard
+
+# If --output_dir was passed to run_all_benchmarks.sh, supply the same path
+/make-scorecard output_dir=<PATH>
 ```
 
-Any subset of benchmark paths may be supplied; missing benchmarks are shown as "Not run".
-The scorecard is written to **`asset/scorecard.html`** in the repo root by default.
-Override with `output=<absolute_path>`.
+The scorecard is written to **`{output_dir}/scorecard.html`** when `output_dir` is given,
+or **`asset/scorecard.html`** otherwise.
