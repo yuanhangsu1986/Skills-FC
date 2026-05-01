@@ -1,0 +1,85 @@
+# BigBench Audio evaluation - FC (function calling) checkpoint
+# Base config — omits mode-specific keys (output_dir, expname, decoding_mode, and
+# in server_args: --force_turn_taking, --top_p, --repetition_penalty, --temperature,
+# --output_dir).
+#
+# Run:
+#   python nemo_skills/dataset/bba/scripts/run_bba_eval.py \
+#     --config nemo_skills/dataset/bba/scripts/bba_config_fc.yaml
+
+# Cluster settings
+cluster: s2s_eval_oci_iad_oncluster
+partition: batch_block1,batch_block3,batch_block4
+cpu_partition: cpu
+
+model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
+
+server_type: vllm
+server_gpus: 1
+num_chunks: 4
+
+server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
+server_args: >-
+  --backend s2s_incremental_v2
+  --decode_audio
+  --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
+  --num_frames_per_inference 3
+  --engine_type vllm_llm_vllm_eartts
+  --use_perception_cache
+  --use_perception_cudagraph
+  --use_codec_cache
+  --buffer_size_frames 21
+  --codec_token_history_size 60
+  --pad_audio_to_sec 40
+  --matmul_precision medium
+  --vllm_gpu_memory_utilization 0.35
+  --vllm_max_model_len 8192
+  --inference_pad_boost 0
+  --inference_bos_boost 0
+  --inference_eos_boost 0
+  --inference_user_pad_boost 0
+  --inference_user_bos_boost 0
+  --inference_user_eos_boost 0
+  --inference_guidance_scale 0.2
+  --inference_top_p_or_k 0.95
+  --inference_noise_scale 0.001
+  --tts_sliding_window 7500
+  --batch_size 2
+  --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_FC
+  --pip_install "hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
+
+server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
+server_server_type: vllm_multimodal
+
+# Paths - run prepare.py once to populate data_dir
+data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bba_data
+
+categories:
+  - formal_fallacies
+  - navigate
+  - object_counting
+  - web_of_lies
+
+installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
+asr_installation_command: ""
+scoring_installation_command: ""
+
+# ASR settings (following official BBA evaluation methodology)
+asr_model: openai/whisper-large-v3
+asr_server_args: "--task transcription"
+asr_server_gpus: 1
+
+# LLM-as-judge (Claude Sonnet via NVIDIA inference API, following official BBA evaluation methodology)
+judge_model: aws/anthropic/bedrock-claude-sonnet-4-6
+api_type: nvidia
+judge_base_url: "https://inference-api.nvidia.com/v1"
+
+system_message: "Answer the question with a single word."
+
+inference_overrides: ""
+
+# max_samples: 50
+
+generation_only: false
+scoring_only: false
+dry_run: false

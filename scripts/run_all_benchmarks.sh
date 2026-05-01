@@ -31,10 +31,11 @@ if [[ ! -x "$PYTHON" ]]; then
     PYTHON="$(command -v python3 || command -v python)"
 fi
 
-# Ensure nemo_skills and its venv dependencies are importable even when the
-# venv Python symlink is broken (container-built venvs on bare-metal nodes).
-_VENV_SITE=$(find "${REPO_ROOT}/.venv/lib" -maxdepth 2 -name "site-packages" -type d 2>/dev/null | head -1)
-export PYTHONPATH="${REPO_ROOT}${_VENV_SITE:+:${_VENV_SITE}}${PYTHONPATH:+:${PYTHONPATH}}"
+# Make the repo root findable by Python (for nemo_skills editable install).
+# Do NOT add the venv site-packages here: that path would propagate into
+# SLURM container jobs where a different Python version would try to load
+# incompatible compiled extensions (.so files) and fail.
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 VB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts/generate_from_api_and_score_official.py"
 FDB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/run_eval.py"
@@ -65,6 +66,7 @@ CONFIG_BFCL=""
 CONFIG_CONV_BEHAV=""
 
 EVAL_MODE="greedy+sampling"
+EVAL_MODE_EXPLICITLY_SET=false
 MODEL_OVERRIDE=""
 CODE_PATH_OVERRIDE=""
 OUTPUT_DIR_OVERRIDE=""
@@ -73,6 +75,12 @@ MAX_JOBS_OVERRIDE=""
 POLL_INTERVAL=60
 DRY_RUN=false
 FORCE_RERUN=false
+
+# Customized-mode decoding params (all four must be set together, with --output_dir)
+CUSTOM_FORCE_TURN_TAKING=""   # "true" or "false"
+CUSTOM_TOP_P=""
+CUSTOM_REPETITION_PENALTY=""
+CUSTOM_TEMPERATURE=""
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -93,8 +101,17 @@ Options:
                               greedy           — greedy configs only
                               sampling         — sampling configs only
                               greedy+sampling  — greedy first, then sampling
+                              customized       — use base configs + explicit params
                             Selects the matching *_greedy.yaml / *_sampling.yaml
                             config for each benchmark automatically.
+                            Set automatically to 'customized' when any of the four
+                            decoding param flags below are provided.
+  --force_turn_taking BOOL  Customized mode: "true" or "false". Adds --force_turn_taking
+                            to server_args (or sets the top-level bool for conv_behav).
+                            Requires all four decoding params + --output_dir.
+  --top_p             VAL   Customized mode: LLM top-p sampling value.
+  --repetition_penalty VAL  Customized mode: repetition penalty value.
+  --temperature       VAL   Customized mode: sampling temperature value.
   --benchmarks LIST         Comma-separated subset of the benchmark names above.
                             Default: all in the order listed above.
   --config_vb_nonmcq  PATH Config YAML for VoiceBench non-MCQ (overrides --eval_mode)
@@ -128,7 +145,7 @@ EOF
 # ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --eval_mode)         EVAL_MODE="$2";            shift 2 ;;
+        --eval_mode)         EVAL_MODE="$2"; EVAL_MODE_EXPLICITLY_SET=true; shift 2 ;;
         --benchmarks)        SELECTED_BENCHMARKS="$2";  shift 2 ;;
         --config_vb_nonmcq)  CONFIG_VB_NONMCQ="$2";    shift 2 ;;
         --config_vb_mcq)     CONFIG_VB_MCQ="$2";        shift 2 ;;
@@ -142,6 +159,10 @@ while [[ $# -gt 0 ]]; do
         --code_path)         CODE_PATH_OVERRIDE="$2";    shift 2 ;;
         --max_jobs)          MAX_JOBS_OVERRIDE="$2";     shift 2 ;;
         --poll_interval)     POLL_INTERVAL="$2";          shift 2 ;;
+        --force_turn_taking) CUSTOM_FORCE_TURN_TAKING="$2"; shift 2 ;;
+        --top_p)             CUSTOM_TOP_P="$2";            shift 2 ;;
+        --repetition_penalty) CUSTOM_REPETITION_PENALTY="$2"; shift 2 ;;
+        --temperature)       CUSTOM_TEMPERATURE="$2";     shift 2 ;;
         --dry_run)           DRY_RUN=true;                shift ;;
         --force_rerun)       FORCE_RERUN=true;            shift ;;
         --help|-h)           usage; exit 0 ;;
@@ -149,13 +170,74 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate customized decoding params and resolve eval mode.
+# Use if/fi to safely count under set -e (&&-chain with failing [[ ]] would exit).
+_n_custom=0
+if [[ -n "$CUSTOM_FORCE_TURN_TAKING" ]];  then (( ++_n_custom )); fi
+if [[ -n "$CUSTOM_TOP_P" ]];              then (( ++_n_custom )); fi
+if [[ -n "$CUSTOM_REPETITION_PENALTY" ]]; then (( ++_n_custom )); fi
+if [[ -n "$CUSTOM_TEMPERATURE" ]];        then (( ++_n_custom )); fi
+
+if [[ "$_n_custom" -gt 0 || "$EVAL_MODE" == "customized" ]]; then
+    if [[ "$EVAL_MODE_EXPLICITLY_SET" == "true" && "$EVAL_MODE" != "customized" ]]; then
+        echo "ERROR: --eval_mode cannot be combined with custom decoding param flags (--force_turn_taking, --top_p, etc.)." >&2
+        exit 1
+    fi
+
+    # Prompt for any missing required values; error if stdin is not a terminal.
+    _missing=false
+    if [[ -z "$CUSTOM_FORCE_TURN_TAKING" || -z "$CUSTOM_TOP_P" || -z "$CUSTOM_REPETITION_PENALTY" \
+       || -z "$CUSTOM_TEMPERATURE" || -z "$OUTPUT_DIR_OVERRIDE" ]]; then
+        _missing=true
+    fi
+    if [[ "$_missing" == "true" ]]; then
+        if [[ ! -t 0 ]]; then
+            echo "ERROR: Customized mode requires all of: --force_turn_taking, --top_p," >&2
+            echo "       --repetition_penalty, --temperature, --output_dir." >&2
+            exit 1
+        fi
+        echo ""
+        echo "Customized mode — provide missing values (leave blank to abort):"
+        if [[ -z "$CUSTOM_FORCE_TURN_TAKING" ]]; then
+            read -r -p "  --force_turn_taking (true/false): " CUSTOM_FORCE_TURN_TAKING
+        fi
+        if [[ -z "$CUSTOM_TOP_P" ]]; then
+            read -r -p "  --top_p: " CUSTOM_TOP_P
+        fi
+        if [[ -z "$CUSTOM_REPETITION_PENALTY" ]]; then
+            read -r -p "  --repetition_penalty: " CUSTOM_REPETITION_PENALTY
+        fi
+        if [[ -z "$CUSTOM_TEMPERATURE" ]]; then
+            read -r -p "  --temperature: " CUSTOM_TEMPERATURE
+        fi
+        if [[ -z "$OUTPUT_DIR_OVERRIDE" ]]; then
+            read -r -p "  --output_dir: " OUTPUT_DIR_OVERRIDE
+        fi
+        echo ""
+    fi
+
+    # Validate that all values were supplied (either via CLI or prompts).
+    if [[ -z "$CUSTOM_FORCE_TURN_TAKING" || -z "$CUSTOM_TOP_P" || -z "$CUSTOM_REPETITION_PENALTY" \
+       || -z "$CUSTOM_TEMPERATURE" || -z "$OUTPUT_DIR_OVERRIDE" ]]; then
+        echo "ERROR: Customized mode requires all of: --force_turn_taking, --top_p," >&2
+        echo "       --repetition_penalty, --temperature, --output_dir." >&2
+        exit 1
+    fi
+    if [[ "$CUSTOM_FORCE_TURN_TAKING" != "true" && "$CUSTOM_FORCE_TURN_TAKING" != "false" ]]; then
+        echo "ERROR: --force_turn_taking must be 'true' or 'false', got: '$CUSTOM_FORCE_TURN_TAKING'" >&2
+        exit 1
+    fi
+    EVAL_MODE="customized"
+fi
+
 # Validate eval mode and expand to an ordered list of individual modes.
 case "$EVAL_MODE" in
     greedy)                          EVAL_MODES="greedy" ;;
     sampling)                        EVAL_MODES="sampling" ;;
     greedy+sampling|sampling+greedy) EVAL_MODES="greedy sampling" ;;
+    customized)                      EVAL_MODES="customized" ;;
     *)
-        echo "ERROR: --eval_mode must be 'greedy', 'sampling', or 'greedy+sampling', got: '$EVAL_MODE'" >&2
+        echo "ERROR: --eval_mode must be 'greedy', 'sampling', 'greedy+sampling', or 'customized', got: '$EVAL_MODE'" >&2
         exit 1
         ;;
 esac
@@ -196,29 +278,73 @@ config_for() {
     local name="$1" mode="$2"
     case "$name" in
         vb_nonmcq)
-            echo "${CONFIG_VB_NONMCQ:-${VB_BASE}/vb_matched_demo_v2_02mar_config_fc_${mode}.yaml}"
+            local default
+            [[ "$mode" == "customized" ]] \
+                && default="${VB_BASE}/vb_matched_demo_v2_02mar_config_fc.yaml" \
+                || default="${VB_BASE}/vb_matched_demo_v2_02mar_config_fc_${mode}.yaml"
+            echo "${CONFIG_VB_NONMCQ:-$default}"
             ;;
         vb_mcq)
-            echo "${CONFIG_VB_MCQ:-${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc_${mode}.yaml}"
+            local default
+            [[ "$mode" == "customized" ]] \
+                && default="${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc.yaml" \
+                || default="${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc_${mode}.yaml"
+            echo "${CONFIG_VB_MCQ:-$default}"
             ;;
         fdb)
-            echo "${CONFIG_FDB:-${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc_${mode}.yaml}"
+            local default
+            [[ "$mode" == "customized" ]] \
+                && default="${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc.yaml" \
+                || default="${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc_${mode}.yaml"
+            echo "${CONFIG_FDB:-$default}"
             ;;
         bba)
-            echo "${CONFIG_BBA:-${BBA_BASE}/bba_config_fc_${mode}.yaml}"
+            local default
+            [[ "$mode" == "customized" ]] \
+                && default="${BBA_BASE}/bba_config_fc.yaml" \
+                || default="${BBA_BASE}/bba_config_fc_${mode}.yaml"
+            echo "${CONFIG_BBA:-$default}"
             ;;
         bfcl)
-            echo "${CONFIG_BFCL:-${BFCL_BASE}/bfcl_fc_config_${mode}.yaml}"
+            local default
+            [[ "$mode" == "customized" ]] \
+                && default="${BFCL_BASE}/bfcl_fc_config.yaml" \
+                || default="${BFCL_BASE}/bfcl_fc_config_${mode}.yaml"
+            echo "${CONFIG_BFCL:-$default}"
             ;;
         conv_behav)
-            echo "${CONFIG_CONV_BEHAV:-${CB_BASE}/conv_behav_config_${mode}.yaml}"
+            local default
+            [[ "$mode" == "customized" ]] \
+                && default="${CB_BASE}/conv_behav_config.yaml" \
+                || default="${CB_BASE}/conv_behav_config_${mode}.yaml"
+            echo "${CONFIG_CONV_BEHAV:-$default}"
             ;;
     esac
 }
 
-# Returns the expname prefix declared in the config YAML for benchmark+mode.
+# Returns the expname base (without mode suffix) for a benchmark.
+# Used by customized mode and sibling-exclusion logic in cancel_stale_jobs.
+expname_base_for() {
+    local name="$1"
+    case "$name" in
+        vb_nonmcq)  echo "vb_matched_demo_v2_02mar_fc" ;;
+        vb_mcq)     echo "vb_matched_demo_v2_02mar_mcq_fc" ;;
+        fdb)        echo "fdb_v1_0_s2s_incremental_v2_02mar_fc" ;;
+        bba)        echo "bba_fc" ;;
+        bfcl)       echo "bfcl_fc" ;;
+        conv_behav) echo "conv_behav" ;;
+    esac
+}
+
+# Returns the expname for a given benchmark+mode.
+# For customized mode, derives expname from expname_base_for() since base YAMLs
+# have no expname key.
 expname_for() {
     local name="$1" mode="$2"
+    if [[ "$mode" == "customized" ]]; then
+        echo "$(expname_base_for "$name")_customized"
+        return
+    fi
     local config
     config=$(config_for "$name" "$mode")
     grep -m1 '^expname:' "$config" 2>/dev/null | sed 's/^expname: *//' || true
@@ -356,16 +482,27 @@ wait_for_slot() {
     done
 }
 
-# Deletes a directory if it exists and contains no complete results.
-# Skips silently if the directory has a metrics.json or report.html.
+# Deletes a directory if it exists and contains no complete or in-progress results.
+# Preserves the directory if any of these are found:
+#   - metrics.json / report.html  (scoring complete)
+#   - output.jsonl.done or output_chunk_*.jsonl.done  (generation complete, scoring pending)
+# This avoids throwing away valid generation output that scoring can still use.
 _delete_incomplete_dir() {
     local dir="$1"
     [[ -d "$dir" ]] || return 0
     local f
+    # Scoring complete
     f=$(find "${dir}/eval-results" -name "metrics.json" -maxdepth 2 2>/dev/null | head -1 || true)
     [[ -z "$f" ]] && f=$(find "${dir}" -name "report.html" -maxdepth 1 2>/dev/null | head -1 || true)
     if [[ -n "$f" ]]; then
-        printf '  [cleanup] Skipping (complete results present): %s\n' "$dir"
+        printf '  [cleanup] Skipping (scoring complete): %s\n' "$dir"
+        return 0
+    fi
+    # Generation complete but scoring not yet done — preserve so scoring can reuse it
+    f=$(find "${dir}/eval-results" -name "output.jsonl.done" -o -name "output_chunk_*.jsonl.done" \
+        2>/dev/null | head -1 || true)
+    if [[ -n "$f" ]]; then
+        printf '  [cleanup] Skipping (generation complete, scoring pending): %s\n' "$dir"
         return 0
     fi
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -403,7 +540,7 @@ cancel_stale_jobs() {
     # exclude their jobs from cancellation (e.g. don't cancel bba_fc_sampling_*
     # when we're about to run greedy whose expname is the shorter bba_fc).
     local -a exclude_prefixes=()
-    for m in greedy sampling; do
+    for m in greedy sampling customized; do
         [[ "$m" == "$mode" ]] && continue
         local other_exp
         other_exp=$(expname_for "$name" "$m") || true
@@ -420,9 +557,14 @@ cancel_stale_jobs() {
     done
 
     # Base output dir (without commit suffix) read from the config YAML.
+    # For customized mode the base YAML has no output_dir key; derive from
+    # OUTPUT_DIR_OVERRIDE which is required in customized mode.
     local base_outdir
     base_outdir=$(grep -m1 '^output_dir:' "$(config_for "$name" "$mode")" 2>/dev/null \
         | sed 's/^output_dir: *//' || true)
+    if [[ -z "$base_outdir" && "$mode" == "customized" && -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+        base_outdir="${OUTPUT_DIR_OVERRIDE}/${mode}"
+    fi
 
     local matching
     matching=$(squeue -u "$USER" -h -o "%i %j %T %r" 2>/dev/null \
@@ -533,6 +675,113 @@ make_patched_config() {
     echo "$tmp"
 }
 
+# Creates a temp YAML for customized mode: injects decoding params into server_args,
+# sets output_dir/expname/decoding_mode, and applies any model/code_path overrides.
+# Usage: make_patched_config_customized <benchmark_name> <output_dir_no_commit>
+# Prints path to the temp file.
+make_patched_config_customized() {
+    local name="$1"
+    local output_dir="$2"   # top-level output_dir to embed (without commit suffix)
+
+    local base_config expname artifacts_dir tmp
+    base_config=$(config_for "$name" "customized")
+    expname="$(expname_base_for "$name")_customized"
+    # Artifacts dir mirrors the output_dir with _artifacts suffix (server audio output).
+    artifacts_dir="${output_dir}_artifacts"
+    tmp=$(mktemp /tmp/benchmark_config_XXXXXX.yaml)
+
+    PATCH_SRC="$base_config" \
+    PATCH_DST="$tmp" \
+    PATCH_FORCE_TT="$CUSTOM_FORCE_TURN_TAKING" \
+    PATCH_TOP_P="$CUSTOM_TOP_P" \
+    PATCH_REP_PENALTY="$CUSTOM_REPETITION_PENALTY" \
+    PATCH_TEMP="$CUSTOM_TEMPERATURE" \
+    PATCH_ARTIFACTS_DIR="$artifacts_dir" \
+    PATCH_OUTPUT_DIR="$output_dir" \
+    PATCH_EXPNAME="$expname" \
+    PATCH_MODEL="${MODEL_OVERRIDE:-}" \
+    PATCH_CODE_PATH="${CODE_PATH_OVERRIDE:-}" \
+    PATCH_BENCHMARK="$name" \
+    "$PYTHON" - <<'PYEOF'
+import os, yaml, re, sys
+
+src           = os.environ['PATCH_SRC']
+dst           = os.environ['PATCH_DST']
+force_tt      = os.environ['PATCH_FORCE_TT']
+top_p         = os.environ['PATCH_TOP_P']
+rep_pen       = os.environ['PATCH_REP_PENALTY']
+temp          = os.environ['PATCH_TEMP']
+artifacts_dir = os.environ['PATCH_ARTIFACTS_DIR']
+output_dir    = os.environ['PATCH_OUTPUT_DIR']
+expname       = os.environ['PATCH_EXPNAME']
+model         = os.environ.get('PATCH_MODEL', '')
+code_path     = os.environ.get('PATCH_CODE_PATH', '')
+benchmark     = os.environ['PATCH_BENCHMARK']
+
+with open(src) as f:
+    cfg = yaml.safe_load(f)
+
+# Model override
+if model:
+    cfg['model'] = model
+
+# Patch server_args — inject decoding params and artifacts output dir
+if 'server_args' in cfg:
+    sa = cfg['server_args']
+    if code_path:
+        sa = re.sub(r'--code_path \S+', f'--code_path {code_path}', sa)
+    additions = []
+    if force_tt == 'true':
+        additions.append('--force_turn_taking')
+    additions += [
+        f'--top_p {top_p}',
+        f'--repetition_penalty {rep_pen}',
+        f'--temperature {temp}',
+        f'--output_dir {artifacts_dir}',
+    ]
+    cfg['server_args'] = sa.rstrip() + ' ' + ' '.join(additions)
+
+# nemo_code_path (conv_behav style)
+if code_path and 'nemo_code_path' in cfg:
+    cfg['nemo_code_path'] = code_path
+
+# Set mode-specific top-level keys
+cfg['output_dir']    = output_dir
+cfg['expname']       = expname
+cfg['decoding_mode'] = 'customized'
+
+# conv_behav: top-level force_turn_taking bool (no server_args)
+if benchmark == 'conv_behav':
+    cfg['force_turn_taking'] = (force_tt == 'true')
+
+with open(dst, 'w') as f:
+    yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True,
+              sort_keys=False, width=2147483647)
+PYEOF
+    echo "$tmp"
+}
+
+# Writes the patched YAML config as a JSON file into the benchmark's output folder.
+# Called once per benchmark in customized mode before job submission.
+dump_config_json() {
+    local config_yaml="$1"
+    local benchmark_name="$2"
+    local resolved_outdir="$3"   # output dir with commit suffix
+
+    [[ "$DRY_RUN" == "true" ]] && return 0
+
+    mkdir -p "$resolved_outdir"
+    local json_path="${resolved_outdir}/${benchmark_name}_config.json"
+    "$PYTHON" - "$config_yaml" "$json_path" <<'PYEOF'
+import sys, yaml, json
+with open(sys.argv[1]) as f:
+    cfg = yaml.safe_load(f)
+with open(sys.argv[2], 'w') as f:
+    json.dump(cfg, f, indent=2, default=str)
+print(f"  Config JSON: {sys.argv[2]}")
+PYEOF
+}
+
 # ---------------------------------------------------------------------------
 # Per-benchmark run logic
 # ---------------------------------------------------------------------------
@@ -557,21 +806,31 @@ run_benchmark() {
         extra+=("$arg")
     done < <(extra_args)
 
-    # --output_dir override: each mode gets its own subdirectory so greedy and
-    # sampling results never collide.  The Python scripts append the git commit
-    # hash, producing e.g. OUTPUT_DIR_OVERRIDE/greedy_a1b2c3d.
-    if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
-        extra+=("--output_dir" "${OUTPUT_DIR_OVERRIDE}/${mode}")
-    fi
-
     local base_config
     base_config=$(config_for "$name" "$mode")
 
     local config="$base_config"
     local tmp_config=""
-    if [[ -n "$MODEL_OVERRIDE" || -n "$CODE_PATH_OVERRIDE" ]]; then
-        tmp_config=$(make_patched_config "$base_config")
+
+    if [[ "$mode" == "customized" ]]; then
+        # Customized mode: patch base config with decoding params + output_dir/expname.
+        # output_dir passed to patcher is without commit; Python scripts append it.
+        local cust_output_dir="${OUTPUT_DIR_OVERRIDE}/${mode}"
+        tmp_config=$(make_patched_config_customized "$name" "$cust_output_dir")
         config="$tmp_config"
+        # Dump config.json into the resolved output dir before submission.
+        dump_config_json "$config" "$name" "${OUTPUT_DIR_OVERRIDE}/${mode}_${COMMIT}"
+    else
+        # --output_dir override: each mode gets its own subdirectory so greedy and
+        # sampling results never collide.  The Python scripts append the git commit
+        # hash, producing e.g. OUTPUT_DIR_OVERRIDE/greedy_a1b2c3d.
+        if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+            extra+=("--output_dir" "${OUTPUT_DIR_OVERRIDE}/${mode}")
+        fi
+        if [[ -n "$MODEL_OVERRIDE" || -n "$CODE_PATH_OVERRIDE" ]]; then
+            tmp_config=$(make_patched_config "$base_config")
+            config="$tmp_config"
+        fi
     fi
 
     cd "$REPO_ROOT"
@@ -623,6 +882,12 @@ echo "======================================================================"
 echo " Eval mode    : $EVAL_MODE"
 echo " Benchmarks   : $BENCHMARKS"
 [[ -n "$OUTPUT_DIR_OVERRIDE" ]] && echo " Output dir   : $OUTPUT_DIR_OVERRIDE/{mode}_{commit}"
+if [[ "$EVAL_MODE" == "customized" ]]; then
+    echo " force_turn_taking  : $CUSTOM_FORCE_TURN_TAKING"
+    echo " top_p              : $CUSTOM_TOP_P"
+    echo " repetition_penalty : $CUSTOM_REPETITION_PENALTY"
+    echo " temperature        : $CUSTOM_TEMPERATURE"
+fi
 echo " HTML name    : ${HTML_NAME}.html"
 echo " Poll interval: ${POLL_INTERVAL}s"
 echo " Dry run      : $DRY_RUN"
