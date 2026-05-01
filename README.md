@@ -65,6 +65,78 @@ We've built and released many popular models and datasets using Nemo-Skills. See
 You can find the full documentation [here](https://nvidia-nemo.github.io/Skills/).
 
 
+## S2S FC Eval Scorecard
+
+Tools for generating and viewing a single-page HTML scorecard that aggregates metrics from all S2S FC eval benchmarks (VoiceBench nonMCQ/MCQ, FDB, BBA, BFCL, conv_behav).
+
+### Generating the scorecard
+
+The scorecard is generated via a Claude Code slash command. Run it inside a `claude` session:
+
+```
+/make-scorecard
+```
+
+Optional arguments:
+
+| Argument | Description | Default |
+|---|---|---|
+| `name=<filename>` | Output HTML filename (`.html` appended if omitted) | `scorecard` |
+| `output_dir=<path>` | Base output dir for all benchmarks; results are read from `{output_dir}/{mode}_{commit}/` | read from each benchmark's config YAML |
+| `eval_mode=<mode>` | `greedy`, `sampling`, or `greedy+sampling` | `greedy+sampling` |
+
+Examples:
+
+```
+/make-scorecard
+/make-scorecard name=my_run
+/make-scorecard name=my_run eval_mode=greedy
+/make-scorecard name=my_run output_dir=/path/to/results eval_mode=greedy+sampling
+```
+
+Output is written to `asset/{name}.html`. The scorecard includes:
+- Summary tiles and radar chart across all benchmarks
+- Per-benchmark metric breakdowns (greedy and sampling side by side)
+- Audio example playback for VoiceBench CommonEval, FDB turn-taking/pause, BBA Navigate, and conv_behav agent sessions
+
+### Viewing the scorecard
+
+Audio playback requires an HTTP server on the cluster. Run:
+
+```bash
+bash scripts/serve_scorecard.sh [--name <filename>] [--port <port>]
+```
+
+The script will:
+1. List all available scorecards in `asset/` with their browser URLs
+2. Start an HTTP server (auto-selects a free port in 8780–8799 if `--port` is omitted)
+3. Print the SSH tunnel command to run on your laptop
+4. Print the browser URL to open
+
+Example output:
+
+```
+Available scorecards in .../asset/:
+  http://localhost:8780/.../asset/scorecard.html
+  http://localhost:8780/.../asset/my_run.html
+
+════════════════════════════════════════════════════════════
+  Run this on your LAPTOP:
+
+    ssh -L 8780:127.0.0.1:8780 <user>@draco-oci-login-01.draco-oci-iad.nvidia.com -N &
+
+  Then open in browser:
+    http://localhost:8780/.../asset/my_run.html
+
+  To stop the server:
+    kill <PID>
+════════════════════════════════════════════════════════════
+```
+
+Press **Ctrl+C** in the terminal running `serve_scorecard.sh` to stop the server.
+
+---
+
 ## Contributing
 
 We welcome contributions to Nemo-Skills! Please see our [Contributing Guidelines](./CONTRIBUTING.md) for more information on how to get involved.
