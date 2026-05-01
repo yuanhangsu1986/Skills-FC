@@ -244,6 +244,14 @@ case "$EVAL_MODE" in
         ;;
 esac
 
+# Derive a short suffix from OUTPUT_DIR_OVERRIDE so that concurrent runs with
+# different output directories produce distinct SLURM job names and
+# cancel_stale_jobs cannot accidentally cancel an unrelated parallel run.
+_EXPNAME_SUFFIX=""
+if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+    _EXPNAME_SUFFIX="_$(printf '%s' "${OUTPUT_DIR_OVERRIDE%/}" | md5sum | cut -c1-8)"
+fi
+
 # ---------------------------------------------------------------------------
 # Resolve benchmark list
 # ---------------------------------------------------------------------------
@@ -338,18 +346,27 @@ expname_base_for() {
     esac
 }
 
-# Returns the expname for a given benchmark+mode.
+# Returns the expname for a given benchmark+mode, including the _EXPNAME_SUFFIX
+# that differentiates concurrent runs writing to different output directories.
 # For customized mode, derives expname from expname_base_for() since base YAMLs
 # have no expname key.
 expname_for() {
     local name="$1" mode="$2"
     if [[ "$mode" == "customized" ]]; then
-        echo "$(expname_base_for "$name")_customized"
+        echo "$(expname_base_for "$name")_customized${_EXPNAME_SUFFIX}"
         return
     fi
-    local config
+    local config base_exp
     config=$(config_for "$name" "$mode")
-    grep -m1 '^expname:' "$config" 2>/dev/null | sed 's/^expname: *//' || true
+    base_exp=$(grep -m1 '^expname:' "$config" 2>/dev/null | sed 's/^expname: *//' || true)
+    # Return empty if no expname found — caller (cancel_stale_jobs) will warn and skip.
+    # Returning just _EXPNAME_SUFFIX would silently build an awk filter that could
+    # match unrelated jobs.
+    if [[ -z "$base_exp" ]]; then
+        echo ""
+        return
+    fi
+    echo "${base_exp}${_EXPNAME_SUFFIX}"
 }
 
 # ---------------------------------------------------------------------------
@@ -543,6 +560,24 @@ cancel_stale_jobs() {
         return 0
     fi
 
+    # Read the job_name_prefix that the Python pipeline prepends to every SLURM
+    # job name (exp.py:358).  Without it the awk filter would miss jobs when the
+    # cluster config sets a non-empty prefix.
+    local cluster cluster_cfg job_name_prefix=""
+    cluster=$(grep -m1 '^cluster:' "$(config_for "$name" "$mode")" 2>/dev/null \
+        | sed 's/^cluster:[[:space:]]*//' || true)
+    if [[ -n "$cluster" ]]; then
+        cluster_cfg="${REPO_ROOT}/cluster_configs/${cluster}.yaml"
+        if [[ -f "$cluster_cfg" ]]; then
+            job_name_prefix=$("$PYTHON" -c "
+import yaml, sys
+with open(sys.argv[1]) as f:
+    cfg = yaml.safe_load(f)
+print(cfg.get('job_name_prefix', ''), end='')
+" "$cluster_cfg" 2>/dev/null || true)
+        fi
+    fi
+
     # Collect expnames for every other mode of this benchmark so we can
     # exclude their jobs from cancellation (e.g. don't cancel bba_fc_sampling_*
     # when we're about to run greedy whose expname is the shorter bba_fc).
@@ -554,13 +589,15 @@ cancel_stale_jobs() {
         [[ -n "$other_exp" && "$other_exp" != "$expname" ]] && exclude_prefixes+=("$other_exp")
     done
 
-    # awk filter: include if job name equals expname or starts with expname_,
-    # then subtract any job that matches a sibling-mode expname by the same rule.
+    # Prepend job_name_prefix to every name before building the awk filter so
+    # the search matches the actual SLURM job names.
+    local full_expname="${job_name_prefix}${expname}"
     local awk_include
-    awk_include="(\$2 == \"$expname\" || index(\$2, \"${expname}_\") == 1)"
+    awk_include="(\$2 == \"$full_expname\" || index(\$2, \"${full_expname}_\") == 1)"
     local awk_exclude=""
     for excl in "${exclude_prefixes[@]}"; do
-        awk_exclude+=" && !(\$2 == \"$excl\" || index(\$2, \"${excl}_\") == 1)"
+        local full_excl="${job_name_prefix}${excl}"
+        awk_exclude+=" && !(\$2 == \"$full_excl\" || index(\$2, \"${full_excl}_\") == 1)"
     done
 
     # Base output dir (without commit suffix).
@@ -592,7 +629,7 @@ cancel_stale_jobs() {
 
     echo ""
     printf '  [dedup] %s (%s): %d existing job(s) match prefix "%s"\n' \
-        "$name" "$mode" "$count" "$expname"
+        "$name" "$mode" "$count" "$full_expname"
     printf '%s\n' "$matching" | \
         awk '{printf "    %-12s %-50s %-12s %s\n", $1, $2, $3, $4}'
 
@@ -670,17 +707,30 @@ check_model_code_path() {
 # Config patching
 # ---------------------------------------------------------------------------
 
-# Creates a temp YAML with MODEL_OVERRIDE and CODE_PATH_OVERRIDE applied.
+# Creates a temp YAML with MODEL_OVERRIDE, CODE_PATH_OVERRIDE, and
+# _EXPNAME_SUFFIX applied (each only when the respective variable is set).
 # Handles --code_path inside server_args AND nemo_code_path top-level field.
 # Caller is responsible for deleting the returned temp file.
 make_patched_config() {
     local config="$1"
-    local tmp
+    local tmp sed_cmds
     tmp=$(mktemp /tmp/benchmark_config_XXXXXX.yaml)
-    sed "s|^model:.*|model: ${MODEL_OVERRIDE}|;
-         s|--code_path [^ ]*|--code_path ${CODE_PATH_OVERRIDE}|g;
-         s|^nemo_code_path:.*|nemo_code_path: ${CODE_PATH_OVERRIDE}|" \
-        "$config" > "$tmp"
+    sed_cmds=""
+    if [[ -n "$MODEL_OVERRIDE" ]]; then
+        sed_cmds+="s|^model:.*|model: ${MODEL_OVERRIDE}|;"
+    fi
+    if [[ -n "$CODE_PATH_OVERRIDE" ]]; then
+        sed_cmds+="s|--code_path [^ ]*|--code_path ${CODE_PATH_OVERRIDE}|g;"
+        sed_cmds+="s|^nemo_code_path:.*|nemo_code_path: ${CODE_PATH_OVERRIDE}|;"
+    fi
+    if [[ -n "$_EXPNAME_SUFFIX" ]]; then
+        sed_cmds+="s|^\(expname:[[:space:]]*.*\)$|\1${_EXPNAME_SUFFIX}|;"
+    fi
+    if [[ -n "$sed_cmds" ]]; then
+        sed "$sed_cmds" "$config" > "$tmp"
+    else
+        cp "$config" "$tmp"
+    fi
     echo "$tmp"
 }
 
@@ -694,7 +744,7 @@ make_patched_config_customized() {
 
     local base_config expname artifacts_dir tmp
     base_config=$(config_for "$name" "customized")
-    expname="$(expname_base_for "$name")_customized"
+    expname="$(expname_base_for "$name")_customized${_EXPNAME_SUFFIX}"
     # Artifacts dir mirrors the output_dir with _artifacts suffix (server audio output).
     artifacts_dir="${output_dir}_artifacts"
     tmp=$(mktemp /tmp/benchmark_config_XXXXXX.yaml)
@@ -836,7 +886,7 @@ run_benchmark() {
         if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
             extra+=("--output_dir" "${OUTPUT_DIR_OVERRIDE}/${mode}/${name}")
         fi
-        if [[ -n "$MODEL_OVERRIDE" || -n "$CODE_PATH_OVERRIDE" ]]; then
+        if [[ -n "$MODEL_OVERRIDE" || -n "$CODE_PATH_OVERRIDE" || -n "$_EXPNAME_SUFFIX" ]]; then
             tmp_config=$(make_patched_config "$base_config")
             config="$tmp_config"
         fi
