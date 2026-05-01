@@ -124,10 +124,12 @@ Options:
                             Used to locate an existing scorecard for the skip-all
                             check. Pass the same value you use with /make-scorecard
                             name=NAME so the two commands stay in sync.
-  --output_dir        PATH  Redirect all benchmark outputs under PATH/{mode}
-                            (e.g. PATH/greedy, PATH/sampling). The Python scripts
-                            will further append the git commit hash. If unset,
-                            each benchmark uses its own output_dir from its YAML.
+  --output_dir        PATH  Redirect all benchmark outputs under PATH/{mode}/{name}
+                            (e.g. PATH/greedy/bba_a1b2c3d, PATH/sampling/fdb_a1b2c3d).
+                            Each benchmark gets its own subdirectory so result-detection
+                            across benchmarks cannot cross-contaminate. The Python
+                            scripts append the git commit hash. If unset, each
+                            benchmark uses its own output_dir from its YAML.
   --model             PATH  Override the model checkpoint for every benchmark.
                             Must be paired with --code_path.
   --code_path         PATH  Override the NeMo source code directory for every
@@ -356,10 +358,12 @@ expname_for() {
 
 # Returns the fully-resolved output dir for a benchmark+mode, including the
 # git commit hash suffix that Python scripts append.
+# When --output_dir is set each benchmark gets its own subdirectory so
+# find_benchmark_result can't confuse one benchmark's metrics.json for another's.
 resolve_output_dir() {
     local name="$1" mode="$2"
     if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
-        echo "${OUTPUT_DIR_OVERRIDE}/${mode}_${COMMIT}"
+        echo "${OUTPUT_DIR_OVERRIDE}/${mode}/${name}_${COMMIT}"
     else
         local config yaml_dir
         config=$(config_for "$name" "$mode")
@@ -386,10 +390,13 @@ find_benchmark_result() {
 
 # Echoes the path of the aggregate scorecard if it exists:
 # checks output_dir/{html_name}.html first, then asset/{html_name}.html.
+# When --output_dir is set we only check that location; the asset/ fallback
+# would otherwise match a scorecard from a previous run and incorrectly
+# short-circuit a new run with a different mode or checkpoint.
 find_scorecard() {
     if [[ -n "$OUTPUT_DIR_OVERRIDE" && -f "${OUTPUT_DIR_OVERRIDE}/${HTML_NAME}.html" ]]; then
         echo "${OUTPUT_DIR_OVERRIDE}/${HTML_NAME}.html"
-    elif [[ -f "${REPO_ROOT}/asset/${HTML_NAME}.html" ]]; then
+    elif [[ -z "$OUTPUT_DIR_OVERRIDE" && -f "${REPO_ROOT}/asset/${HTML_NAME}.html" ]]; then
         echo "${REPO_ROOT}/asset/${HTML_NAME}.html"
     fi
 }
@@ -556,14 +563,16 @@ cancel_stale_jobs() {
         awk_exclude+=" && !(\$2 == \"$excl\" || index(\$2, \"${excl}_\") == 1)"
     done
 
-    # Base output dir (without commit suffix) read from the config YAML.
-    # For customized mode the base YAML has no output_dir key; derive from
-    # OUTPUT_DIR_OVERRIDE which is required in customized mode.
+    # Base output dir (without commit suffix).
+    # When --output_dir is set, every benchmark gets its own subdirectory
+    # (matching resolve_output_dir / run_benchmark).  Otherwise read it from
+    # the config YAML (greedy/sampling mode-specific YAMLs have output_dir:).
     local base_outdir
-    base_outdir=$(grep -m1 '^output_dir:' "$(config_for "$name" "$mode")" 2>/dev/null \
-        | sed 's/^output_dir: *//' || true)
-    if [[ -z "$base_outdir" && "$mode" == "customized" && -n "$OUTPUT_DIR_OVERRIDE" ]]; then
-        base_outdir="${OUTPUT_DIR_OVERRIDE}/${mode}"
+    if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+        base_outdir="${OUTPUT_DIR_OVERRIDE}/${mode}/${name}"
+    else
+        base_outdir=$(grep -m1 '^output_dir:' "$(config_for "$name" "$mode")" 2>/dev/null \
+            | sed 's/^output_dir: *//' || true)
     fi
 
     local matching
@@ -815,17 +824,17 @@ run_benchmark() {
     if [[ "$mode" == "customized" ]]; then
         # Customized mode: patch base config with decoding params + output_dir/expname.
         # output_dir passed to patcher is without commit; Python scripts append it.
-        local cust_output_dir="${OUTPUT_DIR_OVERRIDE}/${mode}"
+        local cust_output_dir="${OUTPUT_DIR_OVERRIDE}/${mode}/${name}"
         tmp_config=$(make_patched_config_customized "$name" "$cust_output_dir")
         config="$tmp_config"
         # Dump config.json into the resolved output dir before submission.
-        dump_config_json "$config" "$name" "${OUTPUT_DIR_OVERRIDE}/${mode}_${COMMIT}"
+        dump_config_json "$config" "$name" "${OUTPUT_DIR_OVERRIDE}/${mode}/${name}_${COMMIT}"
     else
-        # --output_dir override: each mode gets its own subdirectory so greedy and
-        # sampling results never collide.  The Python scripts append the git commit
-        # hash, producing e.g. OUTPUT_DIR_OVERRIDE/greedy_a1b2c3d.
+        # --output_dir override: each benchmark gets its own subdirectory so
+        # result files from different benchmarks never collide.  Python scripts
+        # append the git commit hash, producing e.g. OUTPUT_DIR_OVERRIDE/greedy/bba_a1b2c3d.
         if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
-            extra+=("--output_dir" "${OUTPUT_DIR_OVERRIDE}/${mode}")
+            extra+=("--output_dir" "${OUTPUT_DIR_OVERRIDE}/${mode}/${name}")
         fi
         if [[ -n "$MODEL_OVERRIDE" || -n "$CODE_PATH_OVERRIDE" ]]; then
             tmp_config=$(make_patched_config "$base_config")
@@ -881,7 +890,7 @@ echo " S2S FC Benchmark Runner"
 echo "======================================================================"
 echo " Eval mode    : $EVAL_MODE"
 echo " Benchmarks   : $BENCHMARKS"
-[[ -n "$OUTPUT_DIR_OVERRIDE" ]] && echo " Output dir   : $OUTPUT_DIR_OVERRIDE/{mode}_{commit}"
+[[ -n "$OUTPUT_DIR_OVERRIDE" ]] && echo " Output dir   : $OUTPUT_DIR_OVERRIDE/{mode}/{name}_{commit}"
 if [[ "$EVAL_MODE" == "customized" ]]; then
     echo " force_turn_taking  : $CUSTOM_FORCE_TURN_TAKING"
     echo " top_p              : $CUSTOM_TOP_P"
