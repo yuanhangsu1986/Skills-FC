@@ -904,6 +904,7 @@ run_benchmark() {
     [[ -n "$tmp_config" ]] && printf ' %-30s  %s\n' "Patched config:" "$tmp_config"
     echo "======================================================================"
 
+    local rc=0
     case "$name" in
         vb_nonmcq)
             "$PYTHON" "$VB_SCRIPT" --config "$config" "${extra[@]}"
@@ -923,9 +924,33 @@ run_benchmark() {
         conv_behav)
             "$PYTHON" "$CONV_BEHAV_SCRIPT" --config "$config" "${extra[@]}"
             ;;
-    esac
+    esac || rc=$?
 
+    # Always clean up the temp config regardless of exit code.
     [[ -n "$tmp_config" ]] && rm -f "$tmp_config"
+
+    if [[ $rc -ne 0 ]]; then
+        # Some Python scripts crash during interpreter shutdown after successfully
+        # submitting their SLURM jobs (daemon-thread / stdout-lock race at exit).
+        # If the expected job already appears in squeue, treat it as a success.
+        local exp found_job=""
+        exp=$(expname_for "$name" "$mode") || true
+        if [[ -n "$exp" ]]; then
+            found_job=$(squeue -u "$USER" -h -o "%j" 2>/dev/null \
+                | awk -v p="$exp" '($0 == p || index($0, p "_") == 1)' \
+                | head -1 || true)
+        fi
+        if [[ -n "$found_job" ]]; then
+            echo "" >&2
+            printf 'WARNING: %s (%s) exited with code %d but SLURM job "%s" is queued — likely a Python shutdown crash. Continuing.\n' \
+                "$name" "$mode" "$rc" "$found_job" >&2
+        else
+            printf 'ERROR: %s (%s) failed with exit code %d and no matching SLURM job found.\n' \
+                "$name" "$mode" "$rc" >&2
+            exit $rc
+        fi
+    fi
+
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Done submitting: $name"
 }
 
