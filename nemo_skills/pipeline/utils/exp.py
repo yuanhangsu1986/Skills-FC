@@ -16,6 +16,7 @@ import contextlib
 import logging
 import os
 import shlex
+import subprocess
 import uuid
 from dataclasses import dataclass, fields
 from functools import lru_cache
@@ -155,6 +156,18 @@ class CustomJobDetailsRay(CustomJobDetails):
     def ls_term(self) -> str:
         assert self.folder
         return os.path.join(self.folder, "ray-%j-job*")
+
+
+@lru_cache(maxsize=1)
+def _git_commit_short() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return ""
 
 
 def get_executor(
@@ -342,7 +355,7 @@ def get_executor(
         "gpus_per_node": gpus_per_node if not cluster_config.get("disable_gpus_per_node", False) else None,
         "srun_args": srun_args,
         "job_details": job_details_class(
-            job_name=cluster_config.get("job_name_prefix", "") + job_name,
+            job_name=cluster_config.get("job_name_prefix", "") + job_name + (f"_{_git_commit_short()}" if _git_commit_short() else ""),
             folder=get_unmounted_path(cluster_config, log_dir),
             srun_prefix=log_prefix + "_" + job_name + "_",
             sbatch_prefix=job_name + "_",

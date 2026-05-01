@@ -216,6 +216,14 @@ config_for() {
     esac
 }
 
+# Returns the expname prefix declared in the config YAML for benchmark+mode.
+expname_for() {
+    local name="$1" mode="$2"
+    local config
+    config=$(config_for "$name" "$mode")
+    grep -m1 '^expname:' "$config" 2>/dev/null | sed 's/^expname: *//' || true
+}
+
 # ---------------------------------------------------------------------------
 # Output dir resolution + completion detection
 # ---------------------------------------------------------------------------
@@ -243,10 +251,11 @@ find_benchmark_result() {
     outdir=$(resolve_output_dir "$name" "$mode")
     [[ -d "$outdir" ]] || return 0
     local f
-    f=$(find "${outdir}/eval-results" -name "metrics.json" -maxdepth 2 2>/dev/null | head -1)
+    f=$(find "${outdir}/eval-results" -name "metrics.json" -maxdepth 2 2>/dev/null | head -1 || true)
     [[ -n "$f" ]] && { echo "$f"; return; }
-    f=$(find "${outdir}" -name "report.html" -maxdepth 1 2>/dev/null | head -1)
+    f=$(find "${outdir}" -name "report.html" -maxdepth 1 2>/dev/null | head -1 || true)
     [[ -n "$f" ]] && echo "$f"
+    return 0
 }
 
 # Echoes the path of the aggregate scorecard if it exists:
@@ -345,6 +354,136 @@ wait_for_slot() {
         fi
         sleep "$POLL_INTERVAL"
     done
+}
+
+# Deletes a directory if it exists and contains no complete results.
+# Skips silently if the directory has a metrics.json or report.html.
+_delete_incomplete_dir() {
+    local dir="$1"
+    [[ -d "$dir" ]] || return 0
+    local f
+    f=$(find "${dir}/eval-results" -name "metrics.json" -maxdepth 2 2>/dev/null | head -1 || true)
+    [[ -z "$f" ]] && f=$(find "${dir}" -name "report.html" -maxdepth 1 2>/dev/null | head -1 || true)
+    if [[ -n "$f" ]]; then
+        printf '  [cleanup] Skipping (complete results present): %s\n' "$dir"
+        return 0
+    fi
+    if [[ "$DRY_RUN" == "true" ]]; then
+        printf '  [cleanup] DRY RUN — would delete: %s\n' "$dir"
+    else
+        printf '  [cleanup] Deleting: %s\n' "$dir"
+        rm -rf "$dir"
+    fi
+}
+
+# Finds and cancels any running/pending SLURM jobs whose name matches the
+# expname prefix for the given benchmark+mode.  Jobs belonging to a sibling
+# mode of the same benchmark (e.g. sampling when running greedy) are excluded
+# so we never accidentally cancel an unrelated concurrent run.
+#
+# After cancellation, cleans up the output directories of the cancelled jobs.
+# Because job names now embed the git commit (appended by the Python pipeline),
+# we extract the commit from each job name and delete
+# {base_output_dir}_{extracted_commit}, which is the exact directory that job
+# was writing to — regardless of whether it matches the current commit.
+#
+# If no stale jobs are found we still clean up the current commit's output dir
+# if it exists with only partial data (e.g. left behind by a prior Python crash).
+cancel_stale_jobs() {
+    local name="$1" mode="$2"
+
+    local expname
+    expname=$(expname_for "$name" "$mode") || true
+    if [[ -z "$expname" ]]; then
+        echo "  [dedup] WARNING: cannot read expname for $name/$mode — skipping duplicate check" >&2
+        return 0
+    fi
+
+    # Collect expnames for every other mode of this benchmark so we can
+    # exclude their jobs from cancellation (e.g. don't cancel bba_fc_sampling_*
+    # when we're about to run greedy whose expname is the shorter bba_fc).
+    local -a exclude_prefixes=()
+    for m in greedy sampling; do
+        [[ "$m" == "$mode" ]] && continue
+        local other_exp
+        other_exp=$(expname_for "$name" "$m") || true
+        [[ -n "$other_exp" && "$other_exp" != "$expname" ]] && exclude_prefixes+=("$other_exp")
+    done
+
+    # awk filter: include if job name equals expname or starts with expname_,
+    # then subtract any job that matches a sibling-mode expname by the same rule.
+    local awk_include
+    awk_include="(\$2 == \"$expname\" || index(\$2, \"${expname}_\") == 1)"
+    local awk_exclude=""
+    for excl in "${exclude_prefixes[@]}"; do
+        awk_exclude+=" && !(\$2 == \"$excl\" || index(\$2, \"${excl}_\") == 1)"
+    done
+
+    # Base output dir (without commit suffix) read from the config YAML.
+    local base_outdir
+    base_outdir=$(grep -m1 '^output_dir:' "$(config_for "$name" "$mode")" 2>/dev/null \
+        | sed 's/^output_dir: *//' || true)
+
+    local matching
+    matching=$(squeue -u "$USER" -h -o "%i %j %T %r" 2>/dev/null \
+        | awk "{ if (${awk_include}${awk_exclude}) print }" || true)
+
+    if [[ -z "$matching" ]]; then
+        # No stale jobs — still clean up the current commit's dir if it has
+        # only partial data (e.g. left behind by an earlier Python crash).
+        [[ -n "$base_outdir" ]] && _delete_incomplete_dir "${base_outdir}_${COMMIT}"
+        return 0
+    fi
+
+    local count job_ids
+    count=$(printf '%s\n' "$matching" | wc -l | tr -d ' ')
+    job_ids=$(printf '%s\n' "$matching" | awk '{printf "%s ", $1}')
+
+    echo ""
+    printf '  [dedup] %s (%s): %d existing job(s) match prefix "%s"\n' \
+        "$name" "$mode" "$count" "$expname"
+    printf '%s\n' "$matching" | \
+        awk '{printf "    %-12s %-50s %-12s %s\n", $1, $2, $3, $4}'
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        printf '  [dedup] DRY RUN — would cancel job IDs: %s\n' "$job_ids"
+    else
+        printf '  [dedup] Cancelling job IDs: %s\n' "$job_ids"
+        # shellcheck disable=SC2086
+        scancel $job_ids 2>&1 || true
+        printf '  [dedup] Cancelled.\n'
+    fi
+
+    # Clean up the output dir of each cancelled job.  The Python pipeline
+    # appends _{commit} to every SLURM job name, so we extract it from the
+    # job name to find the exact directory that job was writing to.
+    if [[ -n "$base_outdir" ]]; then
+        local -a seen_commits=()
+        while IFS= read -r line; do
+            local job_name job_commit
+            job_name=$(printf '%s\n' "$line" | awk '{print $2}')
+            # The commit is the trailing _[0-9a-f]{7,8} component.
+            job_commit=$(printf '%s\n' "$job_name" | grep -oE '_[0-9a-f]{7,8}$' | tr -d '_' || true)
+            [[ -z "$job_commit" ]] && continue
+            # Process each unique commit only once.
+            local dup=false
+            for c in "${seen_commits[@]+"${seen_commits[@]}"}"; do
+                [[ "$c" == "$job_commit" ]] && { dup=true; break; }
+            done
+            $dup && continue
+            seen_commits+=("$job_commit")
+            _delete_incomplete_dir "${base_outdir}_${job_commit}"
+        done <<< "$matching"
+
+        # Also clean the current commit's dir if not already covered above.
+        local covered=false
+        for c in "${seen_commits[@]+"${seen_commits[@]}"}"; do
+            [[ "$c" == "$COMMIT" ]] && { covered=true; break; }
+        done
+        $covered || _delete_incomplete_dir "${base_outdir}_${COMMIT}"
+    fi
+
+    echo ""
 }
 
 # ---------------------------------------------------------------------------
@@ -528,6 +667,7 @@ for mode in $EVAL_MODES; do
                 continue
             fi
         fi
+        cancel_stale_jobs "$benchmark" "$mode"
         if [[ -n "$MAX_JOBS" && "$DRY_RUN" != "true" ]]; then
             wait_for_slot "$MAX_JOBS" "$benchmark ($mode)"
         fi
