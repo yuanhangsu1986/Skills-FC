@@ -6,17 +6,17 @@
 # scontrol partition settings; the tighter of the two is used).
 #
 # Run from the repo root:
-#   bash asset/run_all_benchmarks.sh [options]
+#   bash scripts/run_all_benchmarks.sh [options]
 #
 # Examples:
 #   # Run everything with defaults
-#   bash asset/run_all_benchmarks.sh
+#   bash scripts/run_all_benchmarks.sh
 #
 #   # Run only BBA and BFCL, override the checkpoint
-#   bash asset/run_all_benchmarks.sh --benchmarks bba,bfcl --model /path/to/ckpt
+#   bash scripts/run_all_benchmarks.sh --benchmarks bba,bfcl --model /path/to/ckpt
 #
 #   # Dry run — preview job submissions without actually submitting
-#   bash asset/run_all_benchmarks.sh --dry_run
+#   bash scripts/run_all_benchmarks.sh --dry_run
 
 set -euo pipefail
 
@@ -26,6 +26,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMMIT=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+PYTHON="${REPO_ROOT}/.venv/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+    PYTHON="$(command -v python3 || command -v python)"
+fi
+
+# Ensure nemo_skills and its venv dependencies are importable even when the
+# venv Python symlink is broken (container-built venvs on bare-metal nodes).
+_VENV_SITE=$(find "${REPO_ROOT}/.venv/lib" -maxdepth 2 -name "site-packages" -type d 2>/dev/null | head -1)
+export PYTHONPATH="${REPO_ROOT}${_VENV_SITE:+:${_VENV_SITE}}${PYTHONPATH:+:${PYTHONPATH}}"
 
 VB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts/generate_from_api_and_score_official.py"
 FDB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/run_eval.py"
@@ -59,6 +68,7 @@ EVAL_MODE="greedy+sampling"
 MODEL_OVERRIDE=""
 CODE_PATH_OVERRIDE=""
 OUTPUT_DIR_OVERRIDE=""
+HTML_NAME="scorecard"
 MAX_JOBS_OVERRIDE=""
 POLL_INTERVAL=60
 DRY_RUN=false
@@ -69,7 +79,7 @@ FORCE_RERUN=false
 # ---------------------------------------------------------------------------
 usage() {
     cat <<EOF
-Usage: bash asset/run_all_benchmarks.sh [options]
+Usage: bash scripts/run_all_benchmarks.sh [options]
 
 Submit S2S FC eval benchmarks sequentially.  Before each benchmark the script
 checks the current SLURM job count against the detected (or supplied) limit and
@@ -93,6 +103,10 @@ Options:
   --config_bba        PATH Config YAML for BBA                 (overrides --eval_mode)
   --config_bfcl       PATH Config YAML for BFCL                (overrides --eval_mode)
   --config_conv_behav PATH Config YAML for conv_behav          (overrides --eval_mode)
+  --html_name         NAME  Base name for the scorecard HTML (default: scorecard).
+                            Used to locate an existing scorecard for the skip-all
+                            check. Pass the same value you use with /make-scorecard
+                            name=NAME so the two commands stay in sync.
   --output_dir        PATH  Redirect all benchmark outputs under PATH/{mode}
                             (e.g. PATH/greedy, PATH/sampling). The Python scripts
                             will further append the git commit hash. If unset,
@@ -122,6 +136,7 @@ while [[ $# -gt 0 ]]; do
         --config_bba)        CONFIG_BBA="$2";            shift 2 ;;
         --config_bfcl)       CONFIG_BFCL="$2";           shift 2 ;;
         --config_conv_behav) CONFIG_CONV_BEHAV="$2";     shift 2 ;;
+        --html_name)         HTML_NAME="$2";               shift 2 ;;
         --output_dir)        OUTPUT_DIR_OVERRIDE="$2";    shift 2 ;;
         --model)             MODEL_OVERRIDE="$2";         shift 2 ;;
         --code_path)         CODE_PATH_OVERRIDE="$2";    shift 2 ;;
@@ -235,12 +250,12 @@ find_benchmark_result() {
 }
 
 # Echoes the path of the aggregate scorecard if it exists:
-# checks output_dir/scorecard.html first, then asset/scorecard.html (CWD-relative).
+# checks output_dir/{html_name}.html first, then asset/{html_name}.html.
 find_scorecard() {
-    if [[ -n "$OUTPUT_DIR_OVERRIDE" && -f "${OUTPUT_DIR_OVERRIDE}/scorecard.html" ]]; then
-        echo "${OUTPUT_DIR_OVERRIDE}/scorecard.html"
-    elif [[ -f "${SCRIPT_DIR}/scorecard.html" ]]; then
-        echo "${SCRIPT_DIR}/scorecard.html"
+    if [[ -n "$OUTPUT_DIR_OVERRIDE" && -f "${OUTPUT_DIR_OVERRIDE}/${HTML_NAME}.html" ]]; then
+        echo "${OUTPUT_DIR_OVERRIDE}/${HTML_NAME}.html"
+    elif [[ -f "${REPO_ROOT}/asset/${HTML_NAME}.html" ]]; then
+        echo "${REPO_ROOT}/asset/${HTML_NAME}.html"
     fi
 }
 
@@ -434,22 +449,22 @@ run_benchmark() {
 
     case "$name" in
         vb_nonmcq)
-            python "$VB_SCRIPT" --config "$config" "${extra[@]}"
+            "$PYTHON" "$VB_SCRIPT" --config "$config" "${extra[@]}"
             ;;
         vb_mcq)
-            python "$VB_SCRIPT" --config "$config" "${extra[@]}"
+            "$PYTHON" "$VB_SCRIPT" --config "$config" "${extra[@]}"
             ;;
         fdb)
-            python "$FDB_SCRIPT" --config "$config" "${extra[@]}"
+            "$PYTHON" "$FDB_SCRIPT" --config "$config" "${extra[@]}"
             ;;
         bba)
-            python "$BBA_SCRIPT" --config "$config" "${extra[@]}"
+            "$PYTHON" "$BBA_SCRIPT" --config "$config" "${extra[@]}"
             ;;
         bfcl)
-            python "$BFCL_SCRIPT" --config "$config" "${extra[@]}"
+            "$PYTHON" "$BFCL_SCRIPT" --config "$config" "${extra[@]}"
             ;;
         conv_behav)
-            python "$CONV_BEHAV_SCRIPT" --config "$config" "${extra[@]}"
+            "$PYTHON" "$CONV_BEHAV_SCRIPT" --config "$config" "${extra[@]}"
             ;;
     esac
 
@@ -469,6 +484,7 @@ echo "======================================================================"
 echo " Eval mode    : $EVAL_MODE"
 echo " Benchmarks   : $BENCHMARKS"
 [[ -n "$OUTPUT_DIR_OVERRIDE" ]] && echo " Output dir   : $OUTPUT_DIR_OVERRIDE/{mode}_{commit}"
+echo " HTML name    : ${HTML_NAME}.html"
 echo " Poll interval: ${POLL_INTERVAL}s"
 echo " Dry run      : $DRY_RUN"
 echo " Force rerun  : $FORCE_RERUN"
