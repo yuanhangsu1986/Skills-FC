@@ -83,3 +83,4 @@ inference_overrides: ""
 generation_only: false
 scoring_only: false
 dry_run: false
+python_exec: python3

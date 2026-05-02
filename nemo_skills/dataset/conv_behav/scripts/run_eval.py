@@ -101,7 +101,7 @@ def build_scoring_command(config: dict) -> str:
     eval_script = f"{config['nemo_code_path']}/scripts/speech_eval/eval_conversation_behavior.py"
     decoding_mode = "greedy" if config.get("force_turn_taking", False) else "sampling"
     cmd = (
-        f"python nemo_skills/dataset/conv_behav/scripts/run_scoring.py"
+        f"{config.get('python_exec', 'python3')} nemo_skills/dataset/conv_behav/scripts/run_scoring.py"
         f" --output_dir {config['output_dir']}/eval-results"
         f" --shar_input_dir {config['shar_input_dir']}"
         f" --dataset_name {config['dataset_name']}"

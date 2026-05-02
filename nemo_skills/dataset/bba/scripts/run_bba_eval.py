@@ -53,8 +53,11 @@ def load_config(config_path: str) -> dict:
 def build_score_command(config: dict, category: str, force: bool = False) -> str:
     eval_results_dir = f"{config['output_dir']}/eval-results/{category}"
     decoding_mode = config.get("decoding_mode", "greedy")
+    if decoding_mode not in ("greedy", "sampling"):
+        decoding_mode = "greedy"
+    python_exec = config.get("python_exec", "python3")
     cmd_args = [
-        f"python nemo_skills/dataset/bba/scripts/run_bba_scoring.py",
+        f"{python_exec} nemo_skills/dataset/bba/scripts/run_bba_scoring.py",
         f"--eval_results_dir {eval_results_dir}",
         f"--category {category}",
         f"--decoding_mode {decoding_mode}",
@@ -173,8 +176,9 @@ def run_scoring_stage(config: dict, category: str, expname: str, eval_results_pa
 
 def build_aggregate_command(config: dict, categories: list, force: bool = False) -> str:
     """Build the stage-5 aggregation command."""
+    python_exec = config.get("python_exec", "python3")
     cmd_args = [
-        "python nemo_skills/dataset/bba/scripts/run_bba_aggregate.py",
+        f"{python_exec} nemo_skills/dataset/bba/scripts/run_bba_aggregate.py",
         f"--output_dir {config['output_dir']}",
         f"--categories {' '.join(categories)}",
     ]

@@ -68,8 +68,9 @@ def build_infer_command(config: dict, category: str) -> str:
     input_jsonl = f"{data_dir}/{category}/input.jsonl"
     output_jsonl = f"{output_dir}/eval-results/{category}/output.jsonl"
 
+    python_exec = config.get("python_exec", "python3")
     serve_cmd = (
-        f"python -m nemo_skills.inference.server.serve_unified"
+        f"{python_exec} -m nemo_skills.inference.server.serve_unified"
         f" --model {model}"
         f" --port {port}"
         f" {server_args}"
@@ -79,7 +80,7 @@ def build_infer_command(config: dict, category: str) -> str:
     max_tokens = config.get("max_tokens", 256)
 
     infer_cmd = (
-        f"python nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_bfcl_fc_inference.py"
+        f"{python_exec} nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_bfcl_fc_inference.py"
         f" --server_url http://localhost:{port}"
         f" --input_jsonl {input_jsonl}"
         f" --output_jsonl {output_jsonl}"
@@ -112,9 +113,12 @@ def build_score_command(config: dict, category: str, force: bool = False) -> str
     output_dir = config["output_dir"]
     output_jsonl = f"{output_dir}/eval-results/{category}/output.jsonl"
     decoding_mode = config.get("decoding_mode", "greedy")
+    if decoding_mode not in ("greedy", "sampling"):
+        decoding_mode = "greedy"
 
+    python_exec = config.get("python_exec", "python3")
     cmd = (
-        f"python nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_bfcl_fc_scoring.py"
+        f"{python_exec} nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_bfcl_fc_scoring.py"
         f" --output_jsonl {output_jsonl}"
         f" --category {category}"
         f" --decoding_mode {decoding_mode}"

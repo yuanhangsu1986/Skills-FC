@@ -75,3 +75,4 @@ inference_only: false
 scoring_only: false
 scoring_force: false
 dry_run: false
+python_exec: python3
