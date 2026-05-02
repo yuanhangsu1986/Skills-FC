@@ -48,6 +48,7 @@ server_args: >-
   --pip_install "hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
 
 server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
+server_container_python_exec: python3
 
 server_port: 8000
 poll_interval: 30       # seconds between server health checks
@@ -74,4 +75,3 @@ inference_only: false
 scoring_only: false
 scoring_force: false
 dry_run: false
-python_exec: python3

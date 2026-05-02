@@ -72,8 +72,9 @@ def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
     voicebench_repo = config["voicebench_repo_path"]
     scoring_script = "nemo_skills/dataset/voicebench/scripts/run_voicebench_scoring.py"
 
+    python_exec = config.get("scoring_container_python_exec", "python")
     cmd_args = [
-        f"python {scoring_script}",
+        f"{python_exec} {scoring_script}",
         f"--eval_results_dir {eval_results_dir}",
         f"--voicebench_repo {voicebench_repo}",
         f"--subtest {subtest}",
@@ -103,8 +104,9 @@ def build_agent_audio_asr_command(config: dict, subtest: str) -> str:
     if torch_home:
         env_prefix = f"export TORCH_HOME={torch_home} && "
 
+    python_exec = config.get("server_container_python_exec", "python")
     cmd_args = [
-        f"{env_prefix}python {asr_script}",
+        f"{env_prefix}{python_exec} {asr_script}",
         f"--eval_results_dir {eval_results_dir}",
         f"--subtest {subtest}",
         "--input_jsonl output.jsonl",

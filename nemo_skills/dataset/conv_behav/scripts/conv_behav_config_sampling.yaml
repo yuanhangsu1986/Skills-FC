@@ -60,6 +60,7 @@ scoring_gpus: 1
 # Containers
 # ---------------------------------------------------------------------------
 inference_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+inference_container_python_exec: python3
 
 # ---------------------------------------------------------------------------
 # Installation commands
@@ -74,4 +75,3 @@ inference_only: false
 scoring_only: false
 scoring_force: false
 dry_run: false
-python_exec: python3

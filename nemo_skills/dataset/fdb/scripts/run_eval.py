@@ -73,7 +73,9 @@ def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
     decoding_mode = config.get("decoding_mode", "greedy")
     if decoding_mode not in ("greedy", "sampling"):
         decoding_mode = "greedy"
-    python_exec = config.get("python_exec", "python3")
+    python_exec = (config.get("scoring_container_python_exec")
+                   or config.get("server_container_python_exec")
+                   or "python")
     cmd_args = [
         f"{python_exec} {scoring_script}",
         f"--eval_results_dir {eval_results_dir}",

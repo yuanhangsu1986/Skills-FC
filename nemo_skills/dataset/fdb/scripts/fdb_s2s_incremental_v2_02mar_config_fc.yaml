@@ -50,6 +50,7 @@ server_args: >-
 
 server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
 scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+scoring_container_python_exec: python3
 
 server_server_type: vllm_multimodal
 
@@ -76,4 +77,3 @@ inference_overrides: ""
 generation_only: false
 scoring_only: false
 dry_run: false
-python_exec: python3

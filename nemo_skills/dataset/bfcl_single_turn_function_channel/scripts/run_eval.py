@@ -68,7 +68,7 @@ def build_infer_command(config: dict, category: str) -> str:
     input_jsonl = f"{data_dir}/{category}/input.jsonl"
     output_jsonl = f"{output_dir}/eval-results/{category}/output.jsonl"
 
-    python_exec = config.get("python_exec", "python3")
+    python_exec = config.get("server_container_python_exec", "python")
     serve_cmd = (
         f"{python_exec} -m nemo_skills.inference.server.serve_unified"
         f" --model {model}"
@@ -116,7 +116,7 @@ def build_score_command(config: dict, category: str, force: bool = False) -> str
     if decoding_mode not in ("greedy", "sampling"):
         decoding_mode = "greedy"
 
-    python_exec = config.get("python_exec", "python3")
+    python_exec = config.get("scoring_container_python_exec", "python")
     cmd = (
         f"{python_exec} nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_bfcl_fc_scoring.py"
         f" --output_jsonl {output_jsonl}"

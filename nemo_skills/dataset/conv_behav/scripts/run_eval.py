@@ -70,7 +70,7 @@ def build_inference_command(config: dict) -> str:
     force_turn_taking = str(config.get("force_turn_taking", False)).lower()
     num_nodes = config.get("num_nodes", 1)
     num_gpus = config.get("num_gpus", 1)
-    launcher = f"torchrun --nproc_per_node={num_gpus}" if num_gpus > 1 else "python"
+    launcher = f"torchrun --nproc_per_node={num_gpus}" if num_gpus > 1 else config.get("inference_container_python_exec", "python")
 
     hf_home = config.get("hf_home", "")
     env_prefix = f"export PYTHONPATH={nemo_code_path}:${{PYTHONPATH:-}}"
@@ -101,7 +101,7 @@ def build_scoring_command(config: dict) -> str:
     eval_script = f"{config['nemo_code_path']}/scripts/speech_eval/eval_conversation_behavior.py"
     decoding_mode = "greedy" if config.get("force_turn_taking", False) else "sampling"
     cmd = (
-        f"{config.get('python_exec', 'python3')} nemo_skills/dataset/conv_behav/scripts/run_scoring.py"
+        f"{config.get('scoring_container_python_exec') or config.get('inference_container_python_exec') or 'python'} nemo_skills/dataset/conv_behav/scripts/run_scoring.py"
         f" --output_dir {config['output_dir']}/eval-results"
         f" --shar_input_dir {config['shar_input_dir']}"
         f" --dataset_name {config['dataset_name']}"
