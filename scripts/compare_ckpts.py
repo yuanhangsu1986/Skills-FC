@@ -289,8 +289,7 @@ def audio_section(ckpts):
     ]
     for cat, cat_label in AUDIO_CATS:
         ckpt_maps = [
-            {e.get("key", str(i)): e
-             for i, e in enumerate((ck.get("audio_examples") or {}).get(cat) or [])}
+            {e.get("key", str(i)): e for i, e in enumerate((ck.get("audio_examples") or {}).get(cat) or [])}
             for ck in ckpts
         ]
         all_keys = []
