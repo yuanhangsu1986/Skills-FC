@@ -99,7 +99,7 @@ def build_inference_command(config: dict) -> str:
 
 def build_scoring_command(config: dict) -> str:
     eval_script = f"{config['nemo_code_path']}/scripts/speech_eval/eval_conversation_behavior.py"
-    decoding_mode = "greedy" if config.get("force_turn_taking", False) else "sampling"
+    decoding_mode = config.get("decoding_mode", "greedy")
     cmd = (
         f"{config.get('scoring_container_python_exec') or config.get('inference_container_python_exec') or 'python'} nemo_skills/dataset/conv_behav/scripts/run_scoring.py"
         f" --output_dir {config['output_dir']}/eval-results"

@@ -71,8 +71,6 @@ def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
     scoring_script = "nemo_skills/dataset/fdb/scripts/run_fdb_scoring.py"
 
     decoding_mode = config.get("decoding_mode", "greedy")
-    if decoding_mode not in ("greedy", "sampling"):
-        decoding_mode = "greedy"
     python_exec = (config.get("scoring_container_python_exec")
                    or config.get("server_container_python_exec")
                    or "python")

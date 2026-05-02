@@ -98,8 +98,8 @@ def main():
     if metrics_file.exists() and not args.force:
         try:
             existing = json.loads(metrics_file.read_text())
-            if benchmark_key in existing:
-                print(f"Scoring already done for {benchmark_key}. Skipping (use --force to re-run).")
+            if decoding_mode in existing.get(benchmark_key, {}):
+                print(f"Scoring already done for {benchmark_key} ({decoding_mode}). Skipping (use --force to re-run).")
                 sys.exit(0)
         except Exception:
             pass
@@ -255,7 +255,7 @@ def main():
             existing_metrics = json.loads(metrics_file.read_text())
         except Exception:
             pass
-    existing_metrics[benchmark_key] = {args.decoding_mode: metrics}
+    existing_metrics.setdefault(benchmark_key, {})[args.decoding_mode] = metrics
     metrics_file.parent.mkdir(parents=True, exist_ok=True)
     with open(metrics_file, "w") as f:
         json.dump(existing_metrics, f, indent=2)

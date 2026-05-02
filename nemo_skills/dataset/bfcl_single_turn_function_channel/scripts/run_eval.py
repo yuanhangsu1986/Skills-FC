@@ -113,9 +113,6 @@ def build_score_command(config: dict, category: str, force: bool = False) -> str
     output_dir = config["output_dir"]
     output_jsonl = f"{output_dir}/eval-results/{category}/output.jsonl"
     decoding_mode = config.get("decoding_mode", "greedy")
-    if decoding_mode not in ("greedy", "sampling"):
-        decoding_mode = "greedy"
-
     python_exec = config.get("scoring_container_python_exec", "python")
     cmd = (
         f"{python_exec} nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_bfcl_fc_scoring.py"

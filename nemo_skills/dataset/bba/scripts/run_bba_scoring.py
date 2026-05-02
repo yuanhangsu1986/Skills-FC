@@ -116,8 +116,8 @@ def score(
     if metrics_file.exists() and not force:
         try:
             existing = json.loads(metrics_file.read_text())
-            if benchmark_key in existing:
-                print(f"Scoring already done for {benchmark_key}. Skipping (use --force to re-run).")
+            if decoding_mode in existing.get(benchmark_key, {}):
+                print(f"Scoring already done for {benchmark_key} ({decoding_mode}). Skipping (use --force to re-run).")
                 return 0
         except Exception:
             pass
@@ -174,7 +174,7 @@ def score(
         except Exception:
             pass
 
-    existing_metrics[benchmark_key] = {decoding_mode: metrics}
+    existing_metrics.setdefault(benchmark_key, {})[decoding_mode] = metrics
     metrics_file.write_text(json.dumps(existing_metrics, indent=2))
 
     print("\n" + "=" * 60)

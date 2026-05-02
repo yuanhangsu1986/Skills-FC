@@ -73,12 +73,14 @@ def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
     scoring_script = "nemo_skills/dataset/voicebench/scripts/run_voicebench_scoring.py"
 
     python_exec = config.get("scoring_container_python_exec", "python")
+    decoding_mode = config.get("decoding_mode", "greedy")
     cmd_args = [
         f"{python_exec} {scoring_script}",
         f"--eval_results_dir {eval_results_dir}",
         f"--voicebench_repo {voicebench_repo}",
         f"--subtest {subtest}",
         f"--evaluator {evaluator}",
+        f"--decoding_mode {decoding_mode}",
     ]
 
     if needs_judge:

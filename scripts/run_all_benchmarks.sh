@@ -807,7 +807,7 @@ if code_path and 'nemo_code_path' in cfg:
 # Set mode-specific top-level keys
 cfg['output_dir']    = output_dir
 cfg['expname']       = expname
-cfg['decoding_mode'] = 'customized'
+cfg['decoding_mode'] = 'greedy' if (float(top_p) == 1.0 and float(rep_pen) == 1.0 and float(temp) == 0.0) else 'sampling'
 
 # conv_behav: top-level force_turn_taking bool (no server_args)
 if benchmark == 'conv_behav':

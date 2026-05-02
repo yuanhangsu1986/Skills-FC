@@ -39,6 +39,7 @@ def run_scoring(
     api_type: str = "openai",
     nvidia_model: str = "meta/llama-3.1-70b-instruct",
     force: bool = False,
+    decoding_mode: str = "greedy",
 ):
     """Run VoiceBench scoring and save results in nemo-skills format."""
     eval_results_dir = Path(eval_results_dir)
@@ -50,8 +51,7 @@ def run_scoring(
 
     if metrics_variant not in ("generated", "asr"):
         raise ValueError("metrics_variant must be one of: generated, asr")
-    # We always write into a single `greedy` dict; the ASR variant is stored with *_asr keys.
-    metrics_key = "greedy"
+    metrics_key = decoding_mode
     asr_suffix = "_asr"
 
     # Skip if this variant already exists (unless force is set)
@@ -59,10 +59,10 @@ def run_scoring(
         try:
             with open(metrics_file) as f:
                 existing_metrics = json.load(f)
-            greedy = existing_metrics.get(f"voicebench.{subtest}", {}).get("greedy", {})
-            if isinstance(greedy, dict):
+            mode_metrics = existing_metrics.get(f"voicebench.{subtest}", {}).get(decoding_mode, {})
+            if isinstance(mode_metrics, dict):
                 if metrics_variant == "asr":
-                    if any(k.endswith(asr_suffix) for k in greedy.keys()):
+                    if any(k.endswith(asr_suffix) for k in mode_metrics.keys()):
                         print(
                             f"Scoring already done for voicebench.{subtest} (ASR keys exist in metrics.json). Skipping."
                         )
@@ -71,7 +71,7 @@ def run_scoring(
                 else:
                     # Skip if we already have any non-agent, non-ASR VoiceBench metrics.
                     has_generated_metrics = any(
-                        (not k.startswith("agent_")) and (not k.endswith(asr_suffix)) for k in greedy.keys()
+                        (not k.startswith("agent_")) and (not k.endswith(asr_suffix)) for k in mode_metrics.keys()
                     )
                     if has_generated_metrics:
                         print(
@@ -211,6 +211,8 @@ def main():
     parser.add_argument("--api_type", default="openai", choices=["openai", "nvidia"], help="API type for judge")
     parser.add_argument("--nvidia_model", default="meta/llama-3.1-70b-instruct", help="Model for NVIDIA API")
     parser.add_argument("--force", action="store_true", help="Force re-run scoring even if metrics.json exists")
+    parser.add_argument("--decoding_mode", default="greedy", choices=["greedy", "sampling"],
+                        help="Key under which metrics are stored in metrics.json")
 
     args = parser.parse_args()
 
@@ -225,6 +227,7 @@ def main():
         api_type=args.api_type,
         nvidia_model=args.nvidia_model,
         force=args.force,
+        decoding_mode=args.decoding_mode,
     )
     sys.exit(rc)
 

@@ -53,8 +53,6 @@ def load_config(config_path: str) -> dict:
 def build_score_command(config: dict, category: str, force: bool = False) -> str:
     eval_results_dir = f"{config['output_dir']}/eval-results/{category}"
     decoding_mode = config.get("decoding_mode", "greedy")
-    if decoding_mode not in ("greedy", "sampling"):
-        decoding_mode = "greedy"
     python_exec = config.get("scoring_container_python_exec", "python")
     cmd_args = [
         f"{python_exec} nemo_skills/dataset/bba/scripts/run_bba_scoring.py",
