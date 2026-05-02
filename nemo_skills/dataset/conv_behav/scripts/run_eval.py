@@ -115,6 +115,9 @@ def build_scoring_command(config: dict) -> str:
     )
     if config.get("scoring_force", False):
         cmd += " --force"
+    torch_home = config.get("torch_home", "")
+    if torch_home:
+        cmd += f" --torch_home {torch_home}"
     return cmd
 
 

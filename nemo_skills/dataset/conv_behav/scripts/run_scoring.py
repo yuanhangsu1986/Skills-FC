@@ -56,6 +56,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -161,6 +162,7 @@ def score(
     tt_recall_buffer_sec: float = 20.0,
     vad_min_silence_duration_ms: int = 2000,
     force: bool = False,
+    torch_home: str = "",
 ) -> int:
     output_path = Path(output_dir)
     pred_audio_dir = output_path / "validation_logs" / "pred_wavs"
@@ -205,7 +207,10 @@ def score(
     ]
 
     print(f"[scoring] Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    env = os.environ.copy()
+    if torch_home:
+        env["TORCH_HOME"] = torch_home
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
     print(result.stdout)
 
     if result.returncode != 0:
@@ -243,6 +248,7 @@ def main():
     parser.add_argument("--tt_recall_buffer_sec", type=float, default=20.0)
     parser.add_argument("--vad_min_silence_duration_ms", type=int, default=2000)
     parser.add_argument("--force", action="store_true", help="Re-run even if metrics.json exists")
+    parser.add_argument("--torch_home", default="", help="Override TORCH_HOME for the eval subprocess (used to point torch.hub at a pre-cached model dir on lustre)")
     args = parser.parse_args()
 
     sys.exit(score(
@@ -257,6 +263,7 @@ def main():
         tt_recall_buffer_sec=args.tt_recall_buffer_sec,
         vad_min_silence_duration_ms=args.vad_min_silence_duration_ms,
         force=args.force,
+        torch_home=args.torch_home,
     ))
 
 

@@ -65,6 +65,35 @@ We've built and released many popular models and datasets using Nemo-Skills. See
 You can find the full documentation [here](https://nvidia-nemo.github.io/Skills/).
 
 
+## S2S FC Eval Setup
+
+To run the S2S FC eval pipeline on your own machine, only two paths need to change — everything else (model checkpoints, data, containers, caches, code paths) lives on shared lustre and can be reused as-is.
+
+### 1. Set your output directory
+
+Each benchmark config YAML has an `output_dir` field. Set it to a writable path under your own lustre workspace. You can also override it at runtime via `--output_dir` on the CLI or via `run_all_benchmarks.sh --output_dir`.
+
+Configs to update if you prefer to edit them directly:
+
+| Benchmark | Config file |
+|---|---|
+| VoiceBench non-MCQ | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_config_fc.yaml` |
+| VoiceBench MCQ | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_mcq_config_fc.yaml` |
+| FDB | `nemo_skills/dataset/fdb/scripts/fdb_s2s_incremental_v2_02mar_config_fc.yaml` |
+| BBA | `nemo_skills/dataset/bba/scripts/bba_config_fc.yaml` |
+| BFCL | `nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config.yaml` |
+| conv_behav | `nemo_skills/dataset/conv_behav/scripts/conv_behav_config.yaml` |
+
+### 2. Set your job directory
+
+`job_dir` in `cluster_configs/s2s_eval_oci_iad_oncluster.yaml` is where NeMo Run stages code for each SLURM job. Change it to a writable path under your own lustre workspace:
+
+```yaml
+job_dir: /lustre/fsw/portfolios/llmservice/users/<your-username>/workspace/code/nemo-run-fc
+```
+
+---
+
 ## S2S FC Eval Scorecard
 
 Tools for generating and viewing a single-page HTML scorecard that aggregates metrics from all S2S FC eval benchmarks (VoiceBench nonMCQ/MCQ, FDB, BBA, BFCL, conv_behav).

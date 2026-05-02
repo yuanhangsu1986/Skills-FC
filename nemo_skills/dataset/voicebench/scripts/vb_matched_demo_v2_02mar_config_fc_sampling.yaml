@@ -80,6 +80,7 @@ agent_audio_asr_model: nvidia/parakeet-tdt-1.1b
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
 agent_audio_installation_command: "ln -sf $(which python3) /usr/local/bin/python"
 scoring_installation_command: "pip install sacrebleu qa_metrics"
+torch_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/torch
 
 inference_overrides: ""
 

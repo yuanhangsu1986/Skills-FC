@@ -41,6 +41,13 @@ num_nodes: 1
 # HuggingFace cache dir (avoids re-downloading weights on each job)
 hf_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
 
+# PyTorch hub cache dir — must contain hub/snakers4_silero-vad_master.
+# When the cache exists, torch.hub skips the GitHub API validation call entirely,
+# avoiding rate-limit errors on compute nodes without internet access.
+# Run once to populate: cp -r ~/.cache/torch/hub/snakers4_silero-vad_master \
+#   /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/torch/hub/
+torch_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/torch
+
 # ---------------------------------------------------------------------------
 # Scoring thresholds
 # ---------------------------------------------------------------------------

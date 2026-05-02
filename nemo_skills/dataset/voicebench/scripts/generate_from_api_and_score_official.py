@@ -98,8 +98,13 @@ def build_agent_audio_asr_command(config: dict, subtest: str) -> str:
     asr_script = "nemo_skills/dataset/voicebench/scripts/run_agent_audio_asr_metrics.py"
     asr_model = config.get("agent_audio_asr_model", "nvidia/parakeet-tdt-0.6b-v2")
 
+    env_prefix = ""
+    torch_home = config.get("torch_home", "")
+    if torch_home:
+        env_prefix = f"export TORCH_HOME={torch_home} && "
+
     cmd_args = [
-        f"python {asr_script}",
+        f"{env_prefix}python {asr_script}",
         f"--eval_results_dir {eval_results_dir}",
         f"--subtest {subtest}",
         "--input_jsonl output.jsonl",
