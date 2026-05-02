@@ -56,8 +56,16 @@ LOG_FILE="/tmp/scorecard_server_${PORT}.log"
 ASSET_ABS="${SERVE_ROOT}/${ASSET_REL}"
 
 cd "${SERVE_ROOT}"
-python3 -m http.server "${PORT}" --bind 127.0.0.1 \
-    > "${LOG_FILE}" 2>&1 &
+python3 -c "
+import http.server, socketserver, sys
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        sys.stderr.write('%s - - [%s] %s\n' % (self.address_string(),
+            self.log_date_time_string(), fmt % args))
+socketserver.ThreadingTCPServer.allow_reuse_address = True
+with socketserver.ThreadingTCPServer(('127.0.0.1', ${PORT}), Handler) as s:
+    s.serve_forever()
+" > "${LOG_FILE}" 2>&1 &
 SERVER_PID=$!
 
 sleep 1
