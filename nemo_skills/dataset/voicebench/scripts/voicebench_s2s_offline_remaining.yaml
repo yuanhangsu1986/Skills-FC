@@ -56,6 +56,7 @@ scoring_installation_command: "pip install sacrebleu qa_metrics"
 
 # Experiment settings
 expname: voicebench_s2s_offline_remaining
+decoding_mode: greedy
 
 # Run modes
 generation_only: false

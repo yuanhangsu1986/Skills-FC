@@ -61,6 +61,7 @@ installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/mod
 scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile"
 
 expname: fdb_v1.5_matched_demo_v1_02mar
+decoding_mode: greedy
 
 generation_only: false
 scoring_only: false

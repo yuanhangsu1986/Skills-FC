@@ -74,6 +74,7 @@ agent_audio_installation_command: "ln -sf $(which python3) /usr/local/bin/python
 scoring_installation_command: "pip install sacrebleu qa_metrics"
 
 expname: voicebench_s2s_incremental_v2_sound_02mar_no_sys_prompt
+decoding_mode: greedy
 generation_only: false
 scoring_only: false
 dry_run: false

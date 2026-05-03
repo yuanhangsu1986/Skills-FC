@@ -79,6 +79,7 @@ scoring_installation_command: "pip install sacrebleu qa_metrics"
 torch_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/torch
 
 expname: vb_matched_demo_v2_02mar_mcq_fc_sampling
+decoding_mode: sampling
 
 inference_overrides: ""
 

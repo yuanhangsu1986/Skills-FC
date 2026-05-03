@@ -61,6 +61,7 @@ scoring_installation_command: "pip install sacrebleu qa_metrics"
 
 # Experiment settings
 expname: voicebench_s2s_offline
+decoding_mode: greedy
 # max_samples: 10  # Uncomment to limit samples for testing
 
 # Run modes

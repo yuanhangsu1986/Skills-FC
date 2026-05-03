@@ -80,6 +80,7 @@ torch_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/torch
 inference_overrides: ""
 
 expname: vb_matched_demo_v2_02mar_mcq_fc_greedy
+decoding_mode: greedy
 
 generation_only: false
 scoring_only: false

@@ -68,6 +68,7 @@ scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad s
 inference_overrides: "++inference.tokens_to_generate=4500"
 
 expname: fdb_v1.0_matched_demo_v1_02mar
+decoding_mode: greedy
 
 generation_only: false
 scoring_only: false

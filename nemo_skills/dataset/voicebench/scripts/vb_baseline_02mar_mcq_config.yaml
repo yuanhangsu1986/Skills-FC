@@ -65,6 +65,7 @@ agent_audio_installation_command: "ln -sf $(which python3) /usr/local/bin/python
 scoring_installation_command: "pip install sacrebleu qa_metrics"
 
 expname: vb_baseline_02mar_mcq
+decoding_mode: greedy
 generation_only: false
 scoring_only: false
 dry_run: false

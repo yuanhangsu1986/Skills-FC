@@ -45,6 +45,7 @@ subtests:
 scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile"
 
 expname: fdb_v1_s2s_incremental
+decoding_mode: greedy
 # max_samples: 10
 
 generation_only: false

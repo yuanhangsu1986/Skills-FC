@@ -51,6 +51,7 @@ scoring_installation_command: "pip install sacrebleu qa_metrics"
 
 # Experiment settings
 expname: voicebench_sdqa_test
+decoding_mode: greedy
 max_samples: 10  # Limit to 10 samples for quick testing
 
 # Run modes

@@ -177,10 +177,12 @@ def build_aggregate_command(config: dict, categories: list, force: bool = False)
     python_exec = (config.get("scoring_container_python_exec")
                    or config.get("server_container_python_exec")
                    or "python")
+    decoding_mode = config.get("decoding_mode", "greedy")
     cmd_args = [
         f"{python_exec} nemo_skills/dataset/bba/scripts/run_bba_aggregate.py",
         f"--output_dir {config['output_dir']}",
         f"--categories {' '.join(categories)}",
+        f"--decoding_mode {decoding_mode}",
     ]
     if force:
         cmd_args.append("--force")
@@ -190,7 +192,7 @@ def build_aggregate_command(config: dict, categories: list, force: bool = False)
 def run_aggregate_stage(config: dict, categories: list, force: bool = False):
     """Stage 5 (inline): run aggregation directly when --aggregate_only is set."""
     from nemo_skills.dataset.bba.scripts.run_bba_aggregate import aggregate
-    aggregate(config["output_dir"], categories, force=force)
+    aggregate(config["output_dir"], categories, force=force, decoding_mode=config.get("decoding_mode", "greedy"))
 
 
 def run_bba_eval(config: dict):

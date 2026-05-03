@@ -58,6 +58,7 @@ installation_command: ""
 scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile"
 
 expname: fdb_v1.5_baseline_02mar
+decoding_mode: greedy
 
 generation_only: false
 scoring_only: false

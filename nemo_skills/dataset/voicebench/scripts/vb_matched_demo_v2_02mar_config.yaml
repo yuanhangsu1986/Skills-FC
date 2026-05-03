@@ -77,6 +77,7 @@ scoring_installation_command: "pip install sacrebleu qa_metrics"
 inference_overrides: "++inference.tokens_to_generate=4500"
 
 expname: vb_matched_demo_v2_02mar
+decoding_mode: sampling
 generation_only: false
 scoring_only: false
 dry_run: false

@@ -70,6 +70,7 @@ installation_command: ""
 scoring_installation_command: "pip install sacrebleu qa_metrics"
 
 expname: voicebench_s2s_incremental_v2_text_02mar
+decoding_mode: greedy
 generation_only: false
 scoring_only: false
 dry_run: false
