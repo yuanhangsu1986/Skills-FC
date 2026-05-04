@@ -150,7 +150,7 @@ def run_scoring(
         except Exception as e:
             print(f"Warning: failed merging agent_audio_metrics.json: {e}", file=sys.stderr)
 
-    # Merge with existing metrics.json if present (keep one greedy dict with both generated + *_asr keys).
+    # Merge with existing metrics.json if present (keep one dict per mode with both generated + *_asr keys).
     if metrics_file.exists():
         try:
             with open(metrics_file) as f:
@@ -160,15 +160,15 @@ def run_scoring(
                 existing_sub = existing_metrics.get(key, {})
                 if not isinstance(existing_sub, dict):
                     existing_sub = {}
-                existing_greedy = existing_sub.get("greedy", {})
-                if not isinstance(existing_greedy, dict):
-                    existing_greedy = {}
+                existing_mode = existing_sub.get(metrics_key, {})
+                if not isinstance(existing_mode, dict):
+                    existing_mode = {}
 
-                new_greedy = nemo_metrics.get(key, {}).get("greedy", {})
-                if isinstance(new_greedy, dict):
-                    existing_greedy.update(new_greedy)
+                new_mode = nemo_metrics.get(key, {}).get(metrics_key, {})
+                if isinstance(new_mode, dict):
+                    existing_mode.update(new_mode)
 
-                existing_sub["greedy"] = existing_greedy
+                existing_sub[metrics_key] = existing_mode
                 existing_metrics[key] = existing_sub
                 nemo_metrics = existing_metrics
         except Exception:

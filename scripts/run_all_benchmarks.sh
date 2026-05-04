@@ -394,9 +394,70 @@ resolve_output_dir() {
 # or nothing if no results exist yet.
 find_benchmark_result() {
     local name="$1" mode="$2"
-    local outdir
+    local outdir config
     outdir=$(resolve_output_dir "$name" "$mode")
     [[ -d "$outdir" ]] || return 0
+    config=$(config_for "$name" "$mode")
+
+    # For benchmarks with subtests/categories every item must have metrics.json
+    # before we consider the benchmark complete.  A partial result (some done,
+    # others not) must not suppress resubmission.
+    #
+    # Naming conventions for eval-results subdirs:
+    #   voicebench (subtests + no fdb_version) : voicebench.{subtest}
+    #   fdb        (subtests + fdb_version)    : fdb_v1.{subtest} / fdb_v1_5.{subtest}
+    #   bba/bfcl   (categories)               : {category}   (no prefix)
+    #   conv_behav (neither)                  : metrics.json at eval-results/ root
+    local expected_paths
+    expected_paths=$("$PYTHON" - "$config" "$outdir" <<'PYEOF'
+import sys, yaml, pathlib
+
+config_path, outdir = sys.argv[1], sys.argv[2]
+with open(config_path) as f:
+    cfg = yaml.safe_load(f)
+
+eval_results = pathlib.Path(outdir) / "eval-results"
+
+def emit_items(items, prefix):
+    if not items or items == "all":
+        return False
+    if isinstance(items, str):
+        items = [s.strip() for s in items.split(",")]
+    sep = "." if prefix else ""
+    for item in items:
+        print(eval_results / f"{prefix}{sep}{item}" / "metrics.json")
+    return True
+
+if "subtests" in cfg:
+    fdb_ver = cfg.get("fdb_version", "")
+    if fdb_ver == "v1.5":
+        prefix = "fdb_v1_5"
+    elif fdb_ver:
+        prefix = "fdb_v1"
+    else:
+        prefix = "voicebench"
+    if not emit_items(cfg["subtests"], prefix):
+        # subtests == "all": fall through to flat search
+        pass
+elif "categories" in cfg:
+    emit_items(cfg.get("categories", []), "")
+# else: flat benchmark — emit nothing; bash falls through to find
+PYEOF
+    2>/dev/null || true)
+
+    if [[ -n "$expected_paths" ]]; then
+        local first_result=""
+        while IFS= read -r mf; do
+            [[ -z "$mf" ]] && continue
+            if [[ ! -f "$mf" ]]; then
+                return 0  # at least one subtest/category incomplete — not done
+            fi
+            [[ -z "$first_result" ]] && first_result="$mf"
+        done <<< "$expected_paths"
+        [[ -n "$first_result" ]] && echo "$first_result"
+        return 0
+    fi
+
     local f
     f=$(find "${outdir}/eval-results" -name "metrics.json" -maxdepth 2 2>/dev/null | head -1 || true)
     [[ -n "$f" ]] && { echo "$f"; return; }
