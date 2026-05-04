@@ -139,6 +139,58 @@ REPORTS = {k: {"greedy": None, "sampling": None}
            for k in ["vb_nonmcq","vb_mcq","fdb","bba","bfcl","conv_behav"]}
 ```
 
+### Metric filtering and formatting helpers
+
+Add these functions **before** the audio helpers. They are used by the scorecard grid card builders.
+
+```python
+# Suppress ASR-scored variants and raw agent WER/CER
+_ASR_SUFFIXES = ("_asr",)
+_ASR_PREFIXES = ("agent_",)
+# Raw fraction/second keys that have a pct/ms equivalent already in the dict
+_REDUNDANT = {"tor", "turn", "latency"}
+
+def non_asr_items(m):
+    if not m: return {}
+    return {k: v for k, v in m.items()
+            if not any(k.endswith(s) for s in _ASR_SUFFIXES)
+            and not any(k.startswith(p) for p in _ASR_PREFIXES)
+            and k not in _REDUNDANT}
+
+_FRAC_KEYS  = {"refusal_rate","final","strict-prompt","strict-instruction",
+               "loose-prompt","loose-instruction","fail"}
+_SCORE5_KEYS = {"gpt","rating"}
+_PCT_KEYS   = {"panda","acc","accuracy","tor_pct","tt_f1","tt_precision",
+               "tt_recall","barge_in_success_rate","bc_accuracy","cutoff_rate"}
+_MS_KEYS    = {"latency_ms","tt_latency_ms","barge_in_latency_ms"}
+_COUNT_KEYS = {"total","num_samples","num_correct","num_evaluated"}
+
+def smart_fmt(key, val):
+    if val is None: return "—"
+    if key in _MS_KEYS:     return f"{val:.0f}ms"
+    if key in _COUNT_KEYS:  return str(int(val))
+    if key in _SCORE5_KEYS: return f"{val:.2f}/5"
+    if key in _PCT_KEYS:    return f"{val:.1f}%"
+    if key in _FRAC_KEYS:   return f"{val*100:.1f}%"
+    if isinstance(val, float): return f"{val:.3f}"
+    return str(val)
+
+def sub_metric_rows(label, g_m, s_m):
+    """Return HTML rows for all non-ASR metrics of a subtest/category."""
+    g_items = non_asr_items(g_m)
+    s_items = non_asr_items(s_m)
+    all_keys = list(dict.fromkeys(list(g_items) + list(s_items)))
+    rows = [f'<div class="sub-hdr">{label}</div>']
+    for key in all_keys:
+        gv = g_items.get(key)
+        sv = s_items.get(key)
+        rows.append(metric_row(
+            f"  {key}", gv, sv,
+            fmt_fn=lambda x, k=key: smart_fmt(k, x)
+        ))
+    return "".join(rows)
+```
+
 ### Audio helper functions
 
 ```python
@@ -229,6 +281,56 @@ Card layouts:
 - **FDB card**: header = name + `outcome_badge` + sample id `<code>`; left = problem text or `"Input audio →"`; right = generation or `"(model stayed silent)"` + `audio_tag`
 - **BBA card**: header = name + `outcome_badge` + `expected: {val}`; left = category; right = generation + `audio_tag`
 - **conv_behav card**: header = "conv_behav Agent Audio" + filename `<code>`; left = "Full-duplex conversation session recording."; right = `audio_tag`
+
+### Scorecard grid card builder pattern
+
+For VB nonMCQ, VB MCQ, FDB, BBA, and BFCL cards, use `sub_metric_rows` to show **all** non-ASR metrics
+(not just a single headline metric) for each subtest/category. Each call emits a `.sub-hdr` divider
+followed by one `.metric-row` per key, formatted with `smart_fmt`.
+
+```python
+# VB nonMCQ card
+_vb_rows = []
+for sub in ["sd_qa","alpacaeval_full","alpacaeval","ifeval","advbench","commoneval","wildvoice","alpacaeval_speaker"]:
+    g_m = (VB_NONMCQ.get("greedy") or {}).get(sub)
+    s_m = (VB_NONMCQ.get("sampling") or {}).get(sub)
+    _vb_rows.append(sub_metric_rows(sub, g_m, s_m))
+vb_card_html = bench_card("VB non-MCQ", "".join(_vb_rows), _hl["vb_nonmcq"]["greedy"], _hl["vb_nonmcq"]["sampling"], "vb_nonmcq")
+
+# VB MCQ card
+_mcq_rows = []
+for sub in ["bbh","openbookqa","mmsu"]:
+    g_m = (VB_MCQ.get("greedy") or {}).get(sub)
+    s_m = (VB_MCQ.get("sampling") or {}).get(sub)
+    _mcq_rows.append(sub_metric_rows(sub, g_m, s_m))
+mcq_card_html = bench_card("VB MCQ", "".join(_mcq_rows), _hl["vb_mcq"]["greedy"], _hl["vb_mcq"]["sampling"], "vb_mcq")
+
+# FDB card
+_fdb_rows = []
+for dim in ["turn_taking","interruption","backchannel","pause_candor","pause_synthetic"]:
+    g_m = (FDB.get("greedy") or {}).get(dim)
+    s_m = (FDB.get("sampling") or {}).get(dim)
+    _fdb_rows.append(sub_metric_rows(dim, g_m, s_m))
+fdb_card_html = bench_card("FDB", "".join(_fdb_rows), _hl["fdb"]["greedy"], _hl["fdb"]["sampling"], "fdb")
+
+# BBA card
+_bba_rows = []
+for cat in ["formal_fallacies","navigate","object_counting","web_of_lies"]:
+    g_m = (BBA.get("greedy") or {}).get(cat)
+    s_m = (BBA.get("sampling") or {}).get(cat)
+    _bba_rows.append(sub_metric_rows(cat, g_m, s_m))
+bba_card_html = bench_card("BBA", "".join(_bba_rows), _hl["bba"]["greedy"], _hl["bba"]["sampling"], "bba")
+
+# BFCL card
+_bfcl_rows = []
+for cat in ["simple","parallel","multiple","parallel_multiple","irrelevance"]:
+    g_m = (BFCL.get("greedy") or {}).get(cat)
+    s_m = (BFCL.get("sampling") or {}).get(cat)
+    _bfcl_rows.append(sub_metric_rows(cat, g_m, s_m))
+bfcl_card_html = bench_card("BFCL", "".join(_bfcl_rows), _hl["bfcl"]["greedy"], _hl["bfcl"]["sampling"], "bfcl")
+```
+
+conv_behav uses plain `metric_row` calls (no subtest grouping needed — it is a single flat dict).
 
 ### Step 2g — Sidecar JSON output
 
@@ -375,6 +477,8 @@ Single self-contained file. Dark GitHub theme. Chart.js 4.4.0 from CDN.
 .bubble-a { background:#0d2a1a; border-left:3px solid var(--gr); }
 .badge { display:inline-block; padding:2px 8px; border-radius:4px;
          font-size:0.8em; font-weight:600; }
+.sub-hdr { font-size:0.78em; font-weight:700; text-transform:uppercase;
+           letter-spacing:.05em; color:var(--tx2); padding:8px 0 2px; border-bottom:none; }
 @media(max-width:900px) {
   .scorecard-grid { grid-template-columns:1fr; }
   .ex-body { grid-template-columns:1fr; }
@@ -447,8 +551,15 @@ If a benchmark has no available audio (output dir missing or no wav files found)
 ## Step 4 — Headline derivations
 
 - **VB nonMCQ**: normalize each subtest to 0–100 (`sd_qa`/`ifeval`/`advbench` already %; GPT-judge subtests on 1–5 scale → ×20); average across available subtests.
-- **VB MCQ**: average of `acc` across available subtests.
-- **FDB composite**: average of per-dim normalized TOR — `turn_taking`/`interruption` contribute as-is (↑ better); `backchannel`/`pause_candor`/`pause_synthetic` contribute as `1 − TOR` (↓ better). Multiply by 100.
+- **VB MCQ**: use a **separate** `vb_mcq_headline` function — average of `acc` (not `gpt`) across available subtests. Do NOT use `vb_normalize` / `vb_headline` for MCQ. Implementation:
+  ```python
+  def vb_mcq_headline(data):
+      if data is None: return None
+      vals = [v.get("acc") for v in data.values() if v and v.get("acc") is not None]
+      return round(sum(vals)/len(vals), 2) if vals else None
+  ```
+  Used in `_hl`: `"vb_mcq": {"greedy": vb_mcq_headline(VB_MCQ["greedy"]), "sampling": vb_mcq_headline(VB_MCQ["sampling"])}`
+- **FDB composite**: average of per-dim normalized TOR — `turn_taking`/`interruption` contribute as-is (↑ better); `backchannel`/`pause_candor`/`pause_synthetic` contribute as `1 − TOR` (↓ better). Use `tor_pct` field (already 0–100); multiply FDB normalized values by nothing (already %).
 - **BBA**: average `accuracy` across available categories.
 - **BFCL weighted**: `sum(num_correct) / sum(num_samples) × 100`.
 - **conv_behav**: `tt_f1` (use sampling if greedy not run).
