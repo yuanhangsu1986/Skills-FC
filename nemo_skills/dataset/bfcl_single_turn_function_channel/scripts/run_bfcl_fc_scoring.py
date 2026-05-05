@@ -39,14 +39,79 @@ Usage:
 """
 
 import argparse
+import ast
 import json
+import math
 import re
 import sys
 from pathlib import Path
 
 
-def _parse_toolcall(generation: str) -> list:
-    """Parse <TOOLCALL>...</TOOLCALL> → [{func_name: args_dict}, ...]."""
+def _coerce_value(value, type_str: str):
+    """Coerce a parsed value to its schema-declared type.
+
+    Mirrors nemotron_v2_voicechat_toolcall_parser._coerce_value so that
+    scoring reflects what the deployed parser actually sends.
+    """
+    if not isinstance(value, str):
+        if isinstance(value, bool):
+            return value
+        if type_str in ("number", "float") and isinstance(value, int):
+            return float(value)
+        if type_str == "integer" and isinstance(value, float):
+            return int(value)
+        return value
+    if type_str == "string":
+        return value
+    if type_str == "integer":
+        try:
+            return int(float(value))
+        except (ValueError, TypeError, OverflowError):
+            return value
+    if type_str in ("number", "float"):
+        try:
+            result = float(value)
+            if math.isinf(result) or math.isnan(result):
+                return value
+            return result
+        except (ValueError, TypeError):
+            return value
+    if type_str == "boolean":
+        low = value.lower()
+        if low in ("true", "1"):
+            return True
+        if low in ("false", "0"):
+            return False
+        return value
+    if type_str == "array":
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        try:
+            parsed = ast.literal_eval(value)
+            if isinstance(parsed, (list, tuple)):
+                return list(parsed)
+        except (ValueError, SyntaxError):
+            pass
+    if type_str == "object":
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return value
+
+
+def _parse_toolcall(generation: str, required_fields: dict = None) -> list:
+    """Parse <TOOLCALL>...</TOOLCALL> → [{func_name: args_dict}, ...].
+
+    required_fields: {func_name: [[param, type_str], ...]} — used to coerce
+    string-typed values to their declared types, matching the voicechat parser.
+    """
     m = re.search(r"<TOOLCALL>(.*?)</TOOLCALL>", generation, re.DOTALL)
     if not m:
         return []
@@ -57,13 +122,27 @@ def _parse_toolcall(generation: str) -> list:
         raw = raw + "]"
     try:
         calls = json.loads(raw)
-        return [
-            {tc["name"]: tc.get("arguments", {})}
-            for tc in calls
-            if isinstance(tc, dict) and "name" in tc
-        ]
     except Exception:
         return []
+
+    result = []
+    for tc in calls:
+        if not isinstance(tc, dict) or "name" not in tc:
+            continue
+        try:
+            func_name = tc["name"]
+            arguments = tc.get("arguments", {})
+            if required_fields and isinstance(arguments, dict):
+                type_map = {p: t for p, t in required_fields.get(func_name, [])}
+                if type_map:
+                    arguments = {
+                        k: _coerce_value(v, type_map[k]) if k in type_map else v
+                        for k, v in arguments.items()
+                    }
+            result.append({func_name: arguments})
+        except Exception:
+            continue
+    return result
 
 
 def score(
@@ -104,10 +183,10 @@ def score(
     candidates = []
     references = []
     for entry in entries:
-        tool_calls = _parse_toolcall(entry.get("generation", ""))
-        candidates.append({"tool_response": tool_calls})
         expected_call = entry.get("expected_call", [])
         required_fields = entry.get("required_fields", {})
+        tool_calls = _parse_toolcall(entry.get("generation", ""), required_fields)
+        candidates.append({"tool_response": tool_calls})
         # required_fields values are stored as [[param, type], ...] — compatible with List[Tuple]
         references.append((expected_call, required_fields))
 
