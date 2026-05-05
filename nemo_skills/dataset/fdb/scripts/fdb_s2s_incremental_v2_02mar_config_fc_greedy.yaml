@@ -34,7 +34,7 @@ server_args: >-
   --inference_pad_boost 0
   --inference_bos_boost 0
   --inference_eos_boost 0
-  --inference_user_pad_boost 0
+  --inference_user_pad_boost 0.8
   --inference_user_bos_boost 0
   --inference_user_eos_boost 0
   --inference_guidance_scale 0.2
@@ -56,7 +56,7 @@ scoring_container_python_exec: python3
 
 server_server_type: vllm_multimodal
 
-fdb_version: v1.0
+fdb_version: v1.5
 
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/fdb_fc
