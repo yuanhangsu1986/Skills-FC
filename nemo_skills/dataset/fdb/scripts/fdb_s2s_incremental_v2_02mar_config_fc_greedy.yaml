@@ -32,6 +32,7 @@ server_args: >-
   --vllm_max_model_len 8192
   --force_turn_taking
   --inference_user_pad_boost 0.8
+  --silence_padding_sec 0
   --max_new_tokens 4500
   --repetition_penalty 1.0
   --ignore_system_prompt
