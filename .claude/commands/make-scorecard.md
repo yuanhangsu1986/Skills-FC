@@ -1,5 +1,5 @@
 ---
-description: Generate a single-page HTML scorecard aggregating results from all S2S FC eval benchmarks. Usage: /make-scorecard [output_dir=PATH] [eval_mode=greedy|sampling|greedy+sampling] [name=FILENAME]
+description: Generate a single-page HTML scorecard aggregating results from all S2S FC eval benchmarks. Usage: /make-scorecard [output_dir=PATH] [name=FILENAME]
 ---
 
 You are going to generate a comprehensive single-page HTML scorecard aggregating metrics from all S2S FC eval benchmarks.
@@ -10,11 +10,10 @@ Parse `$ARGUMENTS` as `key=value` tokens (whitespace-delimited).
 
 | Key | Meaning |
 |---|---|
-| `output_dir` | The `--output_dir` value passed to `run_all_benchmarks.sh`. If provided, results are read from `{output_dir}/{mode}_{commit_hash}/`. If omitted, each benchmark's output dir is read from its config YAML. |
-| `eval_mode` | `greedy`, `sampling`, or `greedy+sampling` (default: `greedy+sampling`). Determines which modes to include in the scorecard. |
+| `output_dir` | The `--output_dir` value passed to `run_all_benchmarks.sh`. If provided, results are read from `{output_dir}/{name}_{commit_hash}/`. If omitted, each benchmark's output dir is read from its config YAML. |
 | `name` | Output HTML filename (default: `scorecard`). Extension `.html` is appended automatically if omitted. Written to `asset/{name}.html`. |
 
-**Default (no args):** reads output dirs from config YAMLs + current git commit hash, includes both greedy and sampling, writes `asset/scorecard.html`.
+**Default (no args):** reads output dirs from config YAMLs + current git commit hash, writes `asset/scorecard.html`.
 
 ---
 
@@ -26,59 +25,63 @@ Run the following steps using available tools:
 Run: `git rev-parse --short HEAD`
 Store as `COMMIT`.
 
-### 1b. Determine eval modes
-From `eval_mode` arg: `greedy+sampling` → modes = `["greedy", "sampling"]`, `greedy` → `["greedy"]`, `sampling` → `["sampling"]`.
-Default: `["greedy", "sampling"]`.
-
-### 1c. Resolve output dir for each benchmark × mode
+### 1b. Resolve output dir for each benchmark
 
 **If `output_dir` arg is provided:**
-For each mode in modes, the base output dir for every benchmark is:
-`{output_dir}/{mode}_{COMMIT}`
+For each benchmark, the output dir is:
+`{output_dir}/{benchmark}_{COMMIT}`
 
 **If `output_dir` arg is NOT provided:**
 Read `output_dir:` from each benchmark's config YAML, then append `_{COMMIT}`.
 
-Config YAML locations (relative to repo root):
-| Benchmark | Greedy config | Sampling config |
-|---|---|---|
-| `vb_nonmcq` | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_config_fc_greedy.yaml` | `...fc_sampling.yaml` |
-| `vb_mcq` | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_mcq_config_fc_greedy.yaml` | `...mcq_config_fc_sampling.yaml` |
-| `fdb` | `nemo_skills/dataset/fdb/scripts/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml` | `...fc_sampling.yaml` |
-| `bba` | `nemo_skills/dataset/bba/scripts/bba_config_fc_greedy.yaml` | `...bba_config_fc_sampling.yaml` |
-| `bfcl` | `nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_greedy.yaml` | `...bfcl_fc_config_sampling.yaml` |
-| `conv_behav` | `nemo_skills/dataset/conv_behav/scripts/conv_behav_config_greedy.yaml` | `...conv_behav_config_sampling.yaml` |
+Default config YAML locations (relative to repo root):
+| Benchmark | Config YAML |
+|---|---|
+| `vb_nonmcq` | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_config_fc_s2s_incremental_v2_greedy.yaml` |
+| `vb_mcq` | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_mcq_config_fc_s2s_incremental_v2_greedy.yaml` |
+| `fdb` | `nemo_skills/dataset/fdb/scripts/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml` |
+| `bba` | `nemo_skills/dataset/bba/scripts/bba_config_fc_s2s_incremental_v2_greedy.yaml` |
+| `bfcl` | `nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_s2s_incremental_v2_greedy.yaml` |
+| `conv_behav` | `nemo_skills/dataset/conv_behav/scripts/conv_behav_config_greedy.yaml` |
 
 Extract the `output_dir:` field from each YAML (first non-comment line matching `^output_dir:`), then the resolved path is `{yaml_output_dir}_{COMMIT}`.
 
-### 1d. Read all metrics files
+### 1c. Read all metrics files
 
-For each benchmark × mode, read the relevant metrics files using the Read tool.
-If a file does not exist, set values to `None` for that benchmark+mode.
+For each benchmark, read the relevant metrics files using the Read tool.
+If a file does not exist, set values to `None` for that benchmark.
+
+The current `metrics.json` schema is **flat** — no decoding-mode middle key:
+
+```json
+{ "fdb_v1.pause_candor": { "turn": 0.71, "tor_pct": 70.83 } }
+```
 
 Metrics file locations (relative to the resolved output dir):
 
 **VoiceBench non-MCQ**: `eval-results/voicebench.{subtest}/metrics.json` for each subtest in `[sd_qa, alpacaeval_full, alpacaeval, ifeval, advbench, commoneval, wildvoice, alpacaeval_speaker]`
-Key: `voicebench.{subtest}.greedy` or `.sampling` → `gpt` (%), `panda` (%), optionally `gpt_asr`, `panda_asr`
+Key: `voicebench.{subtest}` → `gpt` (%), `panda` (%), optionally `gpt_asr`, `panda_asr`
 
 **VoiceBench MCQ**: same pattern, subtests `[bbh, openbookqa, mmsu]`
+Key: `voicebench.{subtest}` → `acc` (%), `acc_asr`
 
 **FDB**: `eval-results/fdb_v1.{dim}/metrics.json` for dims `[backchannel, interruption, pause_candor, pause_synthetic, turn_taking]`
+Key: `fdb_v1.{dim}` → `tor`, `tor_pct`, optionally `latency_ms`, `rating`
 
 **BBA**: `eval-results/{category}/metrics.json` for categories `[formal_fallacies, navigate, object_counting, web_of_lies]`
-Key: `bba.{category}.greedy` or `.sampling` → `accuracy`, `total`
+Key: `bba.{category}` → `accuracy`, `total`
 
 **BFCL**: `eval-results/{cat}/metrics.json` for cats `[simple, parallel, multiple, parallel_multiple, irrelevance]`
-Key: `bfcl_fc.{cat}.greedy` or `.sampling` → `accuracy`, `num_samples`, `num_correct`
+Key: `bfcl_fc.{cat}` → `accuracy`, `num_samples`, `num_correct`
 
 **conv_behav**: `eval-results/metrics.json`
-Key: `conv_behav.greedy` or `.sampling` → `tt_f1`, `barge_in_success_rate`, `bc_accuracy`, `cutoff_rate`, optionally `tt_precision`, `tt_recall`, `tt_latency_ms`, `barge_in_latency_ms`, `user_eou_f1`, `num_evaluated`
+Key: `conv_behav` → `tt_f1`, `barge_in_success_rate`, `bc_accuracy`, `cutoff_rate`, optionally `tt_precision`, `tt_recall`, `tt_latency_ms`, `barge_in_latency_ms`, `user_eou_f1`, `num_evaluated`
 
 ---
 
 ## Step 2 — Write the generator script
 
-Write `/tmp/make_scorecard.py`. It embeds all metric values as Python literals, dynamically loads audio examples from disk, writes the final HTML, and writes a sidecar JSON file. No other file I/O except those two output files.
+Write `/tmp/make_scorecard.py`. It embeds all metric values as Python literals, dynamically loads audio examples from disk, writes the final HTML, and writes a sidecar JSON file.
 
 ### Script top-level constants
 
@@ -89,65 +92,42 @@ from datetime import date
 
 NAME        = "scorecard"          # from name= arg (strip .html if present)
 COMMIT      = "abc1234"            # from git rev-parse --short HEAD
-OUTPUT_PATH = Path(f"asset/{NAME}.html")   # relative to repo root / CWD
-JSON_PATH   = Path(f"asset/{NAME}.json")   # sidecar data for compare_ckpts.py
+OUTPUT_PATH = Path(f"asset/{NAME}.html")
+JSON_PATH   = Path(f"asset/{NAME}.json")
 TODAY       = date.today().isoformat()
-MODES       = ["greedy", "sampling"]        # only modes actually run
-SERVE_ROOT  = Path("/lustre")               # HTTP server root for audio URLs
+SERVE_ROOT  = Path("/lustre")
 ```
 
 ### Embedded metric data
 
+Flat layout — one dict per benchmark, keyed by subtest/category/metric. Set the whole benchmark dict to `None` if not run.
+
 ```python
-# Each benchmark: mode → {subtest/category → metrics_dict or None}
-# Set entire mode key to None if that mode was not run.
+VB_NONMCQ = {"sd_qa": None, "alpacaeval_full": None, "alpacaeval": None,
+             "ifeval": None, "advbench": None, "commoneval": None,
+             "wildvoice": None, "alpacaeval_speaker": None}
+VB_MCQ    = {"bbh": None, "openbookqa": None, "mmsu": None}
+FDB       = {"backchannel": None, "interruption": None, "pause_candor": None,
+             "pause_synthetic": None, "turn_taking": None}
+BBA       = {"formal_fallacies": None, "navigate": None,
+             "object_counting": None, "web_of_lies": None}
+BFCL      = {"simple": None, "parallel": None, "multiple": None,
+             "parallel_multiple": None, "irrelevance": None}
+CONV_BEHAV = {"tt_f1": None, "barge_in_success_rate": None, "bc_accuracy": None,
+              "cutoff_rate": None, "tt_precision": None, "tt_recall": None,
+              "tt_latency_ms": None, "barge_in_latency_ms": None,
+              "user_eou_f1": None, "num_evaluated": None}
 
-VB_NONMCQ = {
-    "greedy":   {"sd_qa": None, "alpacaeval_full": None, "alpacaeval": None,
-                 "ifeval": None, "advbench": None, "commoneval": None,
-                 "wildvoice": None, "alpacaeval_speaker": None},
-    "sampling": None,
-}
-VB_MCQ = {
-    "greedy":   {"bbh": None, "openbookqa": None, "mmsu": None},
-    "sampling": None,
-}
-FDB = {
-    "greedy":   {"backchannel": None, "interruption": None, "pause_candor": None,
-                 "pause_synthetic": None, "turn_taking": None},
-    "sampling": None,
-}
-BBA = {
-    "greedy":   {"formal_fallacies": None, "navigate": None,
-                 "object_counting": None, "web_of_lies": None},
-    "sampling": None,
-}
-BFCL = {
-    "greedy":   {"simple": None, "parallel": None, "multiple": None,
-                 "parallel_multiple": None, "irrelevance": None},
-    "sampling": None,
-}
-CONV_BEHAV = {
-    "greedy":   {"tt_f1": None, "barge_in_success_rate": None, "bc_accuracy": None,
-                 "cutoff_rate": None, "tt_precision": None, "tt_recall": None,
-                 "tt_latency_ms": None, "barge_in_latency_ms": None,
-                 "user_eou_f1": None, "num_evaluated": None},
-    "sampling": None,
-}
-
-REPORTS = {k: {"greedy": None, "sampling": None}
-           for k in ["vb_nonmcq","vb_mcq","fdb","bba","bfcl","conv_behav"]}
+REPORTS = {k: None for k in ["vb_nonmcq","vb_mcq","fdb","bba","bfcl","conv_behav"]}
 ```
+
+Replace each `None` with the metrics dict (or leave `None` if the file is missing).
 
 ### Metric filtering and formatting helpers
 
-Add these functions **before** the audio helpers. They are used by the scorecard grid card builders.
-
 ```python
-# Suppress ASR-scored variants and raw agent WER/CER
 _ASR_SUFFIXES = ("_asr",)
 _ASR_PREFIXES = ("agent_",)
-# Raw fraction/second keys that have a pct/ms equivalent already in the dict
 _REDUNDANT = {"tor", "turn", "latency"}
 
 def non_asr_items(m):
@@ -175,21 +155,17 @@ def smart_fmt(key, val):
     if isinstance(val, float): return f"{val:.3f}"
     return str(val)
 
-def sub_metric_rows(label, g_m, s_m):
+def sub_metric_rows(label, m):
     """Return HTML rows for all non-ASR metrics of a subtest/category."""
-    g_items = non_asr_items(g_m)
-    s_items = non_asr_items(s_m)
-    all_keys = list(dict.fromkeys(list(g_items) + list(s_items)))
+    items = non_asr_items(m)
     rows = [f'<div class="sub-hdr">{label}</div>']
-    for key in all_keys:
-        gv = g_items.get(key)
-        sv = s_items.get(key)
-        rows.append(metric_row(
-            f"  {key}", gv, sv,
-            fmt_fn=lambda x, k=key: smart_fmt(k, x)
-        ))
+    for key, val in items.items():
+        rows.append(metric_row(f"  {key}", val,
+                               fmt_fn=lambda x, k=key: smart_fmt(k, x)))
     return "".join(rows)
 ```
+
+`metric_row(label, val, fmt_fn)` should emit a `.metric-row` div with the label on the left and `fmt_fn(val)` on the right (use `.not-run` styling when `val is None`).
 
 ### Audio helper functions
 
@@ -200,7 +176,6 @@ def clean_gen(gen):
     return TOKEN_RE.sub('', gen).strip()
 
 def audio_url(abs_path):
-    """Return root-relative URL (served from SERVE_ROOT) or None if file missing."""
     p = Path(abs_path)
     if not p.exists():
         return None
@@ -230,30 +205,29 @@ def get_audio_path(record):
 ### Audio example loading
 
 Load examples dynamically from the same resolved output dirs used for metrics.
-Use greedy mode for all benchmarks except conv_behav (fall back to sampling if greedy not run).
 
-**VoiceBench CommonEval** (`vb_nonmcq_greedy_dir/eval-results/voicebench.commoneval/`):
+**VoiceBench CommonEval** (`vb_nonmcq_dir/eval-results/voicebench.commoneval/`):
 - Load `output.jsonl` and `result-voicebench_format.jsonl` (joined by index)
 - `avg_score = mean(float(x) for x in score_list)`
-- Select 3 examples that each have a non-empty audio path and non-empty response text:
+- Select 3 examples with non-empty audio + response:
   - **good**: first with `avg_score ≥ 4.2`
-  - **medium**: first with `2.7 ≤ avg_score ≤ 3.3` (not already selected)
+  - **medium**: first with `2.7 ≤ avg_score ≤ 3.3`
   - **bad**: first with `avg_score ≤ 1.5`
 
-**FDB turn_taking** (`fdb_greedy_dir/eval-results/fdb_v1.turn_taking/output.jsonl`):
+**FDB turn_taking** (`fdb_dir/eval-results/fdb_v1.turn_taking/output.jsonl`):
 - `tor = bool(re.search(r'<\|[\d.]+\|>', generation))`
-- Select 2 `tor=True` (took turn, good ✓) + 2 `tor=False` (missed, bad ✗)
+- 2 `tor=True` (took turn ✓) + 2 `tor=False` (missed ✗)
 
-**FDB pause_candor** (`fdb_greedy_dir/eval-results/fdb_v1.pause_candor/output.jsonl`):
-- `tor=False` = good (stayed silent ✓), `tor=True` = bad (interrupted ✗)
-- Select 2 good + 2 bad
+**FDB pause_candor** (`fdb_dir/eval-results/fdb_v1.pause_candor/output.jsonl`):
+- `tor=False` = good (silent ✓), `tor=True` = bad (interrupted ✗)
+- 2 good + 2 bad
 
-**BBA navigate** (`bba_greedy_dir/eval-results/navigate/output.jsonl`):
+**BBA navigate** (`bba_dir/eval-results/navigate/output.jsonl`):
 - `correct = expected_answer.lower() in clean_gen(generation).lower()[:40]`
-- Select 2 correct + 2 wrong (each must have audio)
+- 2 correct + 2 wrong
 
-**conv_behav** (sampling dir, `eval-results/validation_logs/agent/*.wav`):
-- List all `.wav` files, take first 3
+**conv_behav** (`conv_behav_dir/eval-results/validation_logs/agent/*.wav`):
+- Take first 3 wav files
 
 ### Example card builders
 
@@ -276,167 +250,92 @@ def ex_card(header_html, left_html, right_html):
 </div>'''
 ```
 
-Card layouts:
-- **VB card**: header = benchmark name + `score_badge`; left = question in `.bubble.bubble-q`; right = response (truncated 200 chars) in `.bubble.bubble-a` + `audio_tag`
-- **FDB card**: header = name + `outcome_badge` + sample id `<code>`; left = problem text or `"Input audio →"`; right = generation or `"(model stayed silent)"` + `audio_tag`
-- **BBA card**: header = name + `outcome_badge` + `expected: {val}`; left = category; right = generation + `audio_tag`
-- **conv_behav card**: header = "conv_behav Agent Audio" + filename `<code>`; left = "Full-duplex conversation session recording."; right = `audio_tag`
+### Scorecard grid card builder
 
-### Scorecard grid card builder pattern
-
-For VB nonMCQ, VB MCQ, FDB, BBA, and BFCL cards, use `sub_metric_rows` to show **all** non-ASR metrics
-(not just a single headline metric) for each subtest/category. Each call emits a `.sub-hdr` divider
-followed by one `.metric-row` per key, formatted with `smart_fmt`.
+For VB nonMCQ, VB MCQ, FDB, BBA, and BFCL cards, use `sub_metric_rows` to show **all** non-ASR metrics for each subtest/category. Each call emits a `.sub-hdr` divider followed by one `.metric-row` per key, formatted with `smart_fmt`.
 
 ```python
-# VB nonMCQ card
+# VB nonMCQ
 _vb_rows = []
 for sub in ["sd_qa","alpacaeval_full","alpacaeval","ifeval","advbench","commoneval","wildvoice","alpacaeval_speaker"]:
-    g_m = (VB_NONMCQ.get("greedy") or {}).get(sub)
-    s_m = (VB_NONMCQ.get("sampling") or {}).get(sub)
-    _vb_rows.append(sub_metric_rows(sub, g_m, s_m))
-vb_card_html = bench_card("VB non-MCQ", "".join(_vb_rows), _hl["vb_nonmcq"]["greedy"], _hl["vb_nonmcq"]["sampling"], "vb_nonmcq")
+    _vb_rows.append(sub_metric_rows(sub, (VB_NONMCQ or {}).get(sub)))
+vb_card_html = bench_card("VB non-MCQ", "".join(_vb_rows), _hl["vb_nonmcq"], "vb_nonmcq")
 
-# VB MCQ card
+# VB MCQ
 _mcq_rows = []
 for sub in ["bbh","openbookqa","mmsu"]:
-    g_m = (VB_MCQ.get("greedy") or {}).get(sub)
-    s_m = (VB_MCQ.get("sampling") or {}).get(sub)
-    _mcq_rows.append(sub_metric_rows(sub, g_m, s_m))
-mcq_card_html = bench_card("VB MCQ", "".join(_mcq_rows), _hl["vb_mcq"]["greedy"], _hl["vb_mcq"]["sampling"], "vb_mcq")
+    _mcq_rows.append(sub_metric_rows(sub, (VB_MCQ or {}).get(sub)))
+mcq_card_html = bench_card("VB MCQ", "".join(_mcq_rows), _hl["vb_mcq"], "vb_mcq")
 
-# FDB card
+# FDB
 _fdb_rows = []
 for dim in ["turn_taking","interruption","backchannel","pause_candor","pause_synthetic"]:
-    g_m = (FDB.get("greedy") or {}).get(dim)
-    s_m = (FDB.get("sampling") or {}).get(dim)
-    _fdb_rows.append(sub_metric_rows(dim, g_m, s_m))
-fdb_card_html = bench_card("FDB", "".join(_fdb_rows), _hl["fdb"]["greedy"], _hl["fdb"]["sampling"], "fdb")
+    _fdb_rows.append(sub_metric_rows(dim, (FDB or {}).get(dim)))
+fdb_card_html = bench_card("FDB", "".join(_fdb_rows), _hl["fdb"], "fdb")
 
-# BBA card
+# BBA
 _bba_rows = []
 for cat in ["formal_fallacies","navigate","object_counting","web_of_lies"]:
-    g_m = (BBA.get("greedy") or {}).get(cat)
-    s_m = (BBA.get("sampling") or {}).get(cat)
-    _bba_rows.append(sub_metric_rows(cat, g_m, s_m))
-bba_card_html = bench_card("BBA", "".join(_bba_rows), _hl["bba"]["greedy"], _hl["bba"]["sampling"], "bba")
+    _bba_rows.append(sub_metric_rows(cat, (BBA or {}).get(cat)))
+bba_card_html = bench_card("BBA", "".join(_bba_rows), _hl["bba"], "bba")
 
-# BFCL card
+# BFCL
 _bfcl_rows = []
 for cat in ["simple","parallel","multiple","parallel_multiple","irrelevance"]:
-    g_m = (BFCL.get("greedy") or {}).get(cat)
-    s_m = (BFCL.get("sampling") or {}).get(cat)
-    _bfcl_rows.append(sub_metric_rows(cat, g_m, s_m))
-bfcl_card_html = bench_card("BFCL", "".join(_bfcl_rows), _hl["bfcl"]["greedy"], _hl["bfcl"]["sampling"], "bfcl")
+    _bfcl_rows.append(sub_metric_rows(cat, (BFCL or {}).get(cat)))
+bfcl_card_html = bench_card("BFCL", "".join(_bfcl_rows), _hl["bfcl"], "bfcl")
 ```
 
-conv_behav uses plain `metric_row` calls (no subtest grouping needed — it is a single flat dict).
+`bench_card(title, rows_html, headline, anchor)` should render a `.bench-card` with the title, headline number (color-coded per Step 4), and the metric rows. conv_behav uses plain `metric_row` calls (single flat dict, no subtest grouping).
 
 ### Step 2g — Sidecar JSON output
 
-At the **end** of the script body (after writing the HTML), also write `JSON_PATH`.
-
-While building the HTML (headlines, audio cards), store intermediate values in sidecar variables so they can be reused here without recomputation.
+At the end of the script body (after writing the HTML), also write `JSON_PATH`. Build sidecar variables alongside the HTML so they can be reused without recomputation.
 
 ```python
-# headlines: same per-benchmark per-mode values computed for the summary tiles (Step 4).
-# All floats or None; None for modes not run.
+# Headlines: same per-benchmark values as the summary tiles (Step 4).
+# Float or None.
 _hl = {
-    "vb_nonmcq":  {"greedy": <vb_nonmcq_greedy_headline>, "sampling": <vb_nonmcq_sampling_headline>},
-    "vb_mcq":     {"greedy": <vb_mcq_greedy_headline>,     "sampling": <vb_mcq_sampling_headline>},
-    "fdb":        {"greedy": <fdb_greedy_headline>,          "sampling": <fdb_sampling_headline>},
-    "bba":        {"greedy": <bba_greedy_headline>,          "sampling": <bba_sampling_headline>},
-    "bfcl":       {"greedy": <bfcl_greedy_headline>,         "sampling": <bfcl_sampling_headline>},
-    "conv_behav": {"greedy": <cb_greedy_headline>,           "sampling": <cb_sampling_headline>},
+    "vb_nonmcq":  vb_headline(VB_NONMCQ),
+    "vb_mcq":     vb_mcq_headline(VB_MCQ),
+    "fdb":        fdb_headline(FDB),
+    "bba":        bba_headline(BBA),
+    "bfcl":       bfcl_headline(BFCL),
+    "conv_behav": (CONV_BEHAV or {}).get("tt_f1"),
 }
 
-# detailed: normalized per-subtest display values (same floats as Detailed Scores section).
-# For VB_NONMCQ/VB_MCQ: gpt-score value per subtest.
-# For FDB: tor*100 per dimension.
-# For BBA/BFCL: accuracy per category/subcategory.
-# For conv_behav: flat dict of all metric values (tt_f1, latency_ms, etc.).
-# Use None for missing subtests or not-run modes.
+# Detailed: per-subtest display values (same floats as Detailed Scores section).
 _det = {
-    "vb_nonmcq": {
-        "greedy":   {k: (VB_NONMCQ["greedy"][k]["gpt"] if (VB_NONMCQ.get("greedy") or {}).get(k) else None)
-                    for k in (VB_NONMCQ.get("greedy") or {})},
-        "sampling": {k: (VB_NONMCQ["sampling"][k]["gpt"] if (VB_NONMCQ.get("sampling") or {}).get(k) else None)
-                    for k in (VB_NONMCQ.get("sampling") or {})},
-    },
-    "vb_mcq": {
-        "greedy":   {k: (VB_MCQ["greedy"][k]["gpt"] if (VB_MCQ.get("greedy") or {}).get(k) else None)
-                    for k in (VB_MCQ.get("greedy") or {})},
-        "sampling": {k: (VB_MCQ["sampling"][k]["gpt"] if (VB_MCQ.get("sampling") or {}).get(k) else None)
-                    for k in (VB_MCQ.get("sampling") or {})},
-    },
-    "fdb": {
-        "greedy":   {k: (round((FDB["greedy"][k].get("tor") or 0)*100, 2) if (FDB.get("greedy") or {}).get(k) else None)
-                    for k in (FDB.get("greedy") or {})},
-        "sampling": {k: (round((FDB["sampling"][k].get("tor") or 0)*100, 2) if (FDB.get("sampling") or {}).get(k) else None)
-                    for k in (FDB.get("sampling") or {})},
-    },
-    "bba": {
-        "greedy":   {k: ((BBA["greedy"][k].get("accuracy")) if (BBA.get("greedy") or {}).get(k) else None)
-                    for k in (BBA.get("greedy") or {})},
-        "sampling": {k: ((BBA["sampling"][k].get("accuracy")) if (BBA.get("sampling") or {}).get(k) else None)
-                    for k in (BBA.get("sampling") or {})},
-    },
-    "bfcl": {
-        "greedy":   {k: ((BFCL["greedy"][k].get("accuracy")) if (BFCL.get("greedy") or {}).get(k) else None)
-                    for k in (BFCL.get("greedy") or {})},
-        "sampling": {k: ((BFCL["sampling"][k].get("accuracy")) if (BFCL.get("sampling") or {}).get(k) else None)
-                    for k in (BFCL.get("sampling") or {})},
-    },
-    "conv_behav": {
-        "greedy":   dict(CONV_BEHAV.get("greedy") or {}) or None,
-        "sampling": dict(CONV_BEHAV.get("sampling") or {}) or None,
-    },
+    "vb_nonmcq": {k: (VB_NONMCQ[k]["gpt"] if (VB_NONMCQ or {}).get(k) else None)
+                  for k in (VB_NONMCQ or {})},
+    "vb_mcq":    {k: (VB_MCQ[k]["acc"]  if (VB_MCQ or {}).get(k) else None)
+                  for k in (VB_MCQ or {})},
+    "fdb":       {k: (round((FDB[k].get("tor") or 0)*100, 2) if (FDB or {}).get(k) else None)
+                  for k in (FDB or {})},
+    "bba":       {k: ((BBA[k].get("accuracy")) if (BBA or {}).get(k) else None)
+                  for k in (BBA or {})},
+    "bfcl":      {k: ((BFCL[k].get("accuracy")) if (BFCL or {}).get(k) else None)
+                  for k in (BFCL or {})},
+    "conv_behav": dict(CONV_BEHAV or {}) or None,
 }
 
-# audio_examples: captured during audio loading above.
-# Build these lists alongside the HTML card builders; reuse here.
-# Each entry must carry a stable "key" field for cross-ckpt matching in compare_ckpts.py.
+# audio_examples: built during audio loading; keep a stable "key" per entry
+# for cross-ckpt matching in compare_ckpts.py.
 _audio = {
-    "vb_commoneval": [
-        # {"key": question_text[:80], "quality": "good"|"medium"|"bad",
-        #  "score": avg_score_or_None, "question": full_question,
-        #  "response": response_text[:400], "audio_src": url_or_None}
-        # up to 3 entries (good, medium, bad)
-    ],
-    "fdb_turn_taking": [
-        # {"key": sample_id, "sample_id": sample_id,
-        #  "outcome": "took_turn"|"missed_turn",
-        #  "generation": gen_text[:300], "audio_src": url_or_None}
-        # 4 entries: 2 took_turn + 2 missed_turn
-    ],
-    "fdb_pause_candor": [
-        # {"key": sample_id, "sample_id": sample_id,
-        #  "outcome": "silent"|"interrupted",
-        #  "context": problem_text[:200], "generation": gen_text[:200],
-        #  "audio_src": url_or_None}
-        # 4 entries: 2 silent + 2 interrupted
-    ],
-    "bba_navigate": [
-        # {"key": f"{'correct' if correct else 'wrong'}_{idx}",  # idx within correctness bucket (0-based)
-        #  "correct": bool, "expected": expected_str,
-        #  "response": gen_text[:300], "audio_src": url_or_None}
-        # 4 entries: correct_0, correct_1, wrong_0, wrong_1
-    ],
-    "conv_behav": [
-        # {"key": filename, "filename": filename, "audio_src": url_or_None}
-        # up to 3 entries
-    ],
+    "vb_commoneval":    [],   # {"key", "quality", "score", "question", "response", "audio_src"}
+    "fdb_turn_taking":  [],   # {"key", "sample_id", "outcome", "generation", "audio_src"}
+    "fdb_pause_candor": [],   # {"key", "sample_id", "outcome", "context", "generation", "audio_src"}
+    "bba_navigate":     [],   # {"key", "correct", "expected", "response", "audio_src"}
+    "conv_behav":       [],   # {"key", "filename", "audio_src"}
 }
 
 with open(JSON_PATH, "w") as _f:
     json.dump({
-        "name": NAME, "commit": COMMIT, "date": TODAY, "modes": MODES,
+        "name": NAME, "commit": COMMIT, "date": TODAY,
         "headlines": _hl, "detailed": _det, "audio_examples": _audio,
     }, _f, indent=2)
 print(f"Sidecar: {JSON_PATH}")
 ```
-
-Populate `_audio` lists **during** the audio loading phase (Step 2e), building dicts alongside the HTML card strings. `audio_src` is the URL string returned by `audio_url()` (or `None`).
 
 ---
 
@@ -448,7 +347,6 @@ Single self-contained file. Dark GitHub theme. Chart.js 4.4.0 from CDN.
 :root { --bg:#0d1117; --bg2:#161b22; --bg3:#21262d; --bd:#30363d;
         --tx:#e6edf3; --tx2:#8b949e; --ac:#58a6ff; --gr:#3fb950;
         --ye:#d29922; --re:#f85149; }
-/* Metric scorecard */
 .scorecard-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin:16px 0; }
 .bench-card { background:var(--bg2); border:1px solid var(--bd); border-radius:10px; padding:20px; }
 .bench-card h3 { font-size:1em; font-weight:600; margin-bottom:14px; color:var(--ac); }
@@ -457,11 +355,6 @@ Single self-contained file. Dark GitHub theme. Chart.js 4.4.0 from CDN.
 .metric-row:last-child { border-bottom:none; }
 .metric-val { font-weight:700; font-size:1.05em; }
 .not-run { color:var(--tx2); font-style:italic; font-size:0.85em; }
-.mode-tab { display:inline-block; padding:3px 10px; border-radius:4px; font-size:0.8em;
-            font-weight:600; margin-right:6px; }
-.mode-greedy   { background:#1f3a5f; color:#79c0ff; }
-.mode-sampling { background:#3d2b00; color:#f0b429; }
-/* Audio example cards */
 .aplayer { width:100%; height:34px; margin-top:6px; border-radius:4px; accent-color:var(--ac); }
 .ex-card { background:var(--bg2); border:1px solid var(--bd); border-radius:10px;
            margin-bottom:12px; overflow:hidden; }
@@ -478,7 +371,7 @@ Single self-contained file. Dark GitHub theme. Chart.js 4.4.0 from CDN.
 .badge { display:inline-block; padding:2px 8px; border-radius:4px;
          font-size:0.8em; font-weight:600; }
 .sub-hdr { font-size:0.78em; font-weight:700; text-transform:uppercase;
-           letter-spacing:.05em; color:var(--tx2); padding:8px 0 2px; border-bottom:none; }
+           letter-spacing:.05em; color:var(--tx2); padding:8px 0 2px; }
 @media(max-width:900px) {
   .scorecard-grid { grid-template-columns:1fr; }
   .ex-body { grid-template-columns:1fr; }
@@ -488,33 +381,25 @@ Single self-contained file. Dark GitHub theme. Chart.js 4.4.0 from CDN.
 
 ### Page structure
 
-**Header**: title `"S2S FC Eval Scorecard — {NAME}"`, date, commit, mode badges.
+**Header**: title `"S2S FC Eval Scorecard — {NAME}"`, date, commit.
 
-**Top summary row** (6 tiles, flex-wrap): one tile per benchmark.
-- Each tile shows the **greedy** headline number (primary) and **sampling** headline in smaller text if available.
-- Color coding on the greedy headline:
-  - VB non-MCQ / MCQ: green ≥60%, yellow ≥40%, red <40%
-  - BBA accuracy: green ≥70%, yellow ≥50%, red <50%
-  - BFCL avg: green ≥70%, yellow ≥40%, red <40%
-  - conv_behav TT-F1: green ≥75%, yellow ≥55%, red <55%
-  - FDB composite: green ≥60%, yellow ≥40%, red <40%
-- "Not run" tile (grey) if no data for either mode.
+**Top summary row** (6 tiles, flex-wrap): one tile per benchmark. Each tile shows the benchmark headline number, color-coded:
+- VB non-MCQ / MCQ: green ≥60%, yellow ≥40%, red <40%
+- BBA accuracy: green ≥70%, yellow ≥50%, red <50%
+- BFCL avg: green ≥70%, yellow ≥40%, red <40%
+- conv_behav TT-F1: green ≥75%, yellow ≥55%, red <55%
+- FDB composite: green ≥60%, yellow ≥40%, red <40%
+- "Not run" tile (grey) if no data.
 
-**Radar chart** (center, 600px): axes for VB-nonMCQ, VB-MCQ, BBA, BFCL, conv_behav, FDB-composite.
-If both modes available, draw two overlapping polygons (greedy = blue, sampling = orange).
-Show only if ≥3 axes have data.
+**Radar chart** (center, 600px): axes for VB-nonMCQ, VB-MCQ, BBA, BFCL, conv_behav, FDB-composite. Single polygon. Show only if ≥3 axes have data.
 
-**Scorecard grid** (3 cols × 2 rows):
+**Scorecard grid** (3 cols × 2 rows): VB non-MCQ, VB MCQ, FDB, BBA, BFCL, conv_behav — always all 6, "Not run" if missing. FDB card shows TOR per dimension (↑ for turn_taking/interruption; ↓ for pause/backchannel).
 
-Each card shows **greedy** metrics as primary rows, with sampling side-by-side where available.
-Cards: VB non-MCQ, VB MCQ, FDB, BBA, BFCL, conv_behav — always all 6, "Not run" if missing.
-FDB card shows TOR per dimension (↑ for turn_taking/interruption; ↓ for pause/backchannel).
+**Comparison bar chart**: bars per benchmark, Y axis 0–100.
 
-**Comparison bar chart**: grouped bars (greedy=blue, sampling=orange) per benchmark, Y axis 0–100.
+**Conclusions section**: two columns — "Strongest Areas" and "Areas for Improvement" based on headline vs thresholds.
 
-**Conclusions section**: two columns — "Strongest Areas" and "Areas for Improvement" based on greedy headline vs thresholds.
-
-**Audio Examples section** (always included, placed after Conclusions):
+**Audio Examples section** (always included, after Conclusions):
 
 ```html
 <h2>Audio Examples</h2>
@@ -525,44 +410,40 @@ FDB card shows TOR per dimension (↑ for turn_taking/interruption; ↓ for paus
 
 <div class="ex-section">
   <h3 style="color:var(--ac)">VoiceBench CommonEval — Response Quality</h3>
-  <!-- 3 VB cards: good / medium / bad -->
+  <!-- 3 cards: good / medium / bad -->
 </div>
-
 <div class="ex-section">
   <h3 style="color:var(--ac)">FDB — Turn-Taking &amp; Pause Handling</h3>
-  <!-- 2 turn_taking (✓/✗) + 2 pause_candor (✓/✗) cards -->
+  <!-- 2 turn_taking + 2 pause_candor -->
 </div>
-
 <div class="ex-section">
   <h3 style="color:var(--ac)">BBA Navigate — Correct vs Wrong</h3>
-  <!-- 2 correct + 2 wrong cards -->
+  <!-- 2 correct + 2 wrong -->
 </div>
-
 <div class="ex-section">
-  <h3 style="color:var(--ac)">conv_behav — Agent Session Audio (sampling)</h3>
+  <h3 style="color:var(--ac)">conv_behav — Agent Session Audio</h3>
   <!-- 3 agent wav cards -->
 </div>
 ```
 
-If a benchmark has no available audio (output dir missing or no wav files found), show `<p class="not-run">No examples available.</p>` for that section.
+If a benchmark has no available audio, show `<p class="not-run">No examples available.</p>`.
 
 ---
 
 ## Step 4 — Headline derivations
 
 - **VB nonMCQ**: normalize each subtest to 0–100 (`sd_qa`/`ifeval`/`advbench` already %; GPT-judge subtests on 1–5 scale → ×20); average across available subtests.
-- **VB MCQ**: use a **separate** `vb_mcq_headline` function — average of `acc` (not `gpt`) across available subtests. Do NOT use `vb_normalize` / `vb_headline` for MCQ. Implementation:
+- **VB MCQ**: average `acc` across available subtests:
   ```python
   def vb_mcq_headline(data):
-      if data is None: return None
+      if not data: return None
       vals = [v.get("acc") for v in data.values() if v and v.get("acc") is not None]
       return round(sum(vals)/len(vals), 2) if vals else None
   ```
-  Used in `_hl`: `"vb_mcq": {"greedy": vb_mcq_headline(VB_MCQ["greedy"]), "sampling": vb_mcq_headline(VB_MCQ["sampling"])}`
-- **FDB composite**: average of per-dim normalized TOR — `turn_taking`/`interruption` contribute as-is (↑ better); `backchannel`/`pause_candor`/`pause_synthetic` contribute as `1 − TOR` (↓ better). Use `tor_pct` field (already 0–100); multiply FDB normalized values by nothing (already %).
+- **FDB composite**: per-dim normalized TOR — `turn_taking`/`interruption` contribute as-is (↑ better); `backchannel`/`pause_candor`/`pause_synthetic` contribute as `100 − tor_pct` (↓ better). Average across dims.
 - **BBA**: average `accuracy` across available categories.
 - **BFCL weighted**: `sum(num_correct) / sum(num_samples) × 100`.
-- **conv_behav**: `tt_f1` (use sampling if greedy not run).
+- **conv_behav**: `tt_f1`.
 
 ---
 
@@ -573,9 +454,9 @@ Run `python3 /tmp/make_scorecard.py`.
 Report:
 1. Path to `asset/{name}.html`
 2. Path to `asset/{name}.json` (sidecar)
-3. To view with audio: `bash scripts/serve_scorecard.sh --name {NAME}`, then follow the printed SSH tunnel + browser URL instructions
-4. Summary table: benchmark × mode → headline number
-5. Which benchmarks/modes had missing results
+3. To view with audio: `bash scripts/serve_scorecard.sh --name {NAME}`
+4. Summary table: benchmark → headline number
+5. Which benchmarks had missing results
 
 ---
 
@@ -587,7 +468,7 @@ After Step 5, count JSON files in `asset/`:
 ls asset/*.json 2>/dev/null | wc -l
 ```
 
-If the count is **≥ 2** (multiple checkpoints scored), write `scripts/compare_ckpts.py` with exactly the following content. If only 1 JSON exists (the one just written), skip this step and note that `compare_ckpts.py` will be emitted once a second scorecard is generated.
+If the count is **≥ 2**, write `scripts/compare_ckpts.py` with the following content. If only 1 JSON exists, skip this step.
 
 ```python
 #!/usr/bin/env python3
@@ -640,7 +521,7 @@ BENCH_SUBTESTS = {
     "conv_behav": ["tt_f1", "tt_precision", "tt_recall", "barge_in_success_rate",
                    "bc_accuracy", "cutoff_rate", "tt_latency_ms", "barge_in_latency_ms"],
 }
-RAW_METRICS = {"tt_latency_ms", "barge_in_latency_ms", "num_evaluated"}  # not percentages
+RAW_METRICS = {"tt_latency_ms", "barge_in_latency_ms", "num_evaluated"}
 
 AUDIO_CATS = [
     ("vb_commoneval",    "VoiceBench CommonEval — Response Quality"),
@@ -659,9 +540,7 @@ def color_val(bench, val):
 
 
 def headline(ckpt, bench):
-    h = (ckpt.get("headlines") or {}).get(bench) or {}
-    g, s = h.get("greedy"), h.get("sampling")
-    return (g if g is not None else s), g, s
+    return (ckpt.get("headlines") or {}).get(bench)
 
 
 def fmt_val(bench, sub, v):
@@ -687,21 +566,14 @@ def summary_table(ckpts):
     for bench in BENCHMARKS:
         cells = ""
         for ck in ckpts:
-            best, g, s = headline(ck, bench)
-            col = color_val(bench, best)
-            if g is not None:
-                txt = f"{g:.1f}%"
-                if s is not None:
-                    txt += f'<span style="color:var(--tx2);font-size:0.8em"> / {s:.1f}%</span>'
-            elif s is not None:
-                txt = f'<span style="color:var(--tx2)">({s:.1f}%)</span>'
-            else:
-                txt = "—"
+            v = headline(ck, bench)
+            col = color_val(bench, v)
+            txt = f"{v:.1f}%" if v is not None else "—"
             cells += f'<td style="text-align:center;color:{col};font-weight:700">{txt}</td>'
         rows += f"<tr><td><strong>{BENCH_LABELS[bench]}</strong></td>{cells}</tr>"
     return (
         f'<div style="overflow-x:auto"><table class="cmp-table">'
-        f'<thead><tr><th>Benchmark (G / S)</th>{hdrs}</tr></thead>'
+        f'<thead><tr><th>Benchmark</th>{hdrs}</tr></thead>'
         f'<tbody>{rows}</tbody></table></div>'
     )
 
@@ -709,7 +581,7 @@ def summary_table(ckpts):
 def radar_data(ckpts):
     datasets = []
     for i, ck in enumerate(ckpts):
-        vals = [round(headline(ck, b)[0], 1) if headline(ck, b)[0] is not None else 0
+        vals = [round(headline(ck, b), 1) if headline(ck, b) is not None else 0
                 for b in BENCHMARKS]
         c = COLORS[i % len(COLORS)]
         datasets.append({
@@ -728,22 +600,16 @@ def bar_charts(ckpts):
     for bench in BENCHMARKS:
         cid = f"bar_{bench}"
         labels = [ck["name"] for ck in ckpts]
-        g_vals, s_vals, bg_g, bg_s, bd_g, bd_s = [], [], [], [], [], []
+        vals, bg, bd = [], [], []
         for i, ck in enumerate(ckpts):
             c = COLORS[i % len(COLORS)]
-            _, g, s = headline(ck, bench)
-            g_vals.append(round(g, 1) if g is not None else None)
-            s_vals.append(round(s, 1) if s is not None else None)
-            bg_g.append(c + "cc"); bg_s.append(c + "44")
-            bd_g.append(c);        bd_s.append(c + "99")
+            v = headline(ck, bench)
+            vals.append(round(v, 1) if v is not None else None)
+            bg.append(c + "cc"); bd.append(c)
         chart_data = {
             "labels": labels,
-            "datasets": [
-                {"label": "Greedy",   "data": g_vals, "backgroundColor": bg_g,
-                 "borderColor": bd_g, "borderWidth": 1},
-                {"label": "Sampling", "data": s_vals, "backgroundColor": bg_s,
-                 "borderColor": bd_s, "borderWidth": 1},
-            ],
+            "datasets": [{"label": BENCH_LABELS[bench], "data": vals,
+                          "backgroundColor": bg, "borderColor": bd, "borderWidth": 1}],
         }
         html_parts.append(
             f'<div class="chart-wrap">'
@@ -767,33 +633,24 @@ def detailed_tables(ckpts):
     for bench in BENCHMARKS:
         subtests = BENCH_SUBTESTS.get(bench, [])
         col_hdrs = "".join(
-            f'<th colspan="2" style="color:{COLORS[i % len(COLORS)]};text-align:center">'
-            f'{ck["name"]}</th>'
+            f'<th style="color:{COLORS[i % len(COLORS)]};text-align:center">{ck["name"]}</th>'
             for i, ck in enumerate(ckpts)
-        )
-        mode_hdrs = "".join(
-            '<th style="color:#79c0ff;font-size:0.78em;text-align:center">G</th>'
-            '<th style="color:#f0b429;font-size:0.78em;text-align:center">S</th>'
-            for _ in ckpts
         )
         rows = ""
         for sub in subtests:
             cells = ""
             for ck in ckpts:
                 det = (ck.get("detailed") or {}).get(bench) or {}
-                for mode in ("greedy", "sampling"):
-                    md = det.get(mode) or {}
-                    v = md.get(sub) if isinstance(md, dict) else None
-                    if v is None:
-                        cells += '<td style="color:var(--tx2);text-align:center">—</td>'
-                    else:
-                        cells += f'<td style="text-align:center;font-weight:600">{fmt_val(bench, sub, v)}</td>'
+                v = det.get(sub) if isinstance(det, dict) else None
+                if v is None:
+                    cells += '<td style="color:var(--tx2);text-align:center">—</td>'
+                else:
+                    cells += f'<td style="text-align:center;font-weight:600">{fmt_val(bench, sub, v)}</td>'
             rows += f'<tr><td style="white-space:nowrap">{sub}</td>{cells}</tr>'
         parts.append(
             f'<h3 style="color:var(--ac);margin:16px 0 6px">{BENCH_LABELS[bench]}</h3>'
             f'<div style="overflow-x:auto;margin-bottom:8px"><table class="cmp-table">'
-            f'<thead><tr><th>Metric</th>{col_hdrs}</tr>'
-            f'<tr><th></th>{mode_hdrs}</tr></thead>'
+            f'<thead><tr><th>Metric</th>{col_hdrs}</tr></thead>'
             f'<tbody>{rows}</tbody></table></div>'
         )
     return "\n".join(parts)

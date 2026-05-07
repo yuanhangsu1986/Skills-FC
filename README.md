@@ -111,21 +111,19 @@ Optional arguments:
 | Argument | Description | Default |
 |---|---|---|
 | `name=<filename>` | Output HTML filename (`.html` appended if omitted) | `scorecard` |
-| `output_dir=<path>` | Base output dir for all benchmarks; results are read from `{output_dir}/{mode}_{commit}/` | read from each benchmark's config YAML |
-| `eval_mode=<mode>` | `greedy`, `sampling`, or `greedy+sampling` | `greedy+sampling` |
+| `output_dir=<path>` | Base output dir for all benchmarks; results are read from `{output_dir}/{name}_{commit}/` | read from each benchmark's config YAML |
 
 Examples:
 
 ```
 /make-scorecard
 /make-scorecard name=my_run
-/make-scorecard name=my_run eval_mode=greedy
-/make-scorecard name=my_run output_dir=/path/to/results eval_mode=greedy+sampling
+/make-scorecard name=my_run output_dir=/path/to/results
 ```
 
 Output is written to `asset/{name}.html`. The scorecard includes:
 - Summary tiles and radar chart across all benchmarks
-- Per-benchmark metric breakdowns (greedy and sampling side by side)
+- Per-benchmark metric breakdowns
 - Audio example playback for VoiceBench CommonEval, FDB turn-taking/pause, BBA Navigate, and conv_behav agent sessions
 
 ### Viewing the scorecard

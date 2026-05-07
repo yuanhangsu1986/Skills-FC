@@ -12,23 +12,25 @@ throttling submission so the SLURM queue never exceeds the cluster's max-jobs li
 ## Quick start
 
 ```bash
-# Run all six benchmarks, both greedy and sampling (default)
+# Run all six benchmarks (decoding defaults to greedy via each *_greedy.yaml config)
 bash asset/run_all_benchmarks.sh
 
-# Greedy only
-bash asset/run_all_benchmarks.sh --eval_mode greedy
+# Run a subset
+bash asset/run_all_benchmarks.sh --benchmarks bba,bfcl
 
-# Sampling only
-bash asset/run_all_benchmarks.sh --eval_mode sampling
-
-# Run a subset in sampling mode
-bash asset/run_all_benchmarks.sh --eval_mode sampling --benchmarks bba,bfcl
-
-# Override model + code for a greedy-only run (must always be paired)
+# Override model + code (must always be paired)
 bash asset/run_all_benchmarks.sh \
-  --eval_mode greedy \
   --model /lustre/path/to/checkpoint \
   --code_path /lustre/path/to/NeMo_code
+
+# Override the server backend across all benchmarks
+bash asset/run_all_benchmarks.sh --server_backend s2s_voicechat
+
+# Sampling-style run: any of --top_p / --temperature / --repetition_penalty /
+# --force_turn_taking requires all four plus --output_dir.
+bash asset/run_all_benchmarks.sh \
+  --temperature 0.8 --top_p 0.8 --repetition_penalty 1.0 \
+  --force_turn_taking false --output_dir /lustre/path/out
 
 # Preview what would be submitted without actually submitting
 bash asset/run_all_benchmarks.sh --dry_run
@@ -51,16 +53,21 @@ Default order when `--benchmarks` is omitted (smallest to largest): `conv_behav 
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--eval_mode MODE` | `greedy`, `sampling`, or `greedy+sampling`. Selects the matching `*_greedy.yaml` / `*_sampling.yaml` configs. `greedy+sampling` runs all benchmarks greedy-first, then repeats for sampling. | `greedy+sampling` |
 | `--benchmarks LIST` | Comma-separated subset of benchmark names | all six, in listed order |
-| `--config_vb_nonmcq PATH` | Config YAML for VoiceBench non-MCQ | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_config_fc_greedy.yaml` |
-| `--config_vb_mcq PATH` | Config YAML for VoiceBench MCQ | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_mcq_config_fc_greedy.yaml` |
+| `--config_vb_nonmcq PATH` | Config YAML for VoiceBench non-MCQ | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_config_fc_s2s_incremental_v2_greedy.yaml` |
+| `--config_vb_mcq PATH` | Config YAML for VoiceBench MCQ | `nemo_skills/dataset/voicebench/scripts/vb_matched_demo_v2_02mar_mcq_config_fc_s2s_incremental_v2_greedy.yaml` |
 | `--config_fdb PATH` | Config YAML for FDB | `nemo_skills/dataset/fdb/scripts/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml` |
-| `--config_bba PATH` | Config YAML for BBA | `nemo_skills/dataset/bba/scripts/bba_config_fc_greedy.yaml` |
-| `--config_bfcl PATH` | Config YAML for BFCL | `nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_greedy.yaml` |
+| `--config_bba PATH` | Config YAML for BBA | `nemo_skills/dataset/bba/scripts/bba_config_fc_s2s_incremental_v2_greedy.yaml` |
+| `--config_bfcl PATH` | Config YAML for BFCL | `nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_s2s_incremental_v2_greedy.yaml` |
 | `--config_conv_behav PATH` | Config YAML for conv_behav | `nemo_skills/dataset/conv_behav/scripts/conv_behav_config_greedy.yaml` |
-| `--model PATH` | Override the model checkpoint for every benchmark | (from each config YAML) |
-| `--code_path PATH` | Override the NeMo source code directory for every benchmark | (from each config YAML) |
+| `--output_dir PATH` | Redirect all benchmark outputs under `PATH/{name}_{commit}` | (from each config YAML) |
+| `--model PATH` | Override the model checkpoint for every benchmark; pairs with `--code_path` | (from each config YAML) |
+| `--code_path PATH` | Override the NeMo source code directory for every benchmark; pairs with `--model` | (from each config YAML) |
+| `--server_backend NAME` | Override the `--backend X` arg inside `server_args` for every benchmark whose YAML defines one (no-op for benchmarks like `conv_behav` that lack `server_args`) | (from each config YAML) |
+| `--force_turn_taking BOOL` | Decoding override (`true`/`false`); requires the other three + `--output_dir` | (from each config YAML) |
+| `--top_p VAL` | Decoding override; requires the other three + `--output_dir` | (from each config YAML) |
+| `--repetition_penalty VAL` | Decoding override; requires the other three + `--output_dir` | (from each config YAML) |
+| `--temperature VAL` | Decoding override; requires the other three + `--output_dir` | (from each config YAML) |
 | `--max_jobs N` | Hard-code the SLURM job limit instead of auto-detecting | auto-detected |
 | `--poll_interval N` | Seconds between SLURM queue checks while waiting | `60` |
 | `--dry_run` | Pass `--dry_run` to every benchmark script; no jobs submitted | `false` |

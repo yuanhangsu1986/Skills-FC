@@ -99,14 +99,12 @@ def build_inference_command(config: dict) -> str:
 
 def build_scoring_command(config: dict) -> str:
     eval_script = f"{config['nemo_code_path']}/scripts/speech_eval/eval_conversation_behavior.py"
-    decoding_mode = config.get("decoding_mode", "greedy")
     cmd = (
         f"{config.get('scoring_container_python_exec') or config.get('inference_container_python_exec') or 'python'} nemo_skills/dataset/conv_behav/scripts/run_scoring.py"
         f" --output_dir {config['output_dir']}/eval-results"
         f" --shar_input_dir {config['shar_input_dir']}"
         f" --dataset_name {config['dataset_name']}"
         f" --eval_script_path {eval_script}"
-        f" --decoding_mode {decoding_mode}"
         f" --barge_in_threshold_sec {config.get('barge_in_threshold_sec', 1.5)}"
         f" --tt_latency_threshold_sec {config.get('tt_latency_threshold_sec', 1.5)}"
         f" --tt_precision_buffer_sec {config.get('tt_precision_buffer_sec', 1.0)}"

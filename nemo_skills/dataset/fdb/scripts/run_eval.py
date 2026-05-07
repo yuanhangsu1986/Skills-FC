@@ -70,7 +70,6 @@ def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
     fdb_repo = config["fdb_repo_path"]
     scoring_script = "nemo_skills/dataset/fdb/scripts/run_fdb_scoring.py"
 
-    decoding_mode = config.get("decoding_mode", "greedy")
     python_exec = (config.get("scoring_container_python_exec")
                    or config.get("server_container_python_exec")
                    or "python")
@@ -80,7 +79,6 @@ def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
         f"--fdb_repo {fdb_repo}",
         f"--subtest {subtest}",
         f"--fdb_version {fdb_version}",
-        f"--decoding_mode {decoding_mode}",
     ]
     fdb_data_path = config.get("fdb_data_path")
     if fdb_data_path:

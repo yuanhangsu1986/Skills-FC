@@ -35,11 +35,11 @@ server_server_type: vllm_multimodal
 fdb_version: v1.0
 
 # data_dir must point to fdb so benchmarks resolve to fdb/fdb_v1/* and fdb/fdb_v1_5/*
-data_dir: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/Skills/nemo_skills/dataset/fdb
+data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 output_dir: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/fdb_v1_0_voicechat_tt_boost_0s_ignore_system_prompt_trimmed
 fdb_repo_path: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/Full-Duplex-Bench
 # fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/kevinhu/Full-Duplex-Bench-NV
-fdb_data_path: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/Full-Duplex-Bench-data
+fdb_data_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb_raw
 
 # Turn taking only (boost + merge run)
 subtests:

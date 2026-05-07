@@ -30,14 +30,14 @@ from pathlib import Path
 ALL_CATEGORIES = ["formal_fallacies", "navigate", "object_counting", "web_of_lies"]
 
 
-def aggregate(output_dir: str, categories: list, force: bool = False, decoding_mode: str = "greedy") -> int:
+def aggregate(output_dir: str, categories: list, force: bool = False) -> int:
     output_dir = Path(output_dir)
     agg_metrics_file = output_dir / "eval-results" / "bba_aggregate" / "metrics.json"
 
     if agg_metrics_file.exists() and not force:
         try:
-            if decoding_mode in json.loads(agg_metrics_file.read_text()).get("bba.aggregate", {}):
-                print(f"Aggregation already done for {decoding_mode}. Skipping (use --force to re-run).")
+            if json.loads(agg_metrics_file.read_text()).get("bba.aggregate"):
+                print(f"Aggregation already done. Skipping (use --force to re-run).")
                 return 0
         except Exception:
             pass
@@ -49,7 +49,7 @@ def aggregate(output_dir: str, categories: list, force: bool = False, decoding_m
             print(f"Error: missing metrics for category '{category}': {metrics_file}", file=sys.stderr)
             return 1
         try:
-            acc = json.loads(metrics_file.read_text()).get(f"bba.{category}", {}).get(decoding_mode, {}).get("accuracy")
+            acc = json.loads(metrics_file.read_text()).get(f"bba.{category}", {}).get("accuracy")
         except Exception as e:
             print(f"Error reading metrics for category '{category}': {e}", file=sys.stderr)
             return 1
@@ -65,7 +65,7 @@ def aggregate(output_dir: str, categories: list, force: bool = False, decoding_m
             existing = json.loads(agg_metrics_file.read_text())
         except Exception:
             pass
-    existing.setdefault("bba.aggregate", {})[decoding_mode] = {
+    existing["bba.aggregate"] = {
         "accuracy": aggregate_accuracy,
         "num_categories": len(per_category),
         "per_category": per_category,
@@ -89,9 +89,8 @@ def main():
     parser.add_argument("--output_dir", required=True, help="BBA output directory (eval-results/ lives here)")
     parser.add_argument("--categories", nargs="+", default=ALL_CATEGORIES, help="Categories to aggregate")
     parser.add_argument("--force", action="store_true", help="Re-run even if aggregate already exists")
-    parser.add_argument("--decoding_mode", default="greedy", choices=["greedy", "sampling"], help="Key under which metrics are stored in metrics.json")
     args = parser.parse_args()
-    sys.exit(aggregate(args.output_dir, args.categories, args.force, args.decoding_mode))
+    sys.exit(aggregate(args.output_dir, args.categories, args.force))
 
 
 if __name__ == "__main__":

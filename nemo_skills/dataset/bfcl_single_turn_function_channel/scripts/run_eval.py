@@ -112,13 +112,11 @@ def build_infer_command(config: dict, category: str) -> str:
 def build_score_command(config: dict, category: str, force: bool = False) -> str:
     output_dir = config["output_dir"]
     output_jsonl = f"{output_dir}/eval-results/{category}/output.jsonl"
-    decoding_mode = config.get("decoding_mode", "greedy")
     python_exec = config.get("scoring_container_python_exec", "python")
     cmd = (
         f"{python_exec} nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_bfcl_fc_scoring.py"
         f" --output_jsonl {output_jsonl}"
         f" --category {category}"
-        f" --decoding_mode {decoding_mode}"
     )
     if force:
         cmd += " --force"

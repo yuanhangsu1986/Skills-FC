@@ -75,8 +75,7 @@ Set `data_dir` in the config to the `output_dir` used above.
 
 Copy and edit either:
 
-- `scripts/bfcl_fc_config_greedy.yaml` — temperature=0, deterministic
-- `scripts/bfcl_fc_config_sampling.yaml` — temperature=0.8, stochastic
+- `scripts/bfcl_fc_config_s2s_incremental_v2_greedy.yaml` — temperature=0, deterministic
 
 Mandatory fields to update:
 
@@ -96,14 +95,14 @@ function channel path. Do not remove them.
 
 ```bash
 python -u nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py \
-    --config nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_greedy.yaml
+    --config nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_s2s_incremental_v2_greedy.yaml
 ```
 
 ### Background run with nohup (recommended for long submissions)
 
 ```bash
 nohup python -u nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py \
-    --config nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_greedy.yaml \
+    --config nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_s2s_incremental_v2_greedy.yaml \
     > bfcl_greedy.log 2>&1 &
 
 echo "PID: $!"
@@ -126,35 +125,35 @@ Run inference only (submit Slurm jobs, do not score yet):
 
 ```bash
 python -u nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py \
-    --config bfcl_fc_config_greedy.yaml --inference_only
+    --config bfcl_fc_config_s2s_incremental_v2_greedy.yaml --inference_only
 ```
 
 Run scoring only on existing `output.jsonl` (no server needed):
 
 ```bash
 python -u nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py \
-    --config bfcl_fc_config_greedy.yaml --scoring_only
+    --config bfcl_fc_config_s2s_incremental_v2_greedy.yaml --scoring_only
 ```
 
 Force re-run scoring even if `metrics.json` already exists:
 
 ```bash
 python -u nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py \
-    --config bfcl_fc_config_greedy.yaml --scoring_only --scoring_force
+    --config bfcl_fc_config_s2s_incremental_v2_greedy.yaml --scoring_only --scoring_force
 ```
 
 Run a single category:
 
 ```bash
 python -u nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py \
-    --config bfcl_fc_config_greedy.yaml --categories simple_python
+    --config bfcl_fc_config_s2s_incremental_v2_greedy.yaml --categories simple_python
 ```
 
 Dry run (validate config and print job commands without submitting):
 
 ```bash
 python -u nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py \
-    --config bfcl_fc_config_greedy.yaml --dry_run
+    --config bfcl_fc_config_s2s_incremental_v2_greedy.yaml --dry_run
 ```
 
 ### CLI overrides
@@ -162,7 +161,7 @@ python -u nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval
 Any top-level config key can be overridden from the command line:
 
 ```bash
-python -u ... --config bfcl_fc_config_greedy.yaml \
+python -u ... --config bfcl_fc_config_s2s_incremental_v2_greedy.yaml \
     --model /path/to/other/checkpoint \
     --output_dir /tmp/quick_test
 ```

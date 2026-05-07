@@ -22,11 +22,9 @@ and required_fields stored in the same file.
 Writes metrics.json under the same directory:
   {
     "bfcl_fc.<category>": {
-      "<decoding_mode>": {
-        "accuracy": 72.5,
-        "num_samples": 400,
-        "num_correct": 290
-      }
+      "accuracy": 72.5,
+      "num_samples": 400,
+      "num_correct": 290
     }
   }
 
@@ -34,7 +32,6 @@ Usage:
     python run_bfcl_fc_scoring.py \
         --output_jsonl /results/simple_python/output.jsonl \
         --category simple_python \
-        [--decoding_mode greedy] \
         [--force]
 """
 
@@ -148,7 +145,6 @@ def _parse_toolcall(generation: str, required_fields: dict = None) -> list:
 def score(
     output_jsonl: str,
     category: str,
-    decoding_mode: str = "greedy",
     force: bool = False,
 ) -> int:
     output_path = Path(output_jsonl)
@@ -161,8 +157,8 @@ def score(
     if metrics_file.exists() and not force:
         try:
             existing = json.loads(metrics_file.read_text())
-            if decoding_mode in existing.get(benchmark_key, {}):
-                print(f"Scoring already done for {benchmark_key} ({decoding_mode}). Skipping (use --force to re-run).")
+            if existing.get(benchmark_key):
+                print(f"Scoring already done for {benchmark_key}. Skipping (use --force to re-run).")
                 return 0
         except Exception:
             pass
@@ -209,7 +205,7 @@ def score(
         except Exception:
             pass
 
-    existing_metrics.setdefault(benchmark_key, {})[decoding_mode] = metrics
+    existing_metrics[benchmark_key] = metrics
     metrics_file.write_text(json.dumps(existing_metrics, indent=2))
 
     print("\n" + "=" * 60)
@@ -227,14 +223,12 @@ def main():
     parser = argparse.ArgumentParser(description="Score BFCL function-channel output")
     parser.add_argument("--output_jsonl", required=True, help="Path to output.jsonl from inference")
     parser.add_argument("--category", required=True, help="BFCL category name (e.g. simple_python)")
-    parser.add_argument("--decoding_mode", default="greedy", choices=["greedy", "sampling"], help="Key under which metrics are stored in metrics.json")
     parser.add_argument("--force", action="store_true", help="Re-run even if metrics.json exists")
     args = parser.parse_args()
 
     sys.exit(score(
         output_jsonl=args.output_jsonl,
         category=args.category,
-        decoding_mode=args.decoding_mode,
         force=args.force,
     ))
 

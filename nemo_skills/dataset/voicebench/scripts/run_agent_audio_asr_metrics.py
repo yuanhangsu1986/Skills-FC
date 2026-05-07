@@ -352,18 +352,16 @@ def main():
         _write_jsonl(out_path, out_rows)
         metrics = {
             f"voicebench.{args.subtest}": {
-                "greedy": {
-                    "agent_wer": None,
-                    "agent_cer": None,
-                    "agent_ref_words": 0,
-                    "agent_ref_chars": 0,
-                    "agent_word_substitutions": 0,
-                    "agent_word_insertions": 0,
-                    "agent_word_deletions": 0,
-                    "agent_char_substitutions": 0,
-                    "agent_char_insertions": 0,
-                    "agent_char_deletions": 0,
-                }
+                "agent_wer": None,
+                "agent_cer": None,
+                "agent_ref_words": 0,
+                "agent_ref_chars": 0,
+                "agent_word_substitutions": 0,
+                "agent_word_insertions": 0,
+                "agent_word_deletions": 0,
+                "agent_char_substitutions": 0,
+                "agent_char_insertions": 0,
+                "agent_char_deletions": 0,
             }
         }
         with metrics_path.open("wt", encoding="utf-8") as f:
@@ -445,18 +443,16 @@ def main():
 
     metrics = {
         f"voicebench.{args.subtest}": {
-            "greedy": {
-                "agent_wer": agent_wer_total,
-                "agent_cer": agent_cer_total,
-                "agent_ref_words": total_ref_words,
-                "agent_ref_chars": total_ref_chars,
-                "agent_word_substitutions": total_word_sub,
-                "agent_word_insertions": total_word_ins,
-                "agent_word_deletions": total_word_del,
-                "agent_char_substitutions": total_char_sub,
-                "agent_char_insertions": total_char_ins,
-                "agent_char_deletions": total_char_del,
-            }
+            "agent_wer": agent_wer_total,
+            "agent_cer": agent_cer_total,
+            "agent_ref_words": total_ref_words,
+            "agent_ref_chars": total_ref_chars,
+            "agent_word_substitutions": total_word_sub,
+            "agent_word_insertions": total_word_ins,
+            "agent_word_deletions": total_word_del,
+            "agent_char_substitutions": total_char_sub,
+            "agent_char_insertions": total_char_ins,
+            "agent_char_deletions": total_char_del,
         }
     }
     with metrics_path.open("wt", encoding="utf-8") as f:

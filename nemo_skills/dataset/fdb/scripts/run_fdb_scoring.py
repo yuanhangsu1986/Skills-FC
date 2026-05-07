@@ -86,7 +86,6 @@ def main():
     parser.add_argument("--subtest", required=True, choices=list(ASR_TASK_MAP))
     parser.add_argument("--fdb_data_path", type=Path, default=None, help="FDB dataset root; required for turn_taking (turn_taking.json) and interruption (interrupt.json)")
     parser.add_argument("--fdb_version", default="v1.0", choices=["v1.0", "v1.5"], help="FDB dataset version (metadata paths and metrics key)")
-    parser.add_argument("--decoding_mode", default="greedy", choices=["greedy", "sampling"], help="Key under which metrics are stored in metrics.json")
     parser.add_argument("--force", action="store_true", help="Re-run scoring even if metrics.json exists")
     args = parser.parse_args()
 
@@ -98,8 +97,8 @@ def main():
     if metrics_file.exists() and not args.force:
         try:
             existing = json.loads(metrics_file.read_text())
-            if decoding_mode in existing.get(benchmark_key, {}):
-                print(f"Scoring already done for {benchmark_key} ({decoding_mode}). Skipping (use --force to re-run).")
+            if existing.get(benchmark_key):
+                print(f"Scoring already done for {benchmark_key}. Skipping (use --force to re-run).")
                 sys.exit(0)
         except Exception:
             pass
@@ -255,7 +254,7 @@ def main():
             existing_metrics = json.loads(metrics_file.read_text())
         except Exception:
             pass
-    existing_metrics.setdefault(benchmark_key, {})[args.decoding_mode] = metrics
+    existing_metrics[benchmark_key] = metrics
     metrics_file.parent.mkdir(parents=True, exist_ok=True)
     with open(metrics_file, "w") as f:
         json.dump(existing_metrics, f, indent=2)

@@ -5,18 +5,26 @@
 # on the SLURM job-count limit (queried from sacctmgr QOS settings and
 # scontrol partition settings; the tighter of the two is used).
 #
+# Decoding defaults to greedy via each benchmark's _greedy YAML.  Pass
+# --temperature/--top_p/--repetition_penalty/--force_turn_taking to override
+# (all four + --output_dir required together).
+#
 # Run from the repo root:
 #   bash scripts/run_all_benchmarks.sh [options]
 #
 # Examples:
-#   # Run everything with defaults
+#   # Run everything with defaults (greedy)
 #   bash scripts/run_all_benchmarks.sh
 #
 #   # Run only BBA and BFCL, override the checkpoint
-#   bash scripts/run_all_benchmarks.sh --benchmarks bba,bfcl --model /path/to/ckpt
+#   bash scripts/run_all_benchmarks.sh --benchmarks bba,bfcl --model /path/to/ckpt --code_path /path/to/code
 #
-#   # Dry run — preview job submissions without actually submitting
-#   bash scripts/run_all_benchmarks.sh --dry_run
+#   # Override server backend across all benchmarks
+#   bash scripts/run_all_benchmarks.sh --server_backend s2s_voicechat
+#
+#   # Sampling-style override (requires all four + --output_dir)
+#   bash scripts/run_all_benchmarks.sh --temperature 0.8 --top_p 0.8 \
+#        --repetition_penalty 1.0 --force_turn_taking false --output_dir /path/out
 
 set -euo pipefail
 
@@ -56,8 +64,6 @@ CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
 ALL_BENCHMARKS="conv_behav fdb bba bfcl vb_mcq vb_nonmcq"
 SELECTED_BENCHMARKS=""
 
-# Left empty until resolve_configs() fills them from --eval_mode.
-# Individual --config_* flags override the resolved defaults.
 CONFIG_VB_NONMCQ=""
 CONFIG_VB_MCQ=""
 CONFIG_FDB=""
@@ -65,18 +71,17 @@ CONFIG_BBA=""
 CONFIG_BFCL=""
 CONFIG_CONV_BEHAV=""
 
-EVAL_MODE="greedy+sampling"
-EVAL_MODE_EXPLICITLY_SET=false
 MODEL_OVERRIDE=""
 CODE_PATH_OVERRIDE=""
 OUTPUT_DIR_OVERRIDE=""
+SERVER_BACKEND_OVERRIDE=""
 HTML_NAME="scorecard"
 MAX_JOBS_OVERRIDE=""
 POLL_INTERVAL=60
 DRY_RUN=false
 FORCE_RERUN=false
 
-# Customized-mode decoding params (all four must be set together, with --output_dir)
+# Decoding-param overrides (all four required together when any is set, plus --output_dir)
 CUSTOM_FORCE_TURN_TAKING=""   # "true" or "false"
 CUSTOM_TOP_P=""
 CUSTOM_REPETITION_PENALTY=""
@@ -93,39 +98,21 @@ Submit S2S FC eval benchmarks sequentially.  Before each benchmark the script
 checks the current SLURM job count against the detected (or supplied) limit and
 waits until a slot is free.
 
+Decoding defaults to greedy via each benchmark's *_greedy.yaml config.
+
 Benchmark names: vb_nonmcq  vb_mcq  fdb  bba  bfcl  conv_behav
 
 Options:
-  --eval_mode         MODE  Decoding mode (default: greedy+sampling).
-                            Accepted values:
-                              greedy           — greedy configs only
-                              sampling         — sampling configs only
-                              greedy+sampling  — greedy first, then sampling
-                              customized       — use base configs + explicit params
-                            Selects the matching *_greedy.yaml / *_sampling.yaml
-                            config for each benchmark automatically.
-                            Set automatically to 'customized' when any of the four
-                            decoding param flags below are provided.
-  --force_turn_taking BOOL  Customized mode: "true" or "false". Adds --force_turn_taking
-                            to server_args (or sets the top-level bool for conv_behav).
-                            Requires all four decoding params + --output_dir.
-  --top_p             VAL   Customized mode: LLM top-p sampling value.
-  --repetition_penalty VAL  Customized mode: repetition penalty value.
-  --temperature       VAL   Customized mode: sampling temperature value.
   --benchmarks LIST         Comma-separated subset of the benchmark names above.
                             Default: all in the order listed above.
-  --config_vb_nonmcq  PATH Config YAML for VoiceBench non-MCQ (overrides --eval_mode)
-  --config_vb_mcq     PATH Config YAML for VoiceBench MCQ     (overrides --eval_mode)
-  --config_fdb        PATH Config YAML for FDB                 (overrides --eval_mode)
-  --config_bba        PATH Config YAML for BBA                 (overrides --eval_mode)
-  --config_bfcl       PATH Config YAML for BFCL                (overrides --eval_mode)
-  --config_conv_behav PATH Config YAML for conv_behav          (overrides --eval_mode)
-  --html_name         NAME  Base name for the scorecard HTML (default: scorecard).
-                            Used to locate an existing scorecard for the skip-all
-                            check. Pass the same value you use with /make-scorecard
-                            name=NAME so the two commands stay in sync.
-  --output_dir        PATH  Redirect all benchmark outputs under PATH/{mode}/{name}
-                            (e.g. PATH/greedy/bba_a1b2c3d, PATH/sampling/fdb_a1b2c3d).
+  --config_vb_nonmcq  PATH Config YAML for VoiceBench non-MCQ (overrides default greedy YAML)
+  --config_vb_mcq     PATH Config YAML for VoiceBench MCQ
+  --config_fdb        PATH Config YAML for FDB
+  --config_bba        PATH Config YAML for BBA
+  --config_bfcl       PATH Config YAML for BFCL
+  --config_conv_behav PATH Config YAML for conv_behav
+
+  --output_dir        PATH  Redirect all benchmark outputs under PATH/{name}_{commit}.
                             Each benchmark gets its own subdirectory so result-detection
                             across benchmarks cannot cross-contaminate. The Python
                             scripts append the git commit hash. If unset, each
@@ -134,6 +121,19 @@ Options:
                             Must be paired with --code_path.
   --code_path         PATH  Override the NeMo source code directory for every
                             benchmark. Must be paired with --model.
+  --server_backend    NAME  Override the --backend X argument inside server_args
+                            for every benchmark whose YAML defines one. Benchmarks
+                            without --backend in server_args (e.g. conv_behav)
+                            are unaffected.
+
+  Decoding-param overrides (all four required together when any is set; also
+  requires --output_dir).  Without these, defaults from the greedy YAML are used.
+  --force_turn_taking BOOL  "true" or "false"
+  --top_p             VAL   LLM top-p sampling value
+  --repetition_penalty VAL  Repetition penalty value
+  --temperature       VAL   Sampling temperature value
+
+  --html_name         NAME  Base name for the scorecard HTML (default: scorecard).
   --max_jobs          N     Override SLURM job limit (auto-detected by default)
   --poll_interval     N     Seconds between SLURM queue checks (default: 60)
   --dry_run                 Pass --dry_run to every benchmark script
@@ -147,7 +147,6 @@ EOF
 # ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --eval_mode)         EVAL_MODE="$2"; EVAL_MODE_EXPLICITLY_SET=true; shift 2 ;;
         --benchmarks)        SELECTED_BENCHMARKS="$2";  shift 2 ;;
         --config_vb_nonmcq)  CONFIG_VB_NONMCQ="$2";    shift 2 ;;
         --config_vb_mcq)     CONFIG_VB_MCQ="$2";        shift 2 ;;
@@ -159,6 +158,7 @@ while [[ $# -gt 0 ]]; do
         --output_dir)        OUTPUT_DIR_OVERRIDE="$2";    shift 2 ;;
         --model)             MODEL_OVERRIDE="$2";         shift 2 ;;
         --code_path)         CODE_PATH_OVERRIDE="$2";    shift 2 ;;
+        --server_backend)    SERVER_BACKEND_OVERRIDE="$2"; shift 2 ;;
         --max_jobs)          MAX_JOBS_OVERRIDE="$2";     shift 2 ;;
         --poll_interval)     POLL_INTERVAL="$2";          shift 2 ;;
         --force_turn_taking) CUSTOM_FORCE_TURN_TAKING="$2"; shift 2 ;;
@@ -172,20 +172,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate customized decoding params and resolve eval mode.
-# Use if/fi to safely count under set -e (&&-chain with failing [[ ]] would exit).
+# Validate decoding-param overrides: if any set, require all four + --output_dir.
 _n_custom=0
 if [[ -n "$CUSTOM_FORCE_TURN_TAKING" ]];  then (( ++_n_custom )); fi
 if [[ -n "$CUSTOM_TOP_P" ]];              then (( ++_n_custom )); fi
 if [[ -n "$CUSTOM_REPETITION_PENALTY" ]]; then (( ++_n_custom )); fi
 if [[ -n "$CUSTOM_TEMPERATURE" ]];        then (( ++_n_custom )); fi
 
-if [[ "$_n_custom" -gt 0 || "$EVAL_MODE" == "customized" ]]; then
-    if [[ "$EVAL_MODE_EXPLICITLY_SET" == "true" && "$EVAL_MODE" != "customized" ]]; then
-        echo "ERROR: --eval_mode cannot be combined with custom decoding param flags (--force_turn_taking, --top_p, etc.)." >&2
-        exit 1
-    fi
-
+if [[ "$_n_custom" -gt 0 ]]; then
     # Prompt for any missing required values; error if stdin is not a terminal.
     _missing=false
     if [[ -z "$CUSTOM_FORCE_TURN_TAKING" || -z "$CUSTOM_TOP_P" || -z "$CUSTOM_REPETITION_PENALTY" \
@@ -194,12 +188,12 @@ if [[ "$_n_custom" -gt 0 || "$EVAL_MODE" == "customized" ]]; then
     fi
     if [[ "$_missing" == "true" ]]; then
         if [[ ! -t 0 ]]; then
-            echo "ERROR: Customized mode requires all of: --force_turn_taking, --top_p," >&2
-            echo "       --repetition_penalty, --temperature, --output_dir." >&2
+            echo "ERROR: When any of --top_p/--temperature/--repetition_penalty/--force_turn_taking" >&2
+            echo "       is set, all four are required, plus --output_dir." >&2
             exit 1
         fi
         echo ""
-        echo "Customized mode — provide missing values (leave blank to abort):"
+        echo "Decoding-param overrides — provide missing values (leave blank to abort):"
         if [[ -z "$CUSTOM_FORCE_TURN_TAKING" ]]; then
             read -r -p "  --force_turn_taking (true/false): " CUSTOM_FORCE_TURN_TAKING
         fi
@@ -218,31 +212,18 @@ if [[ "$_n_custom" -gt 0 || "$EVAL_MODE" == "customized" ]]; then
         echo ""
     fi
 
-    # Validate that all values were supplied (either via CLI or prompts).
     if [[ -z "$CUSTOM_FORCE_TURN_TAKING" || -z "$CUSTOM_TOP_P" || -z "$CUSTOM_REPETITION_PENALTY" \
        || -z "$CUSTOM_TEMPERATURE" || -z "$OUTPUT_DIR_OVERRIDE" ]]; then
-        echo "ERROR: Customized mode requires all of: --force_turn_taking, --top_p," >&2
-        echo "       --repetition_penalty, --temperature, --output_dir." >&2
+        echo "ERROR: When any of --top_p/--temperature/--repetition_penalty/--force_turn_taking" >&2
+        echo "       is set, all four are required, plus --output_dir." >&2
         exit 1
     fi
     if [[ "$CUSTOM_FORCE_TURN_TAKING" != "true" && "$CUSTOM_FORCE_TURN_TAKING" != "false" ]]; then
         echo "ERROR: --force_turn_taking must be 'true' or 'false', got: '$CUSTOM_FORCE_TURN_TAKING'" >&2
         exit 1
     fi
-    EVAL_MODE="customized"
 fi
-
-# Validate eval mode and expand to an ordered list of individual modes.
-case "$EVAL_MODE" in
-    greedy)                          EVAL_MODES="greedy" ;;
-    sampling)                        EVAL_MODES="sampling" ;;
-    greedy+sampling|sampling+greedy) EVAL_MODES="greedy sampling" ;;
-    customized)                      EVAL_MODES="customized" ;;
-    *)
-        echo "ERROR: --eval_mode must be 'greedy', 'sampling', 'greedy+sampling', or 'customized', got: '$EVAL_MODE'" >&2
-        exit 1
-        ;;
-esac
+HAS_DECODING_OVERRIDES=$([[ "$_n_custom" -gt 0 ]] && echo "true" || echo "false")
 
 # Derive a short suffix from OUTPUT_DIR_OVERRIDE so that concurrent runs with
 # different output directories produce distinct SLURM job names and
@@ -281,87 +262,39 @@ BENCHMARKS="${ordered# }"
 # ---------------------------------------------------------------------------
 # Config resolution
 # ---------------------------------------------------------------------------
-# Returns the YAML path for a given benchmark + decoding mode.
-# If the user supplied an explicit --config_<name> override, that takes
-# precedence over the mode-derived default for both greedy and sampling.
+# Returns the YAML path for a given benchmark.  Defaults to the per-benchmark
+# greedy YAML; a user-supplied --config_<name> overrides.
 config_for() {
-    local name="$1" mode="$2"
-    case "$name" in
-        vb_nonmcq)
-            local default
-            [[ "$mode" == "customized" ]] \
-                && default="${VB_BASE}/vb_matched_demo_v2_02mar_config_fc.yaml" \
-                || default="${VB_BASE}/vb_matched_demo_v2_02mar_config_fc_${mode}.yaml"
-            echo "${CONFIG_VB_NONMCQ:-$default}"
-            ;;
-        vb_mcq)
-            local default
-            [[ "$mode" == "customized" ]] \
-                && default="${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc.yaml" \
-                || default="${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc_${mode}.yaml"
-            echo "${CONFIG_VB_MCQ:-$default}"
-            ;;
-        fdb)
-            local default
-            [[ "$mode" == "customized" ]] \
-                && default="${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc.yaml" \
-                || default="${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc_${mode}.yaml"
-            echo "${CONFIG_FDB:-$default}"
-            ;;
-        bba)
-            local default
-            [[ "$mode" == "customized" ]] \
-                && default="${BBA_BASE}/bba_config_fc.yaml" \
-                || default="${BBA_BASE}/bba_config_fc_${mode}.yaml"
-            echo "${CONFIG_BBA:-$default}"
-            ;;
-        bfcl)
-            local default
-            [[ "$mode" == "customized" ]] \
-                && default="${BFCL_BASE}/bfcl_fc_config.yaml" \
-                || default="${BFCL_BASE}/bfcl_fc_config_${mode}.yaml"
-            echo "${CONFIG_BFCL:-$default}"
-            ;;
-        conv_behav)
-            local default
-            [[ "$mode" == "customized" ]] \
-                && default="${CB_BASE}/conv_behav_config.yaml" \
-                || default="${CB_BASE}/conv_behav_config_${mode}.yaml"
-            echo "${CONFIG_CONV_BEHAV:-$default}"
-            ;;
-    esac
-}
-
-# Returns the expname base (without mode suffix) for a benchmark.
-# Used by customized mode and sibling-exclusion logic in cancel_stale_jobs.
-expname_base_for() {
     local name="$1"
     case "$name" in
-        vb_nonmcq)  echo "vb_matched_demo_v2_02mar_fc" ;;
-        vb_mcq)     echo "vb_matched_demo_v2_02mar_mcq_fc" ;;
-        fdb)        echo "fdb_v1_0_s2s_incremental_v2_02mar_fc" ;;
-        bba)        echo "bba_fc" ;;
-        bfcl)       echo "bfcl_fc" ;;
-        conv_behav) echo "conv_behav" ;;
+        vb_nonmcq)
+            echo "${CONFIG_VB_NONMCQ:-${VB_BASE}/vb_matched_demo_v2_02mar_config_fc_s2s_incremental_v2_greedy.yaml}"
+            ;;
+        vb_mcq)
+            echo "${CONFIG_VB_MCQ:-${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc_s2s_incremental_v2_greedy.yaml}"
+            ;;
+        fdb)
+            echo "${CONFIG_FDB:-${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml}"
+            ;;
+        bba)
+            echo "${CONFIG_BBA:-${BBA_BASE}/bba_config_fc_s2s_incremental_v2_greedy.yaml}"
+            ;;
+        bfcl)
+            echo "${CONFIG_BFCL:-${BFCL_BASE}/bfcl_fc_config_s2s_incremental_v2_greedy.yaml}"
+            ;;
+        conv_behav)
+            echo "${CONFIG_CONV_BEHAV:-${CB_BASE}/conv_behav_config_greedy.yaml}"
+            ;;
     esac
 }
 
-# Returns the expname for a given benchmark+mode, including the _EXPNAME_SUFFIX
+# Returns the expname for a given benchmark, including the _EXPNAME_SUFFIX
 # that differentiates concurrent runs writing to different output directories.
-# For customized mode, derives expname from expname_base_for() since base YAMLs
-# have no expname key.
 expname_for() {
-    local name="$1" mode="$2"
-    if [[ "$mode" == "customized" ]]; then
-        echo "$(expname_base_for "$name")_customized${_EXPNAME_SUFFIX}"
-        return
-    fi
+    local name="$1"
     local config base_exp
-    config=$(config_for "$name" "$mode")
+    config=$(config_for "$name")
     base_exp=$(grep -m1 '^expname:' "$config" 2>/dev/null | sed 's/^expname: *//' || true)
-    # Return empty if no expname found — caller (cancel_stale_jobs) will warn and skip.
-    # Returning just _EXPNAME_SUFFIX would silently build an awk filter that could
-    # match unrelated jobs.
     if [[ -z "$base_exp" ]]; then
         echo ""
         return
@@ -373,41 +306,47 @@ expname_for() {
 # Output dir resolution + completion detection
 # ---------------------------------------------------------------------------
 
-# Returns the fully-resolved output dir for a benchmark+mode, including the
+# Returns the fully-resolved output dir for a benchmark, including the
 # git commit hash suffix that Python scripts append.
 # When --output_dir is set each benchmark gets its own subdirectory so
 # find_benchmark_result can't confuse one benchmark's metrics.json for another's.
 resolve_output_dir() {
-    local name="$1" mode="$2"
+    local name="$1"
     if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
-        echo "${OUTPUT_DIR_OVERRIDE}/${mode}/${name}_${COMMIT}"
+        echo "${OUTPUT_DIR_OVERRIDE}/${name}_${COMMIT}"
     else
         local config yaml_dir
-        config=$(config_for "$name" "$mode")
+        config=$(config_for "$name")
         yaml_dir=$(grep -m1 '^output_dir:' "$config" 2>/dev/null | sed 's/^output_dir: *//')
         echo "${yaml_dir}_${COMMIT}"
     fi
 }
 
-# Echoes the path of the first result file found for a benchmark+mode
+# Returns the base output dir (without commit suffix) for a benchmark.
+base_output_dir_for() {
+    local name="$1"
+    if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+        echo "${OUTPUT_DIR_OVERRIDE}/${name}"
+    else
+        local config
+        config=$(config_for "$name")
+        grep -m1 '^output_dir:' "$config" 2>/dev/null | sed 's/^output_dir: *//' || true
+    fi
+}
+
+# Echoes the path of the first result file found for a benchmark
 # (a metrics.json under eval-results/ or a report.html in the output dir),
 # or nothing if no results exist yet.
 find_benchmark_result() {
-    local name="$1" mode="$2"
+    local name="$1"
     local outdir config
-    outdir=$(resolve_output_dir "$name" "$mode")
+    outdir=$(resolve_output_dir "$name")
     [[ -d "$outdir" ]] || return 0
-    config=$(config_for "$name" "$mode")
+    config=$(config_for "$name")
 
     # For benchmarks with subtests/categories every item must have metrics.json
     # before we consider the benchmark complete.  A partial result (some done,
     # others not) must not suppress resubmission.
-    #
-    # Naming conventions for eval-results subdirs:
-    #   voicebench (subtests + no fdb_version) : voicebench.{subtest}
-    #   fdb        (subtests + fdb_version)    : fdb_v1.{subtest} / fdb_v1_5.{subtest}
-    #   bba/bfcl   (categories)               : {category}   (no prefix)
-    #   conv_behav (neither)                  : metrics.json at eval-results/ root
     local expected_paths
     expected_paths=$("$PYTHON" - "$config" "$outdir" <<'PYEOF'
 import sys, yaml, pathlib
@@ -450,7 +389,7 @@ PYEOF
         while IFS= read -r mf; do
             [[ -z "$mf" ]] && continue
             if [[ ! -f "$mf" ]]; then
-                return 0  # at least one subtest/category incomplete — not done
+                return 0
             fi
             [[ -z "$first_result" ]] && first_result="$mf"
         done <<< "$expected_paths"
@@ -466,11 +405,7 @@ PYEOF
     return 0
 }
 
-# Echoes the path of the aggregate scorecard if it exists:
-# checks output_dir/{html_name}.html first, then asset/{html_name}.html.
-# When --output_dir is set we only check that location; the asset/ fallback
-# would otherwise match a scorecard from a previous run and incorrectly
-# short-circuit a new run with a different mode or checkpoint.
+# Echoes the path of the aggregate scorecard if it exists.
 find_scorecard() {
     if [[ -n "$OUTPUT_DIR_OVERRIDE" && -f "${OUTPUT_DIR_OVERRIDE}/${HTML_NAME}.html" ]]; then
         echo "${OUTPUT_DIR_OVERRIDE}/${HTML_NAME}.html"
@@ -484,12 +419,9 @@ find_scorecard() {
 # ---------------------------------------------------------------------------
 
 # Returns the SLURM max-submit-jobs limit for the current user.
-# Checks (in order): user association, QOS, partition.  Prints the minimum
-# positive value found, or nothing if no limit is detected.
 detect_max_jobs() {
     local -a limits=()
 
-    # 1. Per-user association MaxSubmitJobs
     local assoc_max
     assoc_max=$(sacctmgr show association user="$USER" format=MaxSubmitJobs \
         -n -P 2>/dev/null | tr -d ' ' | grep -E '^[0-9]+$' | head -1 || true)
@@ -497,7 +429,6 @@ detect_max_jobs() {
         limits+=("$assoc_max")
     fi
 
-    # 2. QOS MaxSubmitJobsPerUser — iterate over every QOS assigned to the user
     local qos_list
     qos_list=$(sacctmgr show association user="$USER" format=QOS \
         -n 2>/dev/null \
@@ -512,8 +443,6 @@ detect_max_jobs() {
         fi
     done <<< "$qos_list"
 
-    # 3. Partition MaxSubmitJobsPerUser — check every comma-separated partition
-    #    from our known cluster config; fall back to whatever scontrol reports.
     local partitions_to_check="batch_block1 batch_block3 batch_block4 cpu"
     for part in $partitions_to_check; do
         local part_max
@@ -522,7 +451,7 @@ detect_max_jobs() {
             | cut -d= -f2 | grep -E '^[0-9]+$' | head -1 || true)
         if [[ -n "$part_max" && "$part_max" -gt 0 ]]; then
             limits+=("$part_max")
-            break  # first partition with a concrete limit is enough
+            break
         fi
     done
 
@@ -531,7 +460,6 @@ detect_max_jobs() {
         return
     fi
 
-    # Return the minimum across all sources
     local min="${limits[0]}"
     for v in "${limits[@]}"; do
         if [[ "$v" -lt "$min" ]]; then min="$v"; fi
@@ -543,7 +471,6 @@ count_user_jobs() {
     squeue -u "$USER" -h 2>/dev/null | wc -l | tr -d ' '
 }
 
-# Block until at least one job slot is free.
 wait_for_slot() {
     local max_jobs="$1"
     local benchmark="$2"
@@ -568,22 +495,16 @@ wait_for_slot() {
 }
 
 # Deletes a directory if it exists and contains no complete or in-progress results.
-# Preserves the directory if any of these are found:
-#   - metrics.json / report.html  (scoring complete)
-#   - output.jsonl.done or output_chunk_*.jsonl.done  (generation complete, scoring pending)
-# This avoids throwing away valid generation output that scoring can still use.
 _delete_incomplete_dir() {
     local dir="$1"
     [[ -d "$dir" ]] || return 0
     local f
-    # Scoring complete
     f=$(find "${dir}/eval-results" -name "metrics.json" -maxdepth 2 2>/dev/null | head -1 || true)
     [[ -z "$f" ]] && f=$(find "${dir}" -name "report.html" -maxdepth 1 2>/dev/null | head -1 || true)
     if [[ -n "$f" ]]; then
         printf '  [cleanup] Skipping (scoring complete): %s\n' "$dir"
         return 0
     fi
-    # Generation complete but scoring not yet done — preserve so scoring can reuse it
     f=$(find "${dir}/eval-results" -name "output.jsonl.done" -o -name "output_chunk_*.jsonl.done" \
         2>/dev/null | head -1 || true)
     if [[ -n "$f" ]]; then
@@ -599,33 +520,20 @@ _delete_incomplete_dir() {
 }
 
 # Finds and cancels any running/pending SLURM jobs whose name matches the
-# expname prefix for the given benchmark+mode.  Jobs belonging to a sibling
-# mode of the same benchmark (e.g. sampling when running greedy) are excluded
-# so we never accidentally cancel an unrelated concurrent run.
-#
-# After cancellation, cleans up the output directories of the cancelled jobs.
-# Because job names now embed the git commit (appended by the Python pipeline),
-# we extract the commit from each job name and delete
-# {base_output_dir}_{extracted_commit}, which is the exact directory that job
-# was writing to — regardless of whether it matches the current commit.
-#
-# If no stale jobs are found we still clean up the current commit's output dir
-# if it exists with only partial data (e.g. left behind by a prior Python crash).
+# expname prefix for the given benchmark.  After cancellation, cleans up the
+# output directories of the cancelled jobs.
 cancel_stale_jobs() {
-    local name="$1" mode="$2"
+    local name="$1"
 
     local expname
-    expname=$(expname_for "$name" "$mode") || true
+    expname=$(expname_for "$name") || true
     if [[ -z "$expname" ]]; then
-        echo "  [dedup] WARNING: cannot read expname for $name/$mode — skipping duplicate check" >&2
+        echo "  [dedup] WARNING: cannot read expname for $name — skipping duplicate check" >&2
         return 0
     fi
 
-    # Read the job_name_prefix that the Python pipeline prepends to every SLURM
-    # job name (exp.py:358).  Without it the awk filter would miss jobs when the
-    # cluster config sets a non-empty prefix.
     local cluster cluster_cfg job_name_prefix=""
-    cluster=$(grep -m1 '^cluster:' "$(config_for "$name" "$mode")" 2>/dev/null \
+    cluster=$(grep -m1 '^cluster:' "$(config_for "$name")" 2>/dev/null \
         | sed 's/^cluster:[[:space:]]*//' || true)
     if [[ -n "$cluster" ]]; then
         cluster_cfg="${REPO_ROOT}/cluster_configs/${cluster}.yaml"
@@ -639,47 +547,18 @@ print(cfg.get('job_name_prefix', ''), end='')
         fi
     fi
 
-    # Collect expnames for every other mode of this benchmark so we can
-    # exclude their jobs from cancellation (e.g. don't cancel bba_fc_sampling_*
-    # when we're about to run greedy whose expname is the shorter bba_fc).
-    local -a exclude_prefixes=()
-    for m in greedy sampling customized; do
-        [[ "$m" == "$mode" ]] && continue
-        local other_exp
-        other_exp=$(expname_for "$name" "$m") || true
-        [[ -n "$other_exp" && "$other_exp" != "$expname" ]] && exclude_prefixes+=("$other_exp")
-    done
-
-    # Prepend job_name_prefix to every name before building the awk filter so
-    # the search matches the actual SLURM job names.
     local full_expname="${job_name_prefix}${expname}"
     local awk_include
     awk_include="(\$2 == \"$full_expname\" || index(\$2, \"${full_expname}_\") == 1)"
-    local awk_exclude=""
-    for excl in "${exclude_prefixes[@]}"; do
-        local full_excl="${job_name_prefix}${excl}"
-        awk_exclude+=" && !(\$2 == \"$full_excl\" || index(\$2, \"${full_excl}_\") == 1)"
-    done
 
-    # Base output dir (without commit suffix).
-    # When --output_dir is set, every benchmark gets its own subdirectory
-    # (matching resolve_output_dir / run_benchmark).  Otherwise read it from
-    # the config YAML (greedy/sampling mode-specific YAMLs have output_dir:).
     local base_outdir
-    if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
-        base_outdir="${OUTPUT_DIR_OVERRIDE}/${mode}/${name}"
-    else
-        base_outdir=$(grep -m1 '^output_dir:' "$(config_for "$name" "$mode")" 2>/dev/null \
-            | sed 's/^output_dir: *//' || true)
-    fi
+    base_outdir=$(base_output_dir_for "$name")
 
     local matching
     matching=$(squeue -u "$USER" -h -o "%i %j %T %r" 2>/dev/null \
-        | awk "{ if (${awk_include}${awk_exclude}) print }" || true)
+        | awk "{ if (${awk_include}) print }" || true)
 
     if [[ -z "$matching" ]]; then
-        # No stale jobs — still clean up the current commit's dir if it has
-        # only partial data (e.g. left behind by an earlier Python crash).
         [[ -n "$base_outdir" ]] && _delete_incomplete_dir "${base_outdir}_${COMMIT}"
         return 0
     fi
@@ -689,8 +568,8 @@ print(cfg.get('job_name_prefix', ''), end='')
     job_ids=$(printf '%s\n' "$matching" | awk '{printf "%s ", $1}')
 
     echo ""
-    printf '  [dedup] %s (%s): %d existing job(s) match prefix "%s"\n' \
-        "$name" "$mode" "$count" "$full_expname"
+    printf '  [dedup] %s: %d existing job(s) match prefix "%s"\n' \
+        "$name" "$count" "$full_expname"
     printf '%s\n' "$matching" | \
         awk '{printf "    %-12s %-50s %-12s %s\n", $1, $2, $3, $4}'
 
@@ -703,18 +582,13 @@ print(cfg.get('job_name_prefix', ''), end='')
         printf '  [dedup] Cancelled.\n'
     fi
 
-    # Clean up the output dir of each cancelled job.  The Python pipeline
-    # appends _{commit} to every SLURM job name, so we extract it from the
-    # job name to find the exact directory that job was writing to.
     if [[ -n "$base_outdir" ]]; then
         local -a seen_commits=()
         while IFS= read -r line; do
             local job_name job_commit
             job_name=$(printf '%s\n' "$line" | awk '{print $2}')
-            # The commit is the trailing _[0-9a-f]{7,8} component.
             job_commit=$(printf '%s\n' "$job_name" | grep -oE '_[0-9a-f]{7,8}$' | tr -d '_' || true)
             [[ -z "$job_commit" ]] && continue
-            # Process each unique commit only once.
             local dup=false
             for c in "${seen_commits[@]+"${seen_commits[@]}"}"; do
                 [[ "$c" == "$job_commit" ]] && { dup=true; break; }
@@ -724,7 +598,6 @@ print(cfg.get('job_name_prefix', ''), end='')
             _delete_incomplete_dir "${base_outdir}_${job_commit}"
         done <<< "$matching"
 
-        # Also clean the current commit's dir if not already covered above.
         local covered=false
         for c in "${seen_commits[@]+"${seen_commits[@]}"}"; do
             [[ "$c" == "$COMMIT" ]] && { covered=true; break; }
@@ -739,9 +612,6 @@ print(cfg.get('job_name_prefix', ''), end='')
 # Model + code_path validation
 # ---------------------------------------------------------------------------
 
-# --model and --code_path must always be specified together because each
-# checkpoint ships with its own NeMo source code.  When neither is given,
-# each benchmark simply uses whatever is in its own config YAML.
 check_model_code_path() {
     if [[ -n "$MODEL_OVERRIDE" && -z "$CODE_PATH_OVERRIDE" ]]; then
         echo "" >&2
@@ -762,81 +632,65 @@ check_model_code_path() {
         echo " Model        : $MODEL_OVERRIDE"
         echo " Code path    : $CODE_PATH_OVERRIDE"
     fi
+    if [[ -n "$SERVER_BACKEND_OVERRIDE" ]]; then
+        echo " Server backend (override): $SERVER_BACKEND_OVERRIDE"
+    fi
 }
 
 # ---------------------------------------------------------------------------
-# Config patching
+# Config patching (single unified path)
 # ---------------------------------------------------------------------------
 
-# Creates a temp YAML with MODEL_OVERRIDE, CODE_PATH_OVERRIDE, and
-# _EXPNAME_SUFFIX applied (each only when the respective variable is set).
-# Handles --code_path inside server_args AND nemo_code_path top-level field.
+# Build a patched temp YAML for a benchmark.
+# Applies (in order, when set):
+#   - MODEL_OVERRIDE                     -> top-level model:
+#   - CODE_PATH_OVERRIDE                 -> --code_path INSIDE server_args; nemo_code_path
+#   - SERVER_BACKEND_OVERRIDE            -> replaces --backend X inside server_args
+#   - _EXPNAME_SUFFIX                    -> appended to expname
+#   - decoding-param overrides           -> injects --top_p/--repetition_penalty/--temperature
+#                                            (and --force_turn_taking when true) into server_args;
+#                                            sets force_turn_taking bool for conv_behav
+#   - OUTPUT_DIR_OVERRIDE                -> rewrites top-level output_dir (without commit suffix)
 # Caller is responsible for deleting the returned temp file.
 make_patched_config() {
-    local config="$1"
-    local tmp sed_cmds
-    tmp=$(mktemp /tmp/benchmark_config_XXXXXX.yaml)
-    sed_cmds=""
-    if [[ -n "$MODEL_OVERRIDE" ]]; then
-        sed_cmds+="s|^model:.*|model: ${MODEL_OVERRIDE}|;"
-    fi
-    if [[ -n "$CODE_PATH_OVERRIDE" ]]; then
-        sed_cmds+="s|--code_path [^ ]*|--code_path ${CODE_PATH_OVERRIDE}|g;"
-        sed_cmds+="s|^nemo_code_path:.*|nemo_code_path: ${CODE_PATH_OVERRIDE}|;"
-    fi
-    if [[ -n "$_EXPNAME_SUFFIX" ]]; then
-        sed_cmds+="s|^\(expname:[[:space:]]*.*\)$|\1${_EXPNAME_SUFFIX}|;"
-    fi
-    if [[ -n "$sed_cmds" ]]; then
-        sed "$sed_cmds" "$config" > "$tmp"
-    else
-        cp "$config" "$tmp"
-    fi
-    echo "$tmp"
-}
-
-# Creates a temp YAML for customized mode: injects decoding params into server_args,
-# sets output_dir/expname/decoding_mode, and applies any model/code_path overrides.
-# Usage: make_patched_config_customized <benchmark_name> <output_dir_no_commit>
-# Prints path to the temp file.
-make_patched_config_customized() {
     local name="$1"
-    local output_dir="$2"   # top-level output_dir to embed (without commit suffix)
-
-    local base_config expname artifacts_dir tmp
-    base_config=$(config_for "$name" "customized")
-    expname="$(expname_base_for "$name")_customized${_EXPNAME_SUFFIX}"
-    # Artifacts dir mirrors the output_dir with _artifacts suffix (server audio output).
-    artifacts_dir="${output_dir}_artifacts"
+    local base_config="$2"
+    local tmp output_dir_no_commit=""
     tmp=$(mktemp /tmp/benchmark_config_XXXXXX.yaml)
+
+    if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+        output_dir_no_commit="${OUTPUT_DIR_OVERRIDE}/${name}"
+    fi
 
     PATCH_SRC="$base_config" \
     PATCH_DST="$tmp" \
-    PATCH_FORCE_TT="$CUSTOM_FORCE_TURN_TAKING" \
-    PATCH_TOP_P="$CUSTOM_TOP_P" \
-    PATCH_REP_PENALTY="$CUSTOM_REPETITION_PENALTY" \
-    PATCH_TEMP="$CUSTOM_TEMPERATURE" \
-    PATCH_ARTIFACTS_DIR="$artifacts_dir" \
-    PATCH_OUTPUT_DIR="$output_dir" \
-    PATCH_EXPNAME="$expname" \
+    PATCH_BENCHMARK="$name" \
     PATCH_MODEL="${MODEL_OVERRIDE:-}" \
     PATCH_CODE_PATH="${CODE_PATH_OVERRIDE:-}" \
-    PATCH_BENCHMARK="$name" \
+    PATCH_SERVER_BACKEND="${SERVER_BACKEND_OVERRIDE:-}" \
+    PATCH_EXPNAME_SUFFIX="${_EXPNAME_SUFFIX:-}" \
+    PATCH_HAS_DECODING_OVERRIDES="$HAS_DECODING_OVERRIDES" \
+    PATCH_FORCE_TT="${CUSTOM_FORCE_TURN_TAKING:-}" \
+    PATCH_TOP_P="${CUSTOM_TOP_P:-}" \
+    PATCH_REP_PENALTY="${CUSTOM_REPETITION_PENALTY:-}" \
+    PATCH_TEMP="${CUSTOM_TEMPERATURE:-}" \
+    PATCH_OUTPUT_DIR="$output_dir_no_commit" \
     "$PYTHON" - <<'PYEOF'
-import os, yaml, re, sys
+import os, re, yaml
 
 src           = os.environ['PATCH_SRC']
 dst           = os.environ['PATCH_DST']
-force_tt      = os.environ['PATCH_FORCE_TT']
-top_p         = os.environ['PATCH_TOP_P']
-rep_pen       = os.environ['PATCH_REP_PENALTY']
-temp          = os.environ['PATCH_TEMP']
-artifacts_dir = os.environ['PATCH_ARTIFACTS_DIR']
-output_dir    = os.environ['PATCH_OUTPUT_DIR']
-expname       = os.environ['PATCH_EXPNAME']
+benchmark     = os.environ['PATCH_BENCHMARK']
 model         = os.environ.get('PATCH_MODEL', '')
 code_path     = os.environ.get('PATCH_CODE_PATH', '')
-benchmark     = os.environ['PATCH_BENCHMARK']
+server_backend = os.environ.get('PATCH_SERVER_BACKEND', '')
+expname_suffix = os.environ.get('PATCH_EXPNAME_SUFFIX', '')
+has_overrides = os.environ.get('PATCH_HAS_DECODING_OVERRIDES', 'false') == 'true'
+force_tt      = os.environ.get('PATCH_FORCE_TT', '')
+top_p         = os.environ.get('PATCH_TOP_P', '')
+rep_pen       = os.environ.get('PATCH_REP_PENALTY', '')
+temp          = os.environ.get('PATCH_TEMP', '')
+output_dir    = os.environ.get('PATCH_OUTPUT_DIR', '')
 
 with open(src) as f:
     cfg = yaml.safe_load(f)
@@ -845,34 +699,43 @@ with open(src) as f:
 if model:
     cfg['model'] = model
 
-# Patch server_args — inject decoding params and artifacts output dir
-if 'server_args' in cfg:
+# Apply patches inside server_args (code_path, server_backend, decoding overrides)
+if 'server_args' in cfg and cfg.get('server_args'):
     sa = cfg['server_args']
     if code_path:
         sa = re.sub(r'--code_path \S+', f'--code_path {code_path}', sa)
-    additions = []
-    if force_tt == 'true':
-        additions.append('--force_turn_taking')
-    additions += [
-        f'--top_p {top_p}',
-        f'--repetition_penalty {rep_pen}',
-        f'--temperature {temp}',
-        f'--output_dir {artifacts_dir}',
-    ]
-    cfg['server_args'] = sa.rstrip() + ' ' + ' '.join(additions)
+    if server_backend:
+        # Substitute --backend X with --backend SERVER_BACKEND_OVERRIDE.
+        # Only acts if --backend is actually present; otherwise no-op (some
+        # benchmarks like conv_behav have no server_args at all).
+        sa = re.sub(r'--backend \S+', f'--backend {server_backend}', sa)
+    if has_overrides:
+        additions = []
+        if force_tt == 'true':
+            additions.append('--force_turn_taking')
+        additions += [
+            f'--top_p {top_p}',
+            f'--repetition_penalty {rep_pen}',
+            f'--temperature {temp}',
+        ]
+        sa = sa.rstrip() + ' ' + ' '.join(additions)
+    cfg['server_args'] = sa
 
-# nemo_code_path (conv_behav style)
+# nemo_code_path (used by conv_behav)
 if code_path and 'nemo_code_path' in cfg:
     cfg['nemo_code_path'] = code_path
 
-# Set mode-specific top-level keys
-cfg['output_dir']    = output_dir
-cfg['expname']       = expname
-cfg['decoding_mode'] = 'greedy' if (float(top_p) == 1.0 and float(rep_pen) == 1.0 and float(temp) == 0.0) else 'sampling'
-
 # conv_behav: top-level force_turn_taking bool (no server_args)
-if benchmark == 'conv_behav':
+if benchmark == 'conv_behav' and has_overrides:
     cfg['force_turn_taking'] = (force_tt == 'true')
+
+# Expname suffix
+if expname_suffix and 'expname' in cfg:
+    cfg['expname'] = f"{cfg['expname']}{expname_suffix}"
+
+# Output dir override (without commit suffix; Python scripts append the commit)
+if output_dir:
+    cfg['output_dir'] = output_dir
 
 with open(dst, 'w') as f:
     yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True,
@@ -881,33 +744,100 @@ PYEOF
     echo "$tmp"
 }
 
-# Writes the patched YAML config as a JSON file into the benchmark's output folder.
-# Called once per benchmark in customized mode before job submission.
+# Dump the resolved (patched) YAML config + run-level metadata as JSON into
+# the benchmark's output folder.  Called once per benchmark before submission.
 dump_config_json() {
     local config_yaml="$1"
     local benchmark_name="$2"
-    local resolved_outdir="$3"   # output dir with commit suffix
+    local resolved_outdir="$3"
 
     [[ "$DRY_RUN" == "true" ]] && return 0
 
     mkdir -p "$resolved_outdir"
-    local json_path="${resolved_outdir}/${benchmark_name}_config.json"
-    "$PYTHON" - "$config_yaml" "$json_path" <<'PYEOF'
-import sys, yaml, json
+    local json_path="${resolved_outdir}/config.json"
+    PATCH_OVERRIDES_JSON="$(printf '%s' "$_OVERRIDES_JSON")" \
+    "$PYTHON" - "$config_yaml" "$json_path" "$benchmark_name" "$COMMIT" <<'PYEOF'
+import json, os, sys, yaml
 with open(sys.argv[1]) as f:
     cfg = yaml.safe_load(f)
+overrides = json.loads(os.environ.get('PATCH_OVERRIDES_JSON') or '{}')
+record = {
+    'benchmark': sys.argv[3],
+    'commit': sys.argv[4],
+    'cli_overrides': overrides,
+    'resolved_config': cfg,
+}
 with open(sys.argv[2], 'w') as f:
-    json.dump(cfg, f, indent=2, default=str)
+    json.dump(record, f, indent=2, default=str)
 print(f"  Config JSON: {sys.argv[2]}")
 PYEOF
+}
+
+# Build a JSON blob of the CLI-level overrides for inclusion in config.json.
+# Stored once per script run, reused across all benchmarks.
+_build_overrides_json() {
+    "$PYTHON" - <<PYEOF
+import json
+print(json.dumps({
+    'model': "${MODEL_OVERRIDE}" or None,
+    'code_path': "${CODE_PATH_OVERRIDE}" or None,
+    'output_dir': "${OUTPUT_DIR_OVERRIDE}" or None,
+    'server_backend': "${SERVER_BACKEND_OVERRIDE}" or None,
+    'force_turn_taking': "${CUSTOM_FORCE_TURN_TAKING}" or None,
+    'top_p': "${CUSTOM_TOP_P}" or None,
+    'repetition_penalty': "${CUSTOM_REPETITION_PENALTY}" or None,
+    'temperature': "${CUSTOM_TEMPERATURE}" or None,
+}, indent=None))
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# Pre-flight: existing-config conflict detection
+# ---------------------------------------------------------------------------
+
+# If a config.json already exists at any benchmark's resolved output dir,
+# repeatedly prompt the user for a new --output_dir until either there is no
+# conflict or the user aborts (blank input).  Updates OUTPUT_DIR_OVERRIDE,
+# _EXPNAME_SUFFIX in place.
+check_existing_configs_and_maybe_reprompt() {
+    [[ "$FORCE_RERUN" == "true" ]] && return 0
+    [[ "$DRY_RUN" == "true" ]] && return 0
+    while true; do
+        local -a conflicts=()
+        for b in $BENCHMARKS; do
+            local outdir
+            outdir=$(resolve_output_dir "$b")
+            if [[ -f "${outdir}/config.json" ]]; then
+                conflicts+=("${outdir}/config.json")
+            fi
+        done
+        if [[ ${#conflicts[@]} -eq 0 ]]; then
+            return 0
+        fi
+        echo ""
+        echo "Existing config.json found in:"
+        for c in "${conflicts[@]+"${conflicts[@]}"}"; do
+            echo "  $c"
+        done
+        if [[ ! -t 0 ]]; then
+            echo "ERROR: Output dirs are already claimed by previous runs. Pass a new --output_dir." >&2
+            exit 1
+        fi
+        local new_dir
+        read -r -p "Provide a new --output_dir (leave blank to abort): " new_dir
+        if [[ -z "$new_dir" ]]; then
+            echo "Aborted."
+            exit 1
+        fi
+        OUTPUT_DIR_OVERRIDE="$new_dir"
+        _EXPNAME_SUFFIX="_$(printf '%s' "${OUTPUT_DIR_OVERRIDE%/}" | md5sum | cut -c1-8)"
+    done
 }
 
 # ---------------------------------------------------------------------------
 # Per-benchmark run logic
 # ---------------------------------------------------------------------------
 
-# Build CLI args common to every benchmark call
-# Outputs one argument per line so callers can read into an array safely.
 extra_args() {
     if [[ -n "$MODEL_OVERRIDE" ]]; then
         echo "--model"
@@ -920,38 +850,29 @@ extra_args() {
 
 run_benchmark() {
     local name="$1"
-    local mode="$2"
     local -a extra=()
     while IFS= read -r arg; do
         extra+=("$arg")
     done < <(extra_args)
 
     local base_config
-    base_config=$(config_for "$name" "$mode")
+    base_config=$(config_for "$name")
 
-    local config="$base_config"
-    local tmp_config=""
+    # Always patch (if any of model/code_path/server_backend/expname_suffix/decoding/output_dir is set,
+    # patcher applies them; otherwise the patcher just copies the file through).
+    local tmp_config
+    tmp_config=$(make_patched_config "$name" "$base_config")
+    local config="$tmp_config"
 
-    if [[ "$mode" == "customized" ]]; then
-        # Customized mode: patch base config with decoding params + output_dir/expname.
-        # output_dir passed to patcher is without commit; Python scripts append it.
-        local cust_output_dir="${OUTPUT_DIR_OVERRIDE}/${mode}/${name}"
-        tmp_config=$(make_patched_config_customized "$name" "$cust_output_dir")
-        config="$tmp_config"
-        # Dump config.json into the resolved output dir before submission.
-        dump_config_json "$config" "$name" "${OUTPUT_DIR_OVERRIDE}/${mode}/${name}_${COMMIT}"
-    else
-        # --output_dir override: each benchmark gets its own subdirectory so
-        # result files from different benchmarks never collide.  Python scripts
-        # append the git commit hash, producing e.g. OUTPUT_DIR_OVERRIDE/greedy/bba_a1b2c3d.
-        if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
-            extra+=("--output_dir" "${OUTPUT_DIR_OVERRIDE}/${mode}/${name}")
-        fi
-        if [[ -n "$MODEL_OVERRIDE" || -n "$CODE_PATH_OVERRIDE" || -n "$_EXPNAME_SUFFIX" ]]; then
-            tmp_config=$(make_patched_config "$base_config")
-            config="$tmp_config"
-        fi
+    # --output_dir override: each benchmark gets its own subdirectory so
+    # result files from different benchmarks never collide.  Python scripts
+    # append the git commit hash, producing e.g. OUTPUT_DIR_OVERRIDE/bba_a1b2c3d.
+    if [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+        extra+=("--output_dir" "${OUTPUT_DIR_OVERRIDE}/${name}")
     fi
+
+    # Dump config.json into the resolved output dir before submission.
+    dump_config_json "$config" "$name" "$(resolve_output_dir "$name")"
 
     cd "$REPO_ROOT"
     export NEMO_SKILLS_DISABLE_UNCOMMITTED_CHANGES_CHECK=1
@@ -959,10 +880,9 @@ run_benchmark() {
     echo ""
     echo "======================================================================"
     printf ' %-30s  %s\n' "Benchmark:" "$name"
-    printf ' %-30s  %s\n' "Mode:" "$mode"
     printf ' %-30s  %s\n' "Started:" "$(date '+%Y-%m-%d %H:%M:%S')"
     printf ' %-30s  %s\n' "Config:" "$base_config"
-    [[ -n "$tmp_config" ]] && printf ' %-30s  %s\n' "Patched config:" "$tmp_config"
+    printf ' %-30s  %s\n' "Patched config:" "$tmp_config"
     echo "======================================================================"
 
     local rc=0
@@ -987,15 +907,14 @@ run_benchmark() {
             ;;
     esac || rc=$?
 
-    # Always clean up the temp config regardless of exit code.
-    [[ -n "$tmp_config" ]] && rm -f "$tmp_config"
+    rm -f "$tmp_config"
 
     if [[ $rc -ne 0 ]]; then
         # Some Python scripts crash during interpreter shutdown after successfully
-        # submitting their SLURM jobs (daemon-thread / stdout-lock race at exit).
-        # If the expected job already appears in squeue, treat it as a success.
+        # submitting their SLURM jobs.  If the expected job already appears in
+        # squeue, treat it as a success.
         local exp found_job=""
-        exp=$(expname_for "$name" "$mode") || true
+        exp=$(expname_for "$name") || true
         if [[ -n "$exp" ]]; then
             found_job=$(squeue -u "$USER" -h -o "%j" 2>/dev/null \
                 | awk -v p="$exp" '($0 == p || index($0, p "_") == 1)' \
@@ -1003,11 +922,11 @@ run_benchmark() {
         fi
         if [[ -n "$found_job" ]]; then
             echo "" >&2
-            printf 'WARNING: %s (%s) exited with code %d but SLURM job "%s" is queued — likely a Python shutdown crash. Continuing.\n' \
-                "$name" "$mode" "$rc" "$found_job" >&2
+            printf 'WARNING: %s exited with code %d but SLURM job "%s" is queued — likely a Python shutdown crash. Continuing.\n' \
+                "$name" "$rc" "$found_job" >&2
         else
-            printf 'ERROR: %s (%s) failed with exit code %d and no matching SLURM job found.\n' \
-                "$name" "$mode" "$rc" >&2
+            printf 'ERROR: %s failed with exit code %d and no matching SLURM job found.\n' \
+                "$name" "$rc" >&2
             exit $rc
         fi
     fi
@@ -1024,14 +943,14 @@ echo ""
 echo "======================================================================"
 echo " S2S FC Benchmark Runner"
 echo "======================================================================"
-echo " Eval mode    : $EVAL_MODE"
 echo " Benchmarks   : $BENCHMARKS"
-[[ -n "$OUTPUT_DIR_OVERRIDE" ]] && echo " Output dir   : $OUTPUT_DIR_OVERRIDE/{mode}/{name}_{commit}"
-if [[ "$EVAL_MODE" == "customized" ]]; then
-    echo " force_turn_taking  : $CUSTOM_FORCE_TURN_TAKING"
-    echo " top_p              : $CUSTOM_TOP_P"
-    echo " repetition_penalty : $CUSTOM_REPETITION_PENALTY"
-    echo " temperature        : $CUSTOM_TEMPERATURE"
+[[ -n "$OUTPUT_DIR_OVERRIDE" ]] && echo " Output dir   : $OUTPUT_DIR_OVERRIDE/{name}_{commit}"
+if [[ "$HAS_DECODING_OVERRIDES" == "true" ]]; then
+    echo " Decoding overrides:"
+    echo "   force_turn_taking  : $CUSTOM_FORCE_TURN_TAKING"
+    echo "   top_p              : $CUSTOM_TOP_P"
+    echo "   repetition_penalty : $CUSTOM_REPETITION_PENALTY"
+    echo "   temperature        : $CUSTOM_TEMPERATURE"
 fi
 echo " HTML name    : ${HTML_NAME}.html"
 echo " Poll interval: ${POLL_INTERVAL}s"
@@ -1039,7 +958,6 @@ echo " Dry run      : $DRY_RUN"
 echo " Force rerun  : $FORCE_RERUN"
 echo " Commit       : $COMMIT"
 
-# Resolve job limit
 if [[ -n "$MAX_JOBS_OVERRIDE" ]]; then
     MAX_JOBS="$MAX_JOBS_OVERRIDE"
     echo " Max jobs     : $MAX_JOBS (manual override)"
@@ -1065,24 +983,26 @@ if [[ "$FORCE_RERUN" != "true" ]]; then
     fi
 fi
 
-# Submit all benchmarks for each mode in order (greedy first, then sampling).
-for mode in $EVAL_MODES; do
-    echo ""
-    echo "--- Mode: $mode ---"
-    for benchmark in $BENCHMARKS; do
-        if [[ "$FORCE_RERUN" != "true" ]]; then
-            result=$(find_benchmark_result "$benchmark" "$mode")
-            if [[ -n "$result" ]]; then
-                echo "  Skipping $benchmark ($mode): results found at $result"
-                continue
-            fi
+# Conflict check: if any selected benchmark already has a config.json under the
+# resolved output dir, prompt for a new --output_dir or abort.
+check_existing_configs_and_maybe_reprompt
+
+# Build CLI-level overrides JSON once for re-use in dump_config_json.
+_OVERRIDES_JSON=$(_build_overrides_json)
+
+for benchmark in $BENCHMARKS; do
+    if [[ "$FORCE_RERUN" != "true" ]]; then
+        result=$(find_benchmark_result "$benchmark")
+        if [[ -n "$result" ]]; then
+            echo "  Skipping $benchmark: results found at $result"
+            continue
         fi
-        cancel_stale_jobs "$benchmark" "$mode"
-        if [[ -n "$MAX_JOBS" && "$DRY_RUN" != "true" ]]; then
-            wait_for_slot "$MAX_JOBS" "$benchmark ($mode)"
-        fi
-        run_benchmark "$benchmark" "$mode"
-    done
+    fi
+    cancel_stale_jobs "$benchmark"
+    if [[ -n "$MAX_JOBS" && "$DRY_RUN" != "true" ]]; then
+        wait_for_slot "$MAX_JOBS" "$benchmark"
+    fi
+    run_benchmark "$benchmark"
 done
 
 echo ""

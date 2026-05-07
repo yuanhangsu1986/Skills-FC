@@ -71,7 +71,6 @@ scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad s
 # Pipeline control
 # ---------------------------------------------------------------------------
 expname: conv_behav_greedy
-decoding_mode: greedy
 inference_only: false
 scoring_only: false
 scoring_force: false

@@ -21,22 +21,20 @@ parses its printed output, and writes metrics.json under output_dir.
 Metrics written:
   {
     "conv_behav": {
-      "greedy": {
-        "tt_latency_ms": float,
-        "tt_precision": float,
-        "tt_recall": float,
-        "tt_f1": float,
-        "barge_in_success_rate": float,
-        "barge_in_latency_ms": float,
-        "bc_accuracy": float,
-        "cutoff_rate": float,
-        "user_eou_precision": float,   # present only if computed
-        "user_eou_recall": float,
-        "user_eou_f1": float,
-        "user_eou_latency_ms": float,
-        "user_wer": float,             # present only if computed
-        "num_evaluated": int
-      }
+      "tt_latency_ms": float,
+      "tt_precision": float,
+      "tt_recall": float,
+      "tt_f1": float,
+      "barge_in_success_rate": float,
+      "barge_in_latency_ms": float,
+      "bc_accuracy": float,
+      "cutoff_rate": float,
+      "user_eou_precision": float,   # present only if computed
+      "user_eou_recall": float,
+      "user_eou_f1": float,
+      "user_eou_latency_ms": float,
+      "user_wer": float,             # present only if computed
+      "num_evaluated": int
     }
   }
 
@@ -155,7 +153,6 @@ def score(
     shar_input_dir: str,
     dataset_name: str,
     eval_script_path: str,
-    decoding_mode: str = "greedy",
     barge_in_threshold_sec: float = 1.5,
     tt_latency_threshold_sec: float = 1.5,
     tt_precision_buffer_sec: float = 1.0,
@@ -174,8 +171,8 @@ def score(
     if metrics_file.exists() and not force:
         try:
             existing = json.loads(metrics_file.read_text())
-            if decoding_mode in existing.get(benchmark_key, {}):
-                print(f"[scoring] Already done for {benchmark_key} ({decoding_mode}). Skipping (use --force to re-run).")
+            if existing.get(benchmark_key):
+                print(f"[scoring] Already done for {benchmark_key}. Skipping (use --force to re-run).")
                 return 0
         except Exception:
             pass
@@ -228,7 +225,7 @@ def score(
         except Exception:
             pass
 
-    existing_metrics.setdefault(benchmark_key, {})[decoding_mode] = metrics
+    existing_metrics[benchmark_key] = metrics
     metrics_file.write_text(json.dumps(existing_metrics, indent=2))
 
     print(f"\n[scoring] Metrics saved to {metrics_file}")
@@ -241,7 +238,6 @@ def main():
     parser.add_argument("--shar_input_dir", required=True, help="Lhotse shar directory with user audio")
     parser.add_argument("--dataset_name", required=True, help="Dataset name used during inference")
     parser.add_argument("--eval_script_path", required=True, help="Path to eval_conversation_behavior.py")
-    parser.add_argument("--decoding_mode", default="greedy", choices=["greedy", "sampling"], help="Key under which metrics are stored in metrics.json")
     parser.add_argument("--barge_in_threshold_sec", type=float, default=1.5)
     parser.add_argument("--tt_latency_threshold_sec", type=float, default=1.5)
     parser.add_argument("--tt_precision_buffer_sec", type=float, default=1.0)
@@ -256,7 +252,6 @@ def main():
         shar_input_dir=args.shar_input_dir,
         dataset_name=args.dataset_name,
         eval_script_path=args.eval_script_path,
-        decoding_mode=args.decoding_mode,
         barge_in_threshold_sec=args.barge_in_threshold_sec,
         tt_latency_threshold_sec=args.tt_latency_threshold_sec,
         tt_precision_buffer_sec=args.tt_precision_buffer_sec,

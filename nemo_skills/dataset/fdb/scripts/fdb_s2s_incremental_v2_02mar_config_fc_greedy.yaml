@@ -31,19 +31,9 @@ server_args: >-
   --vllm_gpu_memory_utilization 0.35
   --vllm_max_model_len 8192
   --force_turn_taking
-  --inference_pad_boost 0
-  --inference_bos_boost 0
-  --inference_eos_boost 0
   --inference_user_pad_boost 0.8
-  --inference_user_bos_boost 0
-  --inference_user_eos_boost 0
-  --inference_guidance_scale 0.2
-  --inference_top_p_or_k 0.95
-  --inference_noise_scale 0.001
-  --tts_sliding_window 7500
-  --top_p 1.0
+  --max_new_tokens 4500
   --repetition_penalty 1.0
-  --temperature 0.0
   --ignore_system_prompt
   --merge_user_channel_v2
   --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/fdb_fc_artifacts
@@ -56,7 +46,7 @@ scoring_container_python_exec: python3
 
 server_server_type: vllm_multimodal
 
-fdb_version: v1.5
+fdb_version: v1.0
 
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/fdb_fc
@@ -75,7 +65,6 @@ scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad s
 
 inference_overrides: ""
 
-decoding_mode: greedy
 expname: fdb_v1_0_s2s_incremental_v2_02mar_fc_greedy
 # max_samples: 50
 

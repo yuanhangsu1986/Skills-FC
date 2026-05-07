@@ -39,7 +39,6 @@ def run_scoring(
     api_type: str = "openai",
     nvidia_model: str = "meta/llama-3.1-70b-instruct",
     force: bool = False,
-    decoding_mode: str = "greedy",
 ):
     """Run VoiceBench scoring and save results in nemo-skills format."""
     eval_results_dir = Path(eval_results_dir)
@@ -51,7 +50,6 @@ def run_scoring(
 
     if metrics_variant not in ("generated", "asr"):
         raise ValueError("metrics_variant must be one of: generated, asr")
-    metrics_key = decoding_mode
     asr_suffix = "_asr"
 
     # Skip if this variant already exists (unless force is set)
@@ -59,10 +57,10 @@ def run_scoring(
         try:
             with open(metrics_file) as f:
                 existing_metrics = json.load(f)
-            mode_metrics = existing_metrics.get(f"voicebench.{subtest}", {}).get(decoding_mode, {})
-            if isinstance(mode_metrics, dict):
+            sub_metrics = existing_metrics.get(f"voicebench.{subtest}", {})
+            if isinstance(sub_metrics, dict):
                 if metrics_variant == "asr":
-                    if any(k.endswith(asr_suffix) for k in mode_metrics.keys()):
+                    if any(k.endswith(asr_suffix) for k in sub_metrics.keys()):
                         print(
                             f"Scoring already done for voicebench.{subtest} (ASR keys exist in metrics.json). Skipping."
                         )
@@ -71,7 +69,7 @@ def run_scoring(
                 else:
                     # Skip if we already have any non-agent, non-ASR VoiceBench metrics.
                     has_generated_metrics = any(
-                        (not k.startswith("agent_")) and (not k.endswith(asr_suffix)) for k in mode_metrics.keys()
+                        (not k.startswith("agent_")) and (not k.endswith(asr_suffix)) for k in sub_metrics.keys()
                     )
                     if has_generated_metrics:
                         print(
@@ -131,12 +129,12 @@ def run_scoring(
                 print(f"Warning: Could not parse metrics from line: {line}", file=sys.stderr)
 
     # Rename ASR metrics keys to *_asr to keep a single structure:
-    # greedy.{panda,gpt,...} for generated text
-    # greedy.{panda_asr,gpt_asr,...} for ASR-scored text
+    # {panda,gpt,...} for generated text
+    # {panda_asr,gpt_asr,...} for ASR-scored text
     if metrics_variant == "asr":
         metrics = {f"{k}{asr_suffix}": v for k, v in metrics.items()}
 
-    nemo_metrics: dict = {f"voicebench.{subtest}": {metrics_key: metrics}}
+    nemo_metrics: dict = {f"voicebench.{subtest}": dict(metrics)}
 
     # Merge agent-audio metrics (WER/CER) if present.
     if agent_audio_metrics_file.exists():
@@ -144,13 +142,13 @@ def run_scoring(
             with open(agent_audio_metrics_file) as f:
                 agent_metrics = json.load(f)
             key = f"voicebench.{subtest}"
-            agent_greedy = agent_metrics.get(key, {}).get("greedy", {})
-            if isinstance(agent_greedy, dict):
-                nemo_metrics[key][metrics_key].update(agent_greedy)
+            agent_sub = agent_metrics.get(key, {})
+            if isinstance(agent_sub, dict):
+                nemo_metrics[key].update(agent_sub)
         except Exception as e:
             print(f"Warning: failed merging agent_audio_metrics.json: {e}", file=sys.stderr)
 
-    # Merge with existing metrics.json if present (keep one dict per mode with both generated + *_asr keys).
+    # Merge with existing metrics.json if present (keep one dict with both generated + *_asr keys).
     if metrics_file.exists():
         try:
             with open(metrics_file) as f:
@@ -160,15 +158,11 @@ def run_scoring(
                 existing_sub = existing_metrics.get(key, {})
                 if not isinstance(existing_sub, dict):
                     existing_sub = {}
-                existing_mode = existing_sub.get(metrics_key, {})
-                if not isinstance(existing_mode, dict):
-                    existing_mode = {}
 
-                new_mode = nemo_metrics.get(key, {}).get(metrics_key, {})
-                if isinstance(new_mode, dict):
-                    existing_mode.update(new_mode)
+                new_sub = nemo_metrics.get(key, {})
+                if isinstance(new_sub, dict):
+                    existing_sub.update(new_sub)
 
-                existing_sub[metrics_key] = existing_mode
                 existing_metrics[key] = existing_sub
                 nemo_metrics = existing_metrics
         except Exception:
@@ -211,8 +205,6 @@ def main():
     parser.add_argument("--api_type", default="openai", choices=["openai", "nvidia"], help="API type for judge")
     parser.add_argument("--nvidia_model", default="meta/llama-3.1-70b-instruct", help="Model for NVIDIA API")
     parser.add_argument("--force", action="store_true", help="Force re-run scoring even if metrics.json exists")
-    parser.add_argument("--decoding_mode", default="greedy", choices=["greedy", "sampling"],
-                        help="Key under which metrics are stored in metrics.json")
 
     args = parser.parse_args()
 
@@ -227,7 +219,6 @@ def main():
         api_type=args.api_type,
         nvidia_model=args.nvidia_model,
         force=args.force,
-        decoding_mode=args.decoding_mode,
     )
     sys.exit(rc)
 
