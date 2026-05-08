@@ -137,6 +137,14 @@ def main() -> None:
     audio_dir.mkdir(parents=True, exist_ok=True)
     dataset_name = "fdb_v3"
 
+    # nemo-skills `_get_dataset_module_from_cluster` reads the dataset registration
+    # from `<data_dir>/<dataset>/__init__.py`, so copy them in alongside the data.
+    for init_rel in ("fdb_v3/__init__.py", "fdb_v3/tool_call/__init__.py"):
+        src_init = FDB_PKG_DIR / init_rel
+        dst_init = base_dir / init_rel
+        dst_init.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_init, dst_init)
+
     print(f"Rendering FD3 system prompt ({args.template_path.name})...")
     system_prompt = render_fd3_system_prompt(args.fdb_repo, args.template_path)
     print(f"  System prompt: {len(system_prompt)} chars")
