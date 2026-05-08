@@ -47,6 +47,7 @@ export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 VB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts/generate_from_api_and_score_official.py"
 FDB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/run_eval.py"
+FDB_V3_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py"
 BBA_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bba/scripts/run_bba_eval.py"
 BFCL_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py"
 CONV_BEHAV_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/run_eval.py"
@@ -54,6 +55,7 @@ CONV_BEHAV_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/run_eval.
 # Config base directories — used by config_for() to derive default YAML paths.
 VB_BASE="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts"
 FDB_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts"
+FDB_V3_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3"
 BBA_BASE="${REPO_ROOT}/nemo_skills/dataset/bba/scripts"
 BFCL_BASE="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts"
 CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
@@ -61,12 +63,18 @@ CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
 # ---------------------------------------------------------------------------
 # Argument defaults
 # ---------------------------------------------------------------------------
-ALL_BENCHMARKS="conv_behav fdb bba bfcl vb_mcq vb_nonmcq"
+ALL_BENCHMARKS="conv_behav fdb_v1 fdb_v1_5 fdb_v3 bba bfcl vb_mcq vb_nonmcq"
+# Aliases that expand to multiple benchmark names in --benchmarks.
+declare -A BENCHMARK_ALIASES=(
+    [fdb]="fdb_v1 fdb_v1_5 fdb_v3"
+)
 SELECTED_BENCHMARKS=""
 
 CONFIG_VB_NONMCQ=""
 CONFIG_VB_MCQ=""
-CONFIG_FDB=""
+CONFIG_FDB_V1=""
+CONFIG_FDB_V1_5=""
+CONFIG_FDB_V3=""
 CONFIG_BBA=""
 CONFIG_BFCL=""
 CONFIG_CONV_BEHAV=""
@@ -100,14 +108,18 @@ waits until a slot is free.
 
 Decoding defaults to greedy via each benchmark's *_greedy.yaml config.
 
-Benchmark names: vb_nonmcq  vb_mcq  fdb  bba  bfcl  conv_behav
+Benchmark names: vb_nonmcq  vb_mcq  fdb_v1  fdb_v1_5  fdb_v3  bba  bfcl  conv_behav
+Aliases:         fdb -> fdb_v1,fdb_v1_5,fdb_v3
 
 Options:
   --benchmarks LIST         Comma-separated subset of the benchmark names above.
                             Default: all in the order listed above.
+                            "fdb" expands to all three FDB versions.
   --config_vb_nonmcq  PATH Config YAML for VoiceBench non-MCQ (overrides default greedy YAML)
   --config_vb_mcq     PATH Config YAML for VoiceBench MCQ
-  --config_fdb        PATH Config YAML for FDB
+  --config_fdb_v1     PATH Config YAML for FDB v1.0
+  --config_fdb_v1_5   PATH Config YAML for FDB v1.5
+  --config_fdb_v3     PATH Config YAML for FDB v3
   --config_bba        PATH Config YAML for BBA
   --config_bfcl       PATH Config YAML for BFCL
   --config_conv_behav PATH Config YAML for conv_behav
@@ -150,7 +162,9 @@ while [[ $# -gt 0 ]]; do
         --benchmarks)        SELECTED_BENCHMARKS="$2";  shift 2 ;;
         --config_vb_nonmcq)  CONFIG_VB_NONMCQ="$2";    shift 2 ;;
         --config_vb_mcq)     CONFIG_VB_MCQ="$2";        shift 2 ;;
-        --config_fdb)        CONFIG_FDB="$2";            shift 2 ;;
+        --config_fdb_v1)     CONFIG_FDB_V1="$2";         shift 2 ;;
+        --config_fdb_v1_5)   CONFIG_FDB_V1_5="$2";       shift 2 ;;
+        --config_fdb_v3)     CONFIG_FDB_V3="$2";         shift 2 ;;
         --config_bba)        CONFIG_BBA="$2";            shift 2 ;;
         --config_bfcl)       CONFIG_BFCL="$2";           shift 2 ;;
         --config_conv_behav) CONFIG_CONV_BEHAV="$2";     shift 2 ;;
@@ -242,10 +256,31 @@ else
     BENCHMARKS="$ALL_BENCHMARKS"
 fi
 
+# Expand aliases (e.g. "fdb" -> "fdb_v1 fdb_v1_5 fdb_v3"), then de-duplicate
+# while preserving first-seen order.
+expanded=""
+for b in $BENCHMARKS; do
+    if [[ -n "${BENCHMARK_ALIASES[$b]+x}" ]]; then
+        expanded="$expanded ${BENCHMARK_ALIASES[$b]}"
+    else
+        expanded="$expanded $b"
+    fi
+done
+declare -A _seen=()
+deduped=""
+for b in $expanded; do
+    if [[ -z "${_seen[$b]+x}" ]]; then
+        _seen[$b]=1
+        deduped="$deduped $b"
+    fi
+done
+BENCHMARKS="${deduped# }"
+
 # Validate each name
 for b in $BENCHMARKS; do
     if [[ ! " $ALL_BENCHMARKS " =~ " $b " ]]; then
         echo "Unknown benchmark: '$b'. Valid names: $ALL_BENCHMARKS" >&2
+        echo "Aliases: ${!BENCHMARK_ALIASES[*]}" >&2
         exit 1
     fi
 done
@@ -273,8 +308,14 @@ config_for() {
         vb_mcq)
             echo "${CONFIG_VB_MCQ:-${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc_s2s_incremental_v2_greedy.yaml}"
             ;;
-        fdb)
-            echo "${CONFIG_FDB:-${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml}"
+        fdb_v1)
+            echo "${CONFIG_FDB_V1:-${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml}"
+            ;;
+        fdb_v1_5)
+            echo "${CONFIG_FDB_V1_5:-${FDB_BASE}/fdb_s2s_incremental_v2_v1.5_02mar_config_fc_greedy.yaml}"
+            ;;
+        fdb_v3)
+            echo "${CONFIG_FDB_V3:-${FDB_V3_BASE}/fdb_v3_s2s_incremental_v2_config_fc_greedy.yaml}"
             ;;
         bba)
             echo "${CONFIG_BBA:-${BBA_BASE}/bba_config_fc_s2s_incremental_v2_greedy.yaml}"
@@ -893,8 +934,11 @@ run_benchmark() {
         vb_mcq)
             "$PYTHON" "$VB_SCRIPT" --config "$config" "${extra[@]}"
             ;;
-        fdb)
+        fdb_v1|fdb_v1_5)
             "$PYTHON" "$FDB_SCRIPT" --config "$config" "${extra[@]}"
+            ;;
+        fdb_v3)
+            "$PYTHON" "$FDB_V3_SCRIPT" --config "$config" "${extra[@]}"
             ;;
         bba)
             "$PYTHON" "$BBA_SCRIPT" --config "$config" "${extra[@]}"
