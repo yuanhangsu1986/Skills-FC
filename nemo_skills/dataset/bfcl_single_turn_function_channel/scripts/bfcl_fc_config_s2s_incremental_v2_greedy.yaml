@@ -45,6 +45,7 @@ server_args: >-
   --decode_function_channel
   --tool_call_parser /nemo_run/code/recipes/multimodal/server/tool_calling/nemotron_v2_voicechat_toolcall_parser.py
   --use_function_channel_for_tool_calls
+  --no_decode_audio
   --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/bfcl_fc_artifacts
   --batch_size 2
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
