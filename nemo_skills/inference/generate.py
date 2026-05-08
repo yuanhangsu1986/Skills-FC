@@ -60,6 +60,16 @@ from nemo_skills.utils import (
 LOG = logging.getLogger(get_logger_name(__file__))
 
 
+def _json_default(obj):
+    """JSON serializer for objects vanilla json doesn't handle —
+    notably openai SDK pydantic objects like ChatCompletionMessageToolCall."""
+    if hasattr(obj, "model_dump"):  # pydantic v2
+        return obj.model_dump()
+    if hasattr(obj, "dict") and callable(obj.dict):  # pydantic v1
+        return obj.dict()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+
 @nested_dataclass(kw_only=True)
 class InferenceConfig:
     # Type of completion to generate when using OpenAI
@@ -561,7 +571,7 @@ class GenerationTask:
 
     def dump_outputs(self, outputs, data_points, fout):
         for output in outputs:
-            fout.write(json.dumps(output) + "\n")
+            fout.write(json.dumps(output, default=_json_default) + "\n")
 
     def drop_binary_data(self, output):
         """Remove binary data (like base64 audio) from messages to keep output files smaller."""
