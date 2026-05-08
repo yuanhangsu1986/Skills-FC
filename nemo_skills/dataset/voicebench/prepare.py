@@ -14,11 +14,14 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import soundfile as sf
 from datasets import load_dataset
 from tqdm import tqdm
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Subtest configurations with their split types and evaluation configs
 SUBTESTS = {
@@ -317,6 +320,17 @@ def process_subtest(subtest_name, config, data_dir, audio_dir, no_audio=False):
 def main():
     parser = argparse.ArgumentParser(description="Prepare VoiceBench dataset for nemo-skills")
     parser.add_argument(
+        "--data_dir",
+        type=Path,
+        required=True,
+        help=(
+            "Output root for the VoiceBench dataset (per-subtest test.jsonl + data/*.wav). "
+            "Must point at a Lustre or other shared dir, NOT inside the repo source tree — "
+            "nemo-run stages the source tree to job_dir, so writing data there ships hundreds "
+            "of MB of audio with every job submission. Match the `data_dir` field in your eval YAML."
+        ),
+    )
+    parser.add_argument(
         "--subtests",
         nargs="+",
         default=None,
@@ -329,7 +343,16 @@ def main():
     )
     args = parser.parse_args()
 
-    data_dir = Path(__file__).parent
+    try:
+        args.data_dir.resolve().relative_to(REPO_ROOT)
+        sys.exit(
+            f"Refusing to write data into the repo source tree: {args.data_dir}\n"
+            f"Pick a path on Lustre (e.g. matching the `data_dir` field of your eval YAML)."
+        )
+    except ValueError:
+        pass  # outside the repo — good.
+
+    data_dir = args.data_dir
     audio_dir = data_dir / "data"
     audio_dir.mkdir(parents=True, exist_ok=True)
 

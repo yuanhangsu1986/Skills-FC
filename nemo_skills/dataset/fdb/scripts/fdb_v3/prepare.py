@@ -100,10 +100,12 @@ def main() -> None:
     parser.add_argument(
         "--data_dir",
         type=Path,
-        default=None,
+        required=True,
         help=(
-            "Output root for fdb_v3/ (defaults to the package dir alongside fdb_v1/, fdb_v1_5/). "
-            "Use this to write to a Lustre data dir on the cluster."
+            "Output root for fdb_v3/. Must point at a Lustre (or other shared) data dir, "
+            "NOT inside the repo source tree — nemo-run stages the source tree to job_dir, "
+            "so writing data there ships hundreds of MB of audio with every job submission. "
+            "This must match the `data_dir` field in the eval YAML."
         ),
     )
     parser.add_argument(
@@ -119,7 +121,16 @@ def main() -> None:
     if not data_root.exists():
         sys.exit(f"FD3 data not found at {data_root} — check --fdb_repo")
 
-    base_dir = args.data_dir if args.data_dir else FDB_PKG_DIR
+    try:
+        args.data_dir.resolve().relative_to(FDB_PKG_DIR.parents[2].resolve())
+        sys.exit(
+            f"Refusing to write data into the repo source tree: {args.data_dir}\n"
+            f"Pick a path on Lustre (e.g. matching the `data_dir` field of your eval YAML)."
+        )
+    except ValueError:
+        pass  # data_dir is outside the repo — good.
+
+    base_dir = args.data_dir
     out_dir = base_dir / "fdb_v3" / "tool_call"
     audio_dir = out_dir.parent / "data"
     out_dir.mkdir(parents=True, exist_ok=True)

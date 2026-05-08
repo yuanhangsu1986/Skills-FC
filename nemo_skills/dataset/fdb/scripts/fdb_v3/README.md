@@ -22,7 +22,7 @@ dataset/fdb/
     __init__.py
     tool_call/__init__.py
   scripts/fdb_v3/
-    prepare.py                      # FD3 dataset -> dataset/fdb/fdb_v3/tool_call/test.jsonl
+    prepare.py                      # FD3 dataset -> $data_dir/fdb_v3/tool_call/test.jsonl
     render_prompt.py                # FD3 system prompt (Nemotron Jinja + FD3_TOOL_SPEC)
     run_scoring.py                  # output.jsonl -> FD3 layout -> evaluators -> metrics.json
     run_eval.py                     # nemo-skills generation + scoring orchestrator
@@ -34,8 +34,13 @@ dataset/fdb/
 
 ```bash
 # 1) Prepare (one-time, on any node with /lustre access).
-#    Copies input.wav into the dataset dir, renders FD3 system prompt, writes test.jsonl.
-python nemo_skills/dataset/fdb/scripts/fdb_v3/prepare.py
+#    Copies input.wav under $data_dir/fdb_v3/data/, renders FD3 system prompt,
+#    writes $data_dir/fdb_v3/tool_call/test.jsonl. --data_dir MUST point at a
+#    Lustre path (or another shared dir) — nemo-run stages the source tree to
+#    job_dir, so writing data into the repo would ship hundreds of MB of audio
+#    on every job submission. Use the same path as the YAML's `data_dir` field.
+python nemo_skills/dataset/fdb/scripts/fdb_v3/prepare.py \
+    --data_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 
 # 2) Run eval (generation + scoring submitted as Slurm jobs).
 python nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py \

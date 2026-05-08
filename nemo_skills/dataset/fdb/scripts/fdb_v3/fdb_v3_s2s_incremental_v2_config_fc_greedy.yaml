@@ -2,8 +2,10 @@
 # Server backend: s2s_incremental_v2. FC checkpoint, greedy decoding (temperature=0).
 #
 # Run:
-#   1) one-time prepare (run on cluster login or any node with /lustre access):
-#      python nemo_skills/dataset/fdb/scripts/fdb_v3/prepare.py
+#   1) one-time prepare — must write to a Lustre path (NOT into the repo source
+#      tree, which would be staged to every job's job_dir):
+#      python nemo_skills/dataset/fdb/scripts/fdb_v3/prepare.py \
+#        --data_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 #   2) eval (generation + scoring):
 #      python nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py \
 #        --config nemo_skills/dataset/fdb/scripts/fdb_v3/fdb_v3_s2s_incremental_v2_config_fc_greedy.yaml

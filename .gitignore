@@ -41,6 +41,13 @@ nemo_skills/dataset/ruler/*/
 nemo_skills/dataset/bfcl_v3/*/
 nemo_skills/dataset/bfcl_v4/*/
 nemo_skills/dataset/aalcr/lcr/
+
+# fdb_v3 prepared data — must live on Lustre (--data_dir), never in the source
+# tree. nemo-run stages the source tree to job_dir, so committing wavs here
+# would ship hundreds of MB on every job submission.
+nemo_skills/dataset/fdb/fdb_v3/data/
+nemo_skills/dataset/fdb/fdb_v3/system_prompt.txt
+nemo_skills/dataset/fdb/fdb_v3/tool_call/test.jsonl
 .idea/
 .idea/*
 CLAUDE.md

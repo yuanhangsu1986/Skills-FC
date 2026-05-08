@@ -14,10 +14,13 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import soundfile as sf
 from tqdm import tqdm
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Subtest configurations for Full-Duplex-Bench
 # Based on the four main evaluation dimensions
@@ -543,14 +546,28 @@ Examples:
     )
     parser.add_argument(
         "--data_dir",
-        type=str,
-        default=None,
-        help="Output root for fdb_v1/ or fdb_v1_5/ (default: package dir). Use this to write to Lustre on the cluster so test.jsonl and data/ match.",
+        type=Path,
+        required=True,
+        help=(
+            "Output root for fdb_v1/ or fdb_v1_5/ (per-subtest test.jsonl + data/*.wav). "
+            "Must point at a Lustre or other shared dir, NOT inside the repo source tree — "
+            "nemo-run stages the source tree to job_dir, so writing data there ships hundreds "
+            "of MB of audio with every job submission. Match the `data_dir` field in your eval YAML."
+        ),
     )
     args = parser.parse_args()
 
+    try:
+        args.data_dir.resolve().relative_to(REPO_ROOT)
+        sys.exit(
+            f"Refusing to write data into the repo source tree: {args.data_dir}\n"
+            f"Pick a path on Lustre (e.g. matching the `data_dir` field of your eval YAML)."
+        )
+    except ValueError:
+        pass  # outside the repo — good.
+
     version = args.version
-    base_dir = Path(args.data_dir) if args.data_dir else Path(__file__).parent  # fdb package dir (v1 and v1_5 are subgroups under it)
+    base_dir = args.data_dir  # fdb package dir (v1 and v1_5 are subgroups under it)
     if version == "v1.0":
         data_dir = base_dir / "fdb_v1"
         dataset_name = "fdb_v1"
@@ -561,9 +578,7 @@ Examples:
     audio_dir = data_dir / "data"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
-    _skills_dir = base_dir.parent.parent.parent
-    _s2s_root = _skills_dir.parent
-    _default_fdb_data = _s2s_root / "Full-Duplex-Bench-data"
+    _default_fdb_data = REPO_ROOT.parent / "Full-Duplex-Bench-data"
 
     if args.fdb_data_path:
         fdb_data_path = Path(args.fdb_data_path)
