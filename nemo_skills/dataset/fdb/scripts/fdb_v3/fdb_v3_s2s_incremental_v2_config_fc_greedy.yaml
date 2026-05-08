@@ -52,6 +52,11 @@ server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/cont
 scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
 scoring_container_python_exec: python3
 
+# Scoring is CPU-only: evaluate_tool_calls / evaluate_pass_rate / analyze_tool_latency
+# parse JSON and call the LLM judge over HTTP — no local GPU work.
+scoring_gpus: 0
+scoring_partition: cpu
+
 server_server_type: vllm_multimodal
 
 # FD3 vendored repo: contains FD3/release_code/ (evaluators) + FD3/fdb_v3_data_released/ (samples).

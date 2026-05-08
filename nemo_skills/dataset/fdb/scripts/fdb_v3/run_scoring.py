@@ -24,12 +24,28 @@ import argparse
 import datetime
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def _alias_judge_api_key():
+    """Cluster env sets NV_INFERENCE_KEY, but FD3 evaluators read NVIDIA_API_KEY /
+    OPENAI_API_KEY. Mirror the value over so the LLM judge client can authenticate."""
+    nv_key = os.environ.get("NV_INFERENCE_KEY")
+    if not nv_key:
+        return
+    if not os.environ.get("NVIDIA_API_KEY"):
+        os.environ["NVIDIA_API_KEY"] = nv_key
+    if not os.environ.get("OPENAI_API_KEY"):
+        os.environ["OPENAI_API_KEY"] = nv_key
+
+
+_alias_judge_api_key()
 
 DEFAULT_FDB_REPO = Path("/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN")
 TOOLCALL_RE = re.compile(r"<TOOLCALL>(.*?)</TOOLCALL>", re.DOTALL)
