@@ -795,30 +795,28 @@ if model:
     cfg['model'] = model
 
 if has_overrides:
-    # Strategy 1: server_args contains direct CLI flags (incremental configs).
+    # Strategy 1: server_args carries direct CLI flags (incremental + offline).
+    # --top_p / --repetition_penalty / --temperature: always append; argparse takes the
+    # last value for repeated flags, so the override wins regardless of whether the
+    # original YAML had the flag.
+    # --force_turn_taking is presence-only (argparse store_true). Want_ftt=true: ensure
+    # the flag is present (append if missing). Want_ftt=false: ensure the flag is absent
+    # (strip if present) so the override actually turns it off.
     if 'server_args' in cfg and cfg.get('server_args'):
         sa = cfg['server_args']
-        sa_changed = False
-        if re.search(r'--temperature \S+', sa):
-            sa = re.sub(r'--temperature \S+', f'--temperature {temp}', sa)
-            sa_changed = True
-        if re.search(r'--top_p \S+', sa):
-            sa = re.sub(r'--top_p \S+', f'--top_p {top_p}', sa)
-            sa_changed = True
-        if re.search(r'--repetition_penalty \S+', sa):
-            sa = re.sub(r'--repetition_penalty \S+', f'--repetition_penalty {rep_pen}', sa)
-            sa_changed = True
-        # --force_turn_taking is a presence-only flag in server_args.
-        has_ftt = '--force_turn_taking' in sa
         want_ftt = (force_tt == 'true')
-        if want_ftt and not has_ftt:
-            sa = sa.rstrip() + ' --force_turn_taking'
-            sa_changed = True
-        elif not want_ftt and has_ftt:
+        if want_ftt:
+            if '--force_turn_taking' not in sa:
+                sa = sa.rstrip() + ' --force_turn_taking'
+        else:
+            # Remove all occurrences of --force_turn_taking, including any leading whitespace.
             sa = re.sub(r'\s*--force_turn_taking\b', '', sa)
-            sa_changed = True
-        if sa_changed:
-            cfg['server_args'] = sa
+        sa = sa.rstrip() + (
+            f' --top_p {top_p}'
+            f' --repetition_penalty {rep_pen}'
+            f' --temperature {temp}'
+        )
+        cfg['server_args'] = sa
 
     # Strategy 2: inference_overrides carries Hydra ++inference.<key>=<val>
     # (offline configs). Substitute the values in place; do not inject new

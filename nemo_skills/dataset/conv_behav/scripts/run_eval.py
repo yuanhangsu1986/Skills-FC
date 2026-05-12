@@ -94,9 +94,8 @@ def build_inference_command(config: dict) -> str:
     )
 
     # Decoding knobs. DuplexSTTModel.validation_step reads these via
-    # self.cfg.get(...) (duplex_stt_model.py:2521-2523) and threads them into
-    # offline_inference. Note: only the offline_inference branch honors them;
-    # use_online_inference=True makes these no-ops.
+    # self.cfg.get(...) and threads them into both offline_inference and
+    # online_inference, so the overrides take effect under either code path.
     for key in ("temperature", "top_p", "repetition_penalty"):
         if config.get(key) is not None:
             cmd += f" ++model.{key}={config[key]}"

@@ -44,10 +44,9 @@ num_nodes: 1
 force_turn_taking: true
 
 # Decoding knobs — threaded as ++model.<key>=<val> Hydra overrides.
-# DSFTS DuplexSTTModel.validation_step reads these from self.cfg (lines 2521-2523
-# of nemo/collections/speechlm2/models/duplex_stt_model.py) and passes them into
-# offline_inference. Caveat: only the offline_inference branch consumes them; if
-# use_online_inference is flipped to true these become no-ops.
+# DSFTS DuplexSTTModel.validation_step reads these from self.cfg and passes them
+# into both offline_inference and online_inference, so the values take effect
+# regardless of use_online_inference.
 temperature: 0.0
 top_p: 1.0
 repetition_penalty: 1.0
