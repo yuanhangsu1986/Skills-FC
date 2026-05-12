@@ -92,6 +92,15 @@ def build_inference_command(config: dict) -> str:
         f" ++model.force_turn_taking={force_turn_taking}"
         f" trainer.devices={num_gpus}"
     )
+
+    # Decoding knobs. DuplexSTTModel.validation_step reads these via
+    # self.cfg.get(...) (duplex_stt_model.py:2521-2523) and threads them into
+    # offline_inference. Note: only the offline_inference branch honors them;
+    # use_online_inference=True makes these no-ops.
+    for key in ("temperature", "top_p", "repetition_penalty"):
+        if config.get(key) is not None:
+            cmd += f" ++model.{key}={config[key]}"
+
     if config.get("inference_args"):
         cmd += f" {config['inference_args']}"
     return cmd

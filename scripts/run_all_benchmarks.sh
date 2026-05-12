@@ -13,14 +13,18 @@
 #   bash scripts/run_all_benchmarks.sh [options]
 #
 # Examples:
-#   # Run everything with defaults (greedy)
+#   # Run everything with defaults (greedy, incremental)
 #   bash scripts/run_all_benchmarks.sh
 #
-#   # Run only BBA and BFCL, override the checkpoint
-#   bash scripts/run_all_benchmarks.sh --benchmarks bba,bfcl --model /path/to/ckpt --code_path /path/to/code
+#   # Run offline-decoding configs for all benchmarks
+#   bash scripts/run_all_benchmarks.sh --decoding_mode offline
 #
-#   # Override server backend across all benchmarks
-#   bash scripts/run_all_benchmarks.sh --server_backend s2s_voicechat
+#   # Run only BBA and BFCL, override the checkpoint
+#   bash scripts/run_all_benchmarks.sh --benchmarks bba,bfcl --model /path/to/ckpt
+#
+#   # Customized configs (per benchmark)
+#   bash scripts/run_all_benchmarks.sh --decoding_mode customized \
+#        --benchmarks bba,bfcl --config_bba /my/bba.yaml --config_bfcl /my/bfcl.yaml
 #
 #   # Sampling-style override (requires all four + --output_dir)
 #   bash scripts/run_all_benchmarks.sh --temperature 0.8 --top_p 0.8 \
@@ -80,9 +84,8 @@ CONFIG_BFCL=""
 CONFIG_CONV_BEHAV=""
 
 MODEL_OVERRIDE=""
-CODE_PATH_OVERRIDE=""
 OUTPUT_DIR_OVERRIDE=""
-SERVER_BACKEND_OVERRIDE=""
+DECODING_MODE="incremental"   # incremental | offline | customized
 HTML_NAME="scorecard"
 MAX_JOBS_OVERRIDE=""
 POLL_INTERVAL=60
@@ -130,13 +133,14 @@ Options:
                             scripts append the git commit hash. If unset, each
                             benchmark uses its own output_dir from its YAML.
   --model             PATH  Override the model checkpoint for every benchmark.
-                            Must be paired with --code_path.
-  --code_path         PATH  Override the NeMo source code directory for every
-                            benchmark. Must be paired with --model.
-  --server_backend    NAME  Override the --backend X argument inside server_args
-                            for every benchmark whose YAML defines one. Benchmarks
-                            without --backend in server_args (e.g. conv_behav)
-                            are unaffected.
+  --decoding_mode     MODE  incremental (default) | offline | customized.
+                            incremental: use each benchmark's *_incremental_v2_greedy YAML
+                                         (DRIRF codebase, triton sqsh).
+                            offline:     use each benchmark's *_s2s_offline_greedy YAML
+                                         (DSFTS codebase, nemo_duplex sqsh).
+                            customized:  every selected benchmark must be given an
+                                         explicit --config_<name> PATH.
+                            conv_behav has only one config and is used regardless of mode.
 
   Decoding-param overrides (all four required together when any is set; also
   requires --output_dir).  Without these, defaults from the greedy YAML are used.
@@ -171,8 +175,7 @@ while [[ $# -gt 0 ]]; do
         --html_name)         HTML_NAME="$2";               shift 2 ;;
         --output_dir)        OUTPUT_DIR_OVERRIDE="$2";    shift 2 ;;
         --model)             MODEL_OVERRIDE="$2";         shift 2 ;;
-        --code_path)         CODE_PATH_OVERRIDE="$2";    shift 2 ;;
-        --server_backend)    SERVER_BACKEND_OVERRIDE="$2"; shift 2 ;;
+        --decoding_mode)     DECODING_MODE="$2";         shift 2 ;;
         --max_jobs)          MAX_JOBS_OVERRIDE="$2";     shift 2 ;;
         --poll_interval)     POLL_INTERVAL="$2";          shift 2 ;;
         --force_turn_taking) CUSTOM_FORCE_TURN_TAKING="$2"; shift 2 ;;
@@ -239,6 +242,15 @@ if [[ "$_n_custom" -gt 0 ]]; then
 fi
 HAS_DECODING_OVERRIDES=$([[ "$_n_custom" -gt 0 ]] && echo "true" || echo "false")
 
+# Validate --decoding_mode value
+case "$DECODING_MODE" in
+    incremental|offline|customized) ;;
+    *)
+        echo "ERROR: --decoding_mode must be one of {incremental, offline, customized}, got: '$DECODING_MODE'" >&2
+        exit 1
+        ;;
+esac
+
 # Derive a short suffix from OUTPUT_DIR_OVERRIDE so that concurrent runs with
 # different output directories produce distinct SLURM job names and
 # cancel_stale_jobs cannot accidentally cancel an unrelated parallel run.
@@ -297,36 +309,92 @@ BENCHMARKS="${ordered# }"
 # ---------------------------------------------------------------------------
 # Config resolution
 # ---------------------------------------------------------------------------
-# Returns the YAML path for a given benchmark.  Defaults to the per-benchmark
-# greedy YAML; a user-supplied --config_<name> overrides.
+# Returns the YAML path for a given benchmark.  Selects the incremental or
+# offline greedy YAML based on $DECODING_MODE; a user-supplied --config_<name>
+# always wins.  conv_behav has a single config (no incremental/offline split)
+# and is used in every mode.
 config_for() {
     local name="$1"
+    local inc off
     case "$name" in
         vb_nonmcq)
-            echo "${CONFIG_VB_NONMCQ:-${VB_BASE}/vb_matched_demo_v2_02mar_config_fc_s2s_incremental_v2_greedy.yaml}"
+            inc="${VB_BASE}/vb_matched_demo_v2_02mar_config_fc_s2s_incremental_v2_greedy.yaml"
+            off="${VB_BASE}/vb_matched_demo_v2_02mar_config_fc_s2s_offline_greedy.yaml"
+            _emit_config "$CONFIG_VB_NONMCQ" "$inc" "$off"
             ;;
         vb_mcq)
-            echo "${CONFIG_VB_MCQ:-${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc_s2s_incremental_v2_greedy.yaml}"
+            inc="${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc_s2s_incremental_v2_greedy.yaml"
+            off="${VB_BASE}/vb_matched_demo_v2_02mar_mcq_config_fc_s2s_offline_greedy.yaml"
+            _emit_config "$CONFIG_VB_MCQ" "$inc" "$off"
             ;;
         fdb_v1)
-            echo "${CONFIG_FDB_V1:-${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml}"
+            inc="${FDB_BASE}/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml"
+            off="${FDB_BASE}/fdb_s2s_offline_02mar_config_fc_greedy.yaml"
+            _emit_config "$CONFIG_FDB_V1" "$inc" "$off"
             ;;
         fdb_v1_5)
-            echo "${CONFIG_FDB_V1_5:-${FDB_BASE}/fdb_s2s_incremental_v2_v1.5_02mar_config_fc_greedy.yaml}"
+            inc="${FDB_BASE}/fdb_s2s_incremental_v2_v1.5_02mar_config_fc_greedy.yaml"
+            off="${FDB_BASE}/fdb_s2s_offline_v1.5_02mar_config_fc_greedy.yaml"
+            _emit_config "$CONFIG_FDB_V1_5" "$inc" "$off"
             ;;
         fdb_v3)
-            echo "${CONFIG_FDB_V3:-${FDB_V3_BASE}/fdb_v3_s2s_incremental_v2_config_fc_greedy.yaml}"
+            inc="${FDB_V3_BASE}/fdb_v3_s2s_incremental_v2_config_fc_greedy.yaml"
+            off="${FDB_V3_BASE}/fdb_v3_s2s_offline_config_fc_greedy.yaml"
+            _emit_config "$CONFIG_FDB_V3" "$inc" "$off"
             ;;
         bba)
-            echo "${CONFIG_BBA:-${BBA_BASE}/bba_config_fc_s2s_incremental_v2_greedy.yaml}"
+            inc="${BBA_BASE}/bba_config_fc_s2s_incremental_v2_greedy.yaml"
+            off="${BBA_BASE}/bba_config_fc_s2s_offline_greedy.yaml"
+            _emit_config "$CONFIG_BBA" "$inc" "$off"
             ;;
         bfcl)
-            echo "${CONFIG_BFCL:-${BFCL_BASE}/bfcl_fc_config_s2s_incremental_v2_greedy.yaml}"
+            inc="${BFCL_BASE}/bfcl_fc_config_s2s_incremental_v2_greedy.yaml"
+            off="${BFCL_BASE}/bfcl_fc_config_s2s_offline_greedy.yaml"
+            _emit_config "$CONFIG_BFCL" "$inc" "$off"
             ;;
         conv_behav)
+            # conv_behav has only one config; it does not split by decoding mode.
             echo "${CONFIG_CONV_BEHAV:-${CB_BASE}/conv_behav_config_greedy.yaml}"
             ;;
     esac
+}
+
+# Helper: returns the user override if non-empty, otherwise picks between
+# incremental and offline YAMLs based on $DECODING_MODE.  In customized mode
+# the user override is mandatory — emits empty if missing (caller must check).
+_emit_config() {
+    local user="$1" inc="$2" off="$3"
+    if [[ -n "$user" ]]; then
+        echo "$user"
+        return
+    fi
+    case "$DECODING_MODE" in
+        incremental) echo "$inc" ;;
+        offline)     echo "$off" ;;
+        customized)  echo "" ;;
+    esac
+}
+
+# Validate that customized mode has --config_<name> for every selected
+# benchmark (except conv_behav, which has a single config).
+validate_customized_configs() {
+    [[ "$DECODING_MODE" == "customized" ]] || return 0
+    local missing=()
+    for b in $BENCHMARKS; do
+        [[ "$b" == "conv_behav" ]] && continue
+        local got
+        got=$(config_for "$b")
+        if [[ -z "$got" ]]; then
+            missing+=("$b")
+        fi
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "" >&2
+        echo "ERROR: --decoding_mode=customized requires --config_<name> for every selected benchmark." >&2
+        echo "Missing configs for: ${missing[*]}" >&2
+        echo "Pass --config_${missing[0]} PATH (and similarly for any other missing benchmarks)." >&2
+        exit 1
+    fi
 }
 
 # Returns the expname for a given benchmark, including the _EXPNAME_SUFFIX
@@ -650,32 +718,14 @@ print(cfg.get('job_name_prefix', ''), end='')
 }
 
 # ---------------------------------------------------------------------------
-# Model + code_path validation
+# Model validation
 # ---------------------------------------------------------------------------
 
-check_model_code_path() {
-    if [[ -n "$MODEL_OVERRIDE" && -z "$CODE_PATH_OVERRIDE" ]]; then
-        echo "" >&2
-        echo "ERROR: --model was specified without --code_path." >&2
-        echo "Each checkpoint ships with its own NeMo source code." >&2
-        echo "Pass --code_path PATH alongside --model PATH." >&2
-        echo "" >&2
-        exit 1
-    fi
-    if [[ -z "$MODEL_OVERRIDE" && -n "$CODE_PATH_OVERRIDE" ]]; then
-        echo "" >&2
-        echo "ERROR: --code_path was specified without --model." >&2
-        echo "Pass --model PATH alongside --code_path PATH." >&2
-        echo "" >&2
-        exit 1
-    fi
+check_model() {
     if [[ -n "$MODEL_OVERRIDE" ]]; then
         echo " Model        : $MODEL_OVERRIDE"
-        echo " Code path    : $CODE_PATH_OVERRIDE"
     fi
-    if [[ -n "$SERVER_BACKEND_OVERRIDE" ]]; then
-        echo " Server backend (override): $SERVER_BACKEND_OVERRIDE"
-    fi
+    echo " Decoding mode: $DECODING_MODE"
 }
 
 # ---------------------------------------------------------------------------
@@ -685,12 +735,20 @@ check_model_code_path() {
 # Build a patched temp YAML for a benchmark.
 # Applies (in order, when set):
 #   - MODEL_OVERRIDE                     -> top-level model:
-#   - CODE_PATH_OVERRIDE                 -> --code_path INSIDE server_args; nemo_code_path
-#   - SERVER_BACKEND_OVERRIDE            -> replaces --backend X inside server_args
 #   - _EXPNAME_SUFFIX                    -> appended to expname
-#   - decoding-param overrides           -> injects --top_p/--repetition_penalty/--temperature
-#                                            (and --force_turn_taking when true) into server_args;
-#                                            sets force_turn_taking bool for conv_behav
+#   - decoding-param overrides           -> for each config, patches whichever
+#                                            knob is present:
+#                                              * server_args CLI flags
+#                                                (incremental: --temperature X
+#                                                 --top_p Y --repetition_penalty Z,
+#                                                 --force_turn_taking)
+#                                              * inference_overrides Hydra string
+#                                                (offline: ++inference.temperature=X
+#                                                 ++inference.top_p=Y
+#                                                 ++inference.repetition_penalty=Z)
+#                                              * top-level YAML keys
+#                                                (conv_behav: temperature, top_p,
+#                                                 repetition_penalty, force_turn_taking)
 #   - OUTPUT_DIR_OVERRIDE                -> rewrites top-level output_dir (without commit suffix)
 # Caller is responsible for deleting the returned temp file.
 make_patched_config() {
@@ -707,8 +765,6 @@ make_patched_config() {
     PATCH_DST="$tmp" \
     PATCH_BENCHMARK="$name" \
     PATCH_MODEL="${MODEL_OVERRIDE:-}" \
-    PATCH_CODE_PATH="${CODE_PATH_OVERRIDE:-}" \
-    PATCH_SERVER_BACKEND="${SERVER_BACKEND_OVERRIDE:-}" \
     PATCH_EXPNAME_SUFFIX="${_EXPNAME_SUFFIX:-}" \
     PATCH_HAS_DECODING_OVERRIDES="$HAS_DECODING_OVERRIDES" \
     PATCH_FORCE_TT="${CUSTOM_FORCE_TURN_TAKING:-}" \
@@ -723,8 +779,6 @@ src           = os.environ['PATCH_SRC']
 dst           = os.environ['PATCH_DST']
 benchmark     = os.environ['PATCH_BENCHMARK']
 model         = os.environ.get('PATCH_MODEL', '')
-code_path     = os.environ.get('PATCH_CODE_PATH', '')
-server_backend = os.environ.get('PATCH_SERVER_BACKEND', '')
 expname_suffix = os.environ.get('PATCH_EXPNAME_SUFFIX', '')
 has_overrides = os.environ.get('PATCH_HAS_DECODING_OVERRIDES', 'false') == 'true'
 force_tt      = os.environ.get('PATCH_FORCE_TT', '')
@@ -740,35 +794,52 @@ with open(src) as f:
 if model:
     cfg['model'] = model
 
-# Apply patches inside server_args (code_path, server_backend, decoding overrides)
-if 'server_args' in cfg and cfg.get('server_args'):
-    sa = cfg['server_args']
-    if code_path:
-        sa = re.sub(r'--code_path \S+', f'--code_path {code_path}', sa)
-    if server_backend:
-        # Substitute --backend X with --backend SERVER_BACKEND_OVERRIDE.
-        # Only acts if --backend is actually present; otherwise no-op (some
-        # benchmarks like conv_behav have no server_args at all).
-        sa = re.sub(r'--backend \S+', f'--backend {server_backend}', sa)
-    if has_overrides:
-        additions = []
-        if force_tt == 'true':
-            additions.append('--force_turn_taking')
-        additions += [
-            f'--top_p {top_p}',
-            f'--repetition_penalty {rep_pen}',
-            f'--temperature {temp}',
-        ]
-        sa = sa.rstrip() + ' ' + ' '.join(additions)
-    cfg['server_args'] = sa
+if has_overrides:
+    # Strategy 1: server_args contains direct CLI flags (incremental configs).
+    if 'server_args' in cfg and cfg.get('server_args'):
+        sa = cfg['server_args']
+        sa_changed = False
+        if re.search(r'--temperature \S+', sa):
+            sa = re.sub(r'--temperature \S+', f'--temperature {temp}', sa)
+            sa_changed = True
+        if re.search(r'--top_p \S+', sa):
+            sa = re.sub(r'--top_p \S+', f'--top_p {top_p}', sa)
+            sa_changed = True
+        if re.search(r'--repetition_penalty \S+', sa):
+            sa = re.sub(r'--repetition_penalty \S+', f'--repetition_penalty {rep_pen}', sa)
+            sa_changed = True
+        # --force_turn_taking is a presence-only flag in server_args.
+        has_ftt = '--force_turn_taking' in sa
+        want_ftt = (force_tt == 'true')
+        if want_ftt and not has_ftt:
+            sa = sa.rstrip() + ' --force_turn_taking'
+            sa_changed = True
+        elif not want_ftt and has_ftt:
+            sa = re.sub(r'\s*--force_turn_taking\b', '', sa)
+            sa_changed = True
+        if sa_changed:
+            cfg['server_args'] = sa
 
-# nemo_code_path (used by conv_behav)
-if code_path and 'nemo_code_path' in cfg:
-    cfg['nemo_code_path'] = code_path
+    # Strategy 2: inference_overrides carries Hydra ++inference.<key>=<val>
+    # (offline configs). Substitute the values in place; do not inject new
+    # keys, so a config that intentionally omits a knob stays omitted.
+    if 'inference_overrides' in cfg and cfg.get('inference_overrides'):
+        io = cfg['inference_overrides']
+        io = re.sub(r'\+\+inference\.temperature=\S+', f'++inference.temperature={temp}', io)
+        io = re.sub(r'\+\+inference\.top_p=\S+', f'++inference.top_p={top_p}', io)
+        io = re.sub(r'\+\+inference\.repetition_penalty=\S+', f'++inference.repetition_penalty={rep_pen}', io)
+        cfg['inference_overrides'] = io
 
-# conv_behav: top-level force_turn_taking bool (no server_args)
-if benchmark == 'conv_behav' and has_overrides:
-    cfg['force_turn_taking'] = (force_tt == 'true')
+    # Strategy 3: top-level YAML keys (conv_behav and the offline configs that
+    # also expose them for the runner). Only update keys that already exist.
+    if 'temperature' in cfg:
+        cfg['temperature'] = float(temp)
+    if 'top_p' in cfg:
+        cfg['top_p'] = float(top_p)
+    if 'repetition_penalty' in cfg:
+        cfg['repetition_penalty'] = float(rep_pen)
+    if 'force_turn_taking' in cfg:
+        cfg['force_turn_taking'] = (force_tt == 'true')
 
 # Expname suffix
 if expname_suffix and 'expname' in cfg:
@@ -821,9 +892,8 @@ _build_overrides_json() {
 import json
 print(json.dumps({
     'model': "${MODEL_OVERRIDE}" or None,
-    'code_path': "${CODE_PATH_OVERRIDE}" or None,
     'output_dir': "${OUTPUT_DIR_OVERRIDE}" or None,
-    'server_backend': "${SERVER_BACKEND_OVERRIDE}" or None,
+    'decoding_mode': "${DECODING_MODE}",
     'force_turn_taking': "${CUSTOM_FORCE_TURN_TAKING}" or None,
     'top_p': "${CUSTOM_TOP_P}" or None,
     'repetition_penalty': "${CUSTOM_REPETITION_PENALTY}" or None,
@@ -924,6 +994,9 @@ run_benchmark() {
     printf ' %-30s  %s\n' "Started:" "$(date '+%Y-%m-%d %H:%M:%S')"
     printf ' %-30s  %s\n' "Config:" "$base_config"
     printf ' %-30s  %s\n' "Patched config:" "$tmp_config"
+    if [[ "$name" == "conv_behav" && "$DECODING_MODE" != "offline" && "$DECODING_MODE" != "customized" ]]; then
+        printf ' %-30s  %s\n' "Note:" "conv_behav only ships an offline config; ignoring --decoding_mode=$DECODING_MODE."
+    fi
     echo "======================================================================"
 
     local rc=0
@@ -981,7 +1054,8 @@ run_benchmark() {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-check_model_code_path
+check_model
+validate_customized_configs
 
 echo ""
 echo "======================================================================"

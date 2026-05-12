@@ -606,8 +606,24 @@ def main():
             extra_config["inference_bos_boost"] = args.inference_bos_boost
         if args.inference_eos_boost is not None:
             extra_config["inference_eos_boost"] = args.inference_eos_boost
+        # Decoding knobs passed straight to NemotronVoiceChat.offline_inference per call.
+        extra_config["temperature"] = args.temperature
+        extra_config["top_p"] = args.top_p
+        extra_config["repetition_penalty"] = args.repetition_penalty
+        # Force turn-taking — landed on model.stt.model.force_turn_taking by the backend.
+        if args.force_turn_taking:
+            extra_config["force_turn_taking"] = True
+        # System prompt — used as a default when a request doesn't carry its own.
+        if args.system_prompt:
+            extra_config["system_prompt"] = args.system_prompt
+        # Audio output toggles.
         if args.decode_audio:
             extra_config["decode_audio"] = True
+        if args.no_decode_audio:
+            extra_config["decode_audio"] = False
+        # Function-channel / tool-call extraction (FDB v3 / BBA / BFCL FC).
+        if args.decode_function_channel:
+            extra_config["decode_function_channel"] = True
         if args.output_dir:
             extra_config["output_dir"] = args.output_dir
         if args.save_artifacts:

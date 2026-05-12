@@ -43,6 +43,15 @@ num_gpus: 1       # set to 8 for 8-GPU DDP (torchrun is used automatically)
 num_nodes: 1
 force_turn_taking: true
 
+# Decoding knobs — threaded as ++model.<key>=<val> Hydra overrides.
+# DSFTS DuplexSTTModel.validation_step reads these from self.cfg (lines 2521-2523
+# of nemo/collections/speechlm2/models/duplex_stt_model.py) and passes them into
+# offline_inference. Caveat: only the offline_inference branch consumes them; if
+# use_online_inference is flipped to true these become no-ops.
+temperature: 0.0
+top_p: 1.0
+repetition_penalty: 1.0
+
 # HuggingFace cache dir (avoids re-downloading weights on each job)
 hf_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
 

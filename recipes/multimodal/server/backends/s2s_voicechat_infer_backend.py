@@ -57,6 +57,16 @@ class S2SVoiceChatInferConfig(BackendConfig):
     inference_bos_boost: float = 0.0
     inference_eos_boost: float = 0.0
 
+    # Decoding knobs — passed to NemotronVoiceChat.offline_inference per call.
+    # Defaults match offline_inference's own defaults (greedy).
+    temperature: float = 0.0
+    top_p: float = 1.0
+    repetition_penalty: float = 1.0
+
+    # Turn-taking — landed on model.stt.model.force_turn_taking before model construction,
+    # then read by DuplexSTTModel internals (duplex_stt_model.py:3566).
+    force_turn_taking: bool = False
+
     # Output behavior
     decode_audio: bool = False  # default text-only; can be enabled
     output_dir: Optional[str] = None
@@ -66,6 +76,19 @@ class S2SVoiceChatInferConfig(BackendConfig):
 
     # Prompt handling
     ignore_system_prompt: bool = False
+    # If set, used as the system prompt for any request that doesn't carry its own
+    # (mirrors --system_prompt behavior on s2s_incremental_v2).
+    system_prompt: Optional[str] = None
+
+    # Function-channel / tool-call extraction (BFCL eval).
+    # decode_function_channel: decode tokens_function_pred → function_channel_text
+    #                          (off by default so non-FC pipelines are unaffected).
+    # use_function_channel_for_tool_calls + tool_call_parser: read by the server
+    #                          framework (unified_server.py) to convert
+    #                          function_channel_text into structured tool_calls.
+    decode_function_channel: bool = False
+    use_function_channel_for_tool_calls: bool = False
+    tool_call_parser: Optional[str] = None
 
     # Audio preprocessing defaults (will be overridden from YAML if present)
     source_sample_rate: int = 16000
@@ -89,11 +112,17 @@ class S2SVoiceChatInferConfig(BackendConfig):
             "inference_pad_boost",
             "inference_bos_boost",
             "inference_eos_boost",
+            "repetition_penalty",
+            "force_turn_taking",
             "decode_audio",
             "output_dir",
             "save_artifacts",
             "merge_user_channel",
             "ignore_system_prompt",
+            "system_prompt",
+            "decode_function_channel",
+            "use_function_channel_for_tool_calls",
+            "tool_call_parser",
             "source_sample_rate",
             "target_sample_rate",
         }
@@ -181,6 +210,11 @@ class S2SVoiceChatInferBackend(InferenceBackend):
             OmegaConf.update(cfg, "model.stt.model.inference_bos_boost", float(self.vc_config.inference_bos_boost), force_add=True)
         if self.vc_config.inference_eos_boost:
             OmegaConf.update(cfg, "model.stt.model.inference_eos_boost", float(self.vc_config.inference_eos_boost), force_add=True)
+
+        # Forced turn-taking — landed on the STT model's cfg; consumed by
+        # DuplexSTTModel internals via self.cfg.get("force_turn_taking", False).
+        if self.vc_config.force_turn_taking:
+            OmegaConf.update(cfg, "model.stt.model.force_turn_taking", True, force_add=True)
 
         # Pull sample rates for preprocessing (data.* is what nemotron_voicechat_infer.py uses)
         try:
@@ -420,7 +454,9 @@ class S2SVoiceChatInferBackend(InferenceBackend):
                     audio, audio_path = self._load_and_preprocess_audio(req, temp_files)
                     audio_list.append(audio)
                     valid_indices.append(i)
-                    system_prompts.append(req.system_prompt)
+                    # Per-request system_prompt wins; fall back to backend default
+                    # set via --system_prompt at server-launch time.
+                    system_prompts.append(req.system_prompt or self.vc_config.system_prompt)
                     input_audio_paths[i] = audio_path
                 except Exception as e:
                     results[i] = GenerationResult(error=str(e), request_id=req.request_id)
@@ -459,6 +495,9 @@ class S2SVoiceChatInferBackend(InferenceBackend):
                     prompt_token_lens=prompt_lens,
                     input_pad_len=input_pad_len,
                     decode_audio=bool(self.vc_config.decode_audio),
+                    temperature=float(self.vc_config.temperature),
+                    top_p=float(self.vc_config.top_p),
+                    repetition_penalty=float(self.vc_config.repetition_penalty),
                 )
 
             elapsed_ms = (time.time() - start_time) * 1000.0
@@ -567,8 +606,13 @@ class S2SVoiceChatInferBackend(InferenceBackend):
                 if artifacts:
                     debug_info["artifacts"] = artifacts
 
+                function_channel_text = None
+                if self.vc_config.decode_function_channel:
+                    function_channel_text = self._decode_function_channel(outputs, bi)
+
                 results[req_i] = GenerationResult(
                     text=text,
+                    function_channel_text=function_channel_text,
                     audio_bytes=out_audio_bytes,
                     audio_sample_rate=out_sr,
                     request_id=req.request_id,
@@ -586,6 +630,54 @@ class S2SVoiceChatInferBackend(InferenceBackend):
                         os.unlink(p)
                 except Exception:
                     pass
+
+    # ------------------------------------------------------------------
+    # Function channel decoder (BFCL/FD3/BBA FC eval; off by default)
+    # ------------------------------------------------------------------
+    def _decode_function_channel(self, output: Dict[str, Any], idx: int = 0) -> Optional[str]:
+        """Decode tokens_function_pred → raw text (e.g. '<TOOLCALL>[...]</TOOLCALL>').
+
+        Mirrors the helper in s2s_incremental_backend_v2.  Only called when
+        decode_function_channel=True.  Returns None if the model produced no
+        function tokens or decoding fails.
+
+        For batched s2s_voicechat output, ``idx`` selects the row to decode;
+        tokens_to_str handles batch tensors and returns a list of length B,
+        from which we return the requested row.
+        """
+        func_tokens = output.get("tokens_function_pred")
+        if func_tokens is None:
+            func_tokens = output.get("tokens_function")
+        tokens_len = output.get("tokens_len")
+        if func_tokens is None or tokens_len is None:
+            return None
+        try:
+            stt = getattr(self._model, "stt_model", None)
+            if stt is None:
+                return None
+            from nemo.collections.speechlm2.models.duplex_s2s_model import tokens_to_str
+            # DSFTS STT model exposes user_bos_id; DRIRF (incremental wrapper) uses
+            # user_bos_id_text. Pick whichever is present so this works on both forks.
+            user_bos_id = getattr(stt, "user_bos_id_text", None)
+            if user_bos_id is None:
+                user_bos_id = getattr(stt, "user_bos_id", None)
+            texts = tokens_to_str(
+                func_tokens,
+                tokens_len,
+                tokenizer=stt.tokenizer,
+                pad_id=stt.text_pad_id,
+                user_bos_id=user_bos_id,
+                eval_text_turn_taking=False,
+                sil_id=None,
+            )
+            if not texts:
+                return None
+            if idx < len(texts):
+                return texts[idx]
+            return texts[0]
+        except Exception as e:
+            print(f"[S2SVoiceChat] Warning: function channel decode failed: {e}")
+            return None
 
     def validate_request(self, request: GenerationRequest) -> Optional[str]:
         if not request.audio_bytes and not request.audio_path:
