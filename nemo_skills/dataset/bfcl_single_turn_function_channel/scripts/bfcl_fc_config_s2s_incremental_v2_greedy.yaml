@@ -47,7 +47,7 @@ server_args: >-
   --use_function_channel_for_tool_calls
   --no_decode_audio
   --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/bfcl_fc_artifacts
-  --batch_size 2
+  --batch_size 1
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
   --pip_install "hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
 
