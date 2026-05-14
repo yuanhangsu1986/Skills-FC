@@ -217,6 +217,7 @@ def score(
     metrics = _parse_metrics(result.stdout)
     if not metrics:
         print("[scoring] Warning: no metrics parsed from output.", file=sys.stderr)
+        return 1
 
     existing_metrics = {}
     if metrics_file.exists():

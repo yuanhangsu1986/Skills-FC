@@ -159,6 +159,7 @@ def _build_backend(args):
         use_perception_cache=args.use_perception_cache,
         use_perception_cudagraph=args.use_perception_cudagraph,
         use_codec_cache=args.use_codec_cache,
+        disable_rnnt_decoder_cuda_graphs=args.disable_rnnt_decoder_cuda_graphs,
         repetition_penalty=args.repetition_penalty,
         top_p=args.top_p,
         temperature=args.temperature,
@@ -200,6 +201,8 @@ def run(args) -> None:
 
     metadata_path = metadata_dir / f"{args.dataset_name}.json"
     rank_metadata_path = metadata_dir / f"{args.dataset_name}_rank0.json"
+    done_marker = metadata_path.with_suffix(metadata_path.suffix + ".done")
+    done_marker.unlink(missing_ok=True)
 
     backend = _build_backend(args)
     try:
@@ -266,6 +269,9 @@ def run(args) -> None:
 
     print(f"[conv_behav_drirf] Wrote {processed} samples")
     print(f"[conv_behav_drirf] Metadata: {metadata_path}")
+    if processed == 0:
+        raise RuntimeError(f"No conv_behav samples were processed from {args.shar_input_dir}")
+    done_marker.write_text("done\n", encoding="utf-8")
 
 
 def main():
@@ -283,7 +289,9 @@ def main():
     parser.add_argument("--engine_type", default="vllm_llm_vllm_eartts")
     parser.add_argument("--use_perception_cache", action="store_true")
     parser.add_argument("--use_perception_cudagraph", action="store_true")
-    parser.add_argument("--use_codec_cache", action="store_true")
+    parser.add_argument("--use_codec_cache", dest="use_codec_cache", action="store_true", default=True)
+    parser.add_argument("--no_use_codec_cache", dest="use_codec_cache", action="store_false")
+    parser.add_argument("--disable_rnnt_decoder_cuda_graphs", action="store_true")
     parser.add_argument("--force_turn_taking", action="store_true")
     parser.add_argument("--force_turn_taking_threshold", type=int, default=40)
     parser.add_argument("--force_turn_taking_pad_window", type=int, default=25)

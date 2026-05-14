@@ -400,6 +400,11 @@ def main():
         help="torch float32 matmul precision (s2s_incremental_v2)",
     )
     parser.add_argument(
+        "--disable_rnnt_decoder_cuda_graphs",
+        action="store_true",
+        help="Disable RNNT decoder CUDA graphs in s2s_incremental_v2",
+    )
+    parser.add_argument(
         "--vllm_gpu_memory_utilization",
         type=float,
         default=0.35,
@@ -691,6 +696,8 @@ def main():
         extra_config["force_turn_taking_threshold"] = args.force_turn_taking_threshold
         extra_config["force_turn_taking_pad_window"] = args.force_turn_taking_pad_window
         extra_config["matmul_precision"] = args.matmul_precision
+        if args.disable_rnnt_decoder_cuda_graphs:
+            extra_config["disable_rnnt_decoder_cuda_graphs"] = True
         if args.buffer_size_frames is not None:
             extra_config["buffer_size_frames"] = args.buffer_size_frames
         else:
@@ -817,6 +824,7 @@ def main():
         if args.system_prompt:
             print(f"  System Prompt: {args.system_prompt[:80]}...")
         print(f"  Force Turn Taking: {args.force_turn_taking}")
+        print(f"  Disable RNNT Decoder CUDA Graphs: {args.disable_rnnt_decoder_cuda_graphs}")
         print(f"  Save Artifacts: {not args.no_save_session_artifacts}")
     if args.backend == "s2s_session":
         print(f"  Session TTL: {args.session_ttl}s")

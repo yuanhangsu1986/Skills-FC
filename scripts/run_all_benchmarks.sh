@@ -666,6 +666,8 @@ _delete_incomplete_dir() {
     fi
     f=$(find "${dir}/eval-results" -name "output.jsonl.done" -o -name "output_chunk_*.jsonl.done" \
         2>/dev/null | head -1 || true)
+    [[ -z "$f" ]] && f=$(find "${dir}/eval-results/validation_logs/metadatas" -name "*.json.done" \
+        2>/dev/null | head -1 || true)
     if [[ -n "$f" ]]; then
         printf '  [cleanup] Skipping (generation complete, scoring pending): %s\n' "$dir"
         return 0

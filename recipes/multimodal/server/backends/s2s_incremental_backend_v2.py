@@ -62,6 +62,55 @@ DEFAULT_NUM_FRAMES_PER_INFERENCE = 1
 DEFAULT_CODEC_TOKEN_HISTORY_SIZE = 600
 
 
+def disable_rnnt_decoder_cuda_graphs_for_model(model, log_prefix: str = "[S2SIncrementalV2]") -> None:
+    """Disable RNNT decoder CUDA graphs for a loaded voice-chat model."""
+    stt_model = getattr(model, "stt_model", None)
+    if stt_model is None or not hasattr(stt_model, "_get_rnnt_decoding"):
+        print(f"{log_prefix} RNNT CUDA graph disable requested, but no RNNT decode hook was found")
+        return
+
+    original_get_rnnt_decoding = stt_model._get_rnnt_decoding
+
+    def patched_get_rnnt_decoding():
+        decoding = original_get_rnnt_decoding()
+        if decoding is None or getattr(decoding, "_s2s_v2_cuda_graphs_disabled", False):
+            return decoding
+
+        greedy_decoder = getattr(decoding, "decoding", None)
+        if greedy_decoder is not None:
+            if hasattr(greedy_decoder, "disable_cuda_graphs"):
+                greedy_decoder.disable_cuda_graphs()
+            if hasattr(greedy_decoder, "use_cuda_graph_decoder"):
+                greedy_decoder.use_cuda_graph_decoder = False
+            decoding_computer = getattr(greedy_decoder, "decoding_computer", None)
+            if decoding_computer is not None:
+                if hasattr(decoding_computer, "disable_cuda_graphs"):
+                    decoding_computer.disable_cuda_graphs()
+                if hasattr(decoding_computer, "allow_cuda_graphs"):
+                    decoding_computer.allow_cuda_graphs = False
+
+        setattr(decoding, "_s2s_v2_cuda_graphs_disabled", True)
+        print(f"{log_prefix} Disabled RNNT decoder CUDA graphs")
+        return decoding
+
+    stt_model._get_rnnt_decoding = patched_get_rnnt_decoding
+
+
+def speaker_reference_from_checkpoint(model_path: Optional[str]) -> Optional[str]:
+    if not model_path:
+        return None
+    config_path = Path(model_path) / "config.json"
+    if not config_path.exists():
+        return None
+    try:
+        with open(config_path, "r", encoding="utf-8") as fin:
+            cfg = json.load(fin)
+    except Exception:
+        return None
+    model_cfg = cfg.get("model", {}) or {}
+    return model_cfg.get("inference_speaker_reference")
+
+
 @dataclass
 class S2SIncrementalV2Config(BackendConfig):
     """Configuration for V2 incremental S2S backend.
@@ -110,6 +159,7 @@ class S2SIncrementalV2Config(BackendConfig):
     use_perception_cudagraph: bool = False
 
     use_codec_cache: bool = True
+    disable_rnnt_decoder_cuda_graphs: bool = False
 
     repetition_penalty: float = 1.0
     top_p: float = 1.0
@@ -213,11 +263,12 @@ class S2SIncrementalBackendV2(InferenceBackend):
         cfg = self.v2_config
         model_path = cfg.tts_checkpoint_path or cfg.model_path
         llm_path = cfg.llm_checkpoint_path or cfg.model_path
+        speaker_reference = cfg.speaker_reference or speaker_reference_from_checkpoint(model_path)
 
         d: Dict[str, Any] = {
             "model_path": model_path,
             "llm_checkpoint_path": llm_path,
-            "speaker_reference": cfg.speaker_reference,
+            "speaker_reference": speaker_reference,
             "buffer_size_frames": cfg.buffer_size_frames,
             "decode_audio": cfg.decode_audio,
             "codec_token_history_size": cfg.codec_token_history_size,
@@ -269,14 +320,16 @@ class S2SIncrementalBackendV2(InferenceBackend):
     # Model loading -- delegates entirely to the wrapper
     # ------------------------------------------------------------------
     def load_model(self) -> None:
-        import vllm.model_executor.models as _vllm_models
-        src = "/nemo_run/code/asset/nemotron_h.py"
-        dst = str(Path(_vllm_models.__file__).parent / "nemotron_h.py")
-        try:
-            shutil.copy2(src, dst)
-            print(f"[S2SIncrementalV2] Copied {src} -> {dst}")
-        except Exception as e:
-            print(f"[S2SIncrementalV2] Warning: could not copy nemotron_h.py: {e}")
+        if "vllm" in self.v2_config.engine_type:
+            import vllm.model_executor.models as _vllm_models
+
+            src = "/nemo_run/code/asset/nemotron_h.py"
+            dst = str(Path(_vllm_models.__file__).parent / "nemotron_h.py")
+            try:
+                shutil.copy2(src, dst)
+                print(f"[S2SIncrementalV2] Copied {src} -> {dst}")
+            except Exception as e:
+                print(f"[S2SIncrementalV2] Warning: could not copy nemotron_h.py: {e}")
 
         from nemo.collections.speechlm2.inference.model_wrappers.nemotron_voicechat_inference_wrapper import (
             NemotronVoicechatInferenceWrapper,
@@ -302,8 +355,15 @@ class S2SIncrementalBackendV2(InferenceBackend):
         self.first_tts_code_input = self._wrapper.first_tts_code_input
         self.first_tts_past_key_values_input = self._wrapper.first_tts_past_key_values_input
 
+        if self.v2_config.disable_rnnt_decoder_cuda_graphs:
+            self._disable_rnnt_decoder_cuda_graphs()
+
         self._is_loaded = True
         print("[S2SIncrementalV2] Model loaded successfully")
+
+    def _disable_rnnt_decoder_cuda_graphs(self) -> None:
+        """Disable RNNT decoder CUDA graphs when requested by backend config."""
+        disable_rnnt_decoder_cuda_graphs_for_model(getattr(self, "_model", None))
 
     # ------------------------------------------------------------------
     # Core inference -- thin delegates to wrapper

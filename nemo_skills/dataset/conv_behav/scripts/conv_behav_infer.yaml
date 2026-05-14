@@ -1,7 +1,7 @@
-# Minimal Hydra config for conv_behav evaluation via s2s_duplex_stt_infer.py.
-# Dynamic values (model, shar_path, output_dir, force_turn_taking) are injected
-# via ++ CLI overrides in run_eval.py.  Architecture config is merged in
-# automatically from the checkpoint's config.json.
+# Deprecated fallback config for the old s2s_duplex_stt_infer.py path.
+# run_eval.py's direct_hydra mode now uses conv_behav_direct_hydra_infer.py,
+# which keeps the Lightning validation contract but loads current HF checkpoints
+# through NemotronVoicechatInferenceWrapper.
 #
 # Usage (run via run_eval.py — do not call directly):
 #   export PYTHONPATH=/path/to/NeMo2-private_tts_fix_Mar_20:$PYTHONPATH
