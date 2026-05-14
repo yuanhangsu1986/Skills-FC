@@ -1,8 +1,11 @@
-# conv_behav direct_hydra evaluation — greedy decoding (force_turn_taking=true)
+# conv_behav DSFTS offline evaluation — greedy decoding (force_turn_taking=true)
+#
+# This is the old conv_behav_config_greedy.yaml path, renamed after the
+# direct_hydra config split.
 #
 # Run:
 #   python nemo_skills/dataset/conv_behav/scripts/run_eval.py \
-#     --config nemo_skills/dataset/conv_behav/scripts/conv_behav_offline_config_greedy.yaml
+#     --config nemo_skills/dataset/conv_behav/scripts/conv_behav_dsfts_offline_config_greedy.yaml
 
 # ---------------------------------------------------------------------------
 # Cluster
@@ -17,12 +20,13 @@ model: /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrin
 
 # ---------------------------------------------------------------------------
 # NeMo codebase paths
-#   nemo_code_path: used for wrapper-backed direct_hydra inference.
-#   scoring_nemo_code_path: used for scripts/speech_eval/eval_conversation_behavior.py.
+#   nemo_code_path: used for inference AND scoring script location
+#     (expects scripts/speech_eval/eval_conversation_behavior.py inside)
 # ---------------------------------------------------------------------------
-nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
-scoring_nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DSFTS
+nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DSFTS
 pretrained_llm: nvidia/NVIDIA-Nemotron-Nano-9B-v2
+inference_config_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/config/inference
+inference_config_name: infer_nano_9b_team_20251124_s2t
 
 # ---------------------------------------------------------------------------
 # Data
@@ -43,13 +47,11 @@ num_nodes: 1
 force_turn_taking: true
 force_turn_taking_threshold: 40
 force_turn_taking_pad_window: 25
-speaker_reference: /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
-direct_hydra_engine_type: native
-disable_rnnt_decoder_cuda_graphs: true
-matmul_precision: medium
-inference_user_pad_boost: 0.8
 
-# Decoding knobs.
+# Decoding knobs — threaded as ++model.<key>=<val> Hydra overrides.
+# DSFTS DuplexSTTModel.validation_step reads these from self.cfg and passes them
+# into both offline_inference and online_inference, so the values take effect
+# regardless of use_online_inference.
 temperature: 0.0
 top_p: 1.0
 repetition_penalty: 1.0
@@ -77,27 +79,20 @@ scoring_gpus: 1
 # ---------------------------------------------------------------------------
 # Containers
 # ---------------------------------------------------------------------------
-# direct_hydra uses the DRIRF runtime for wrapper-backed checkpoint loading;
-# scoring uses the DSFTS/offline runtime because eval_conversation_behavior.py
-# lives in the DSFTS tree.
-inference_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
+inference_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
 inference_container_python_exec: python3
-scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
-scoring_container_python_exec: python3
 
 # ---------------------------------------------------------------------------
 # Installation commands
 # ---------------------------------------------------------------------------
-installation_command: "python3 -m pip install hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 soundfile nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1 && mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
-scoring_installation_command: "python3 -m pip install numpy scipy scikit-learn silero-vad soundfile openai jiwer whisper-normalizer"
+scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile openai jiwer whisper-normalizer"
 
 # ---------------------------------------------------------------------------
 # Pipeline control
 # ---------------------------------------------------------------------------
 expname: conv_behav_greedy
-pipeline_mode: direct_hydra
+pipeline_mode: dsfts_hydra
 inference_only: false
-generation_only: false
 scoring_only: false
 scoring_force: false
 dry_run: false
