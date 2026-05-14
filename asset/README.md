@@ -127,7 +127,7 @@ bash asset/run_all_benchmarks.sh --dry_run
 
 ## Analyzing results
 
-After benchmarks complete, use the Claude Code skills in this directory to generate HTML reports:
+After benchmarks complete, use the Claude Code commands in this directory to generate HTML reports:
 
 ```
 /analyze-bba       <OUTPUT_DIR>
@@ -135,15 +135,36 @@ After benchmarks complete, use the Claude Code skills in this directory to gener
 /analyze-conv-behav <OUTPUT_DIR>
 ```
 
-To produce a single aggregate scorecard across all benchmarks:
+To produce a single scorecard or checkpoint comparison across all benchmarks, use `/make-scorecard`.
+The command delegates to `scripts/visualize_metrics.py`.
 
 ```bash
-# Default: output dirs auto-detected from each benchmark's config YAML + current git commit
-/make-scorecard
+# One metrics root
+/make-scorecard metrics_dirs=/lustre/path/to/ckpt_root name=scorecard
 
-# If --output_dir was passed to run_all_benchmarks.sh, supply the same path
+# Multiple metrics roots, compared per dataset
+/make-scorecard metrics_dirs=/lustre/path/to/ckpt_a,/lustre/path/to/ckpt_b name=comparison
+
+# Compatibility alias for a single root
 /make-scorecard output_dir=<PATH>
 ```
 
-The scorecard is written to **`{output_dir}/scorecard.html`** when `output_dir` is given,
-or **`asset/scorecard.html`** otherwise.
+If `name` has no directory, the HTML is written under `asset/`. For each non-JSON
+`metrics_dirs` entry, a sidecar JSON is written with that source's metrics and selected
+benchmark folders. Multiple input roots produce multiple per-checkpoint sidecar JSON files,
+not one aggregate JSON. Existing HTML and sidecar JSON files with the same resolved names
+are overwritten on each run.
+
+When a metrics root contains duplicate benchmark folders for the same dataset, the latest
+folder is selected by git commit history if all candidate commits exist locally; otherwise
+the newest folder modification time is used. Datasets present in multiple roots are shown in
+comparison mode, while datasets present in only one root are shown as single-run sections.
+The generated summary uses one row per metric when a dataset has multiple metrics, and the
+per-split comparisons use static HTML/CSS bar charts. The summary includes a `Metric files`
+column with hover-expandable `cluster_name:/path/to/metrics.json` entries. Audio examples are
+grouped under collapsible dataset sections with category shortcuts, links back to the Audio
+Examples top, and hover-expandable local cluster paths for each rendered audio file.
+Categories use an OpenAI LLM label when `OPENAI_API_KEY` and the `openai` package are
+available, unless `VISUALIZE_METRICS_LLM_CATEGORIES=0`; otherwise the visualizer prints a
+warning and falls back to dataset metadata, known split/task labels, FDB dataset+scenario
+labels, filename-derived labels, or uncategorized examples.
