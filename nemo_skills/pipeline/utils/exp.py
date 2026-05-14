@@ -294,12 +294,32 @@ def get_executor(
         partition = partition or cluster_config.get("partition")
     else:
         partition = partition or cluster_config.get("cpu_partition") or cluster_config.get("partition")
-        if partition == cluster_config.get("cpu_partition"):
-            # by default we use exclusive if no gpus are needed and use non-exclusive if gpus are required
-            # as cpu jobs almost always need more resources than automatically allocated by slurm
+        # CPU partitions that should be submitted with --exclusive. Defaults to
+        # [cpu_partition] for backwards compatibility — cpu jobs typically need
+        # more resources than slurm allocates by default.
+        cpu_part = cluster_config.get("cpu_partition")
+        exclusive_cpu_partitions = cluster_config.get(
+            "exclusive_cpu_partitions", [cpu_part] if cpu_part else []
+        )
+        candidate_parts = [p.strip() for p in (partition or "").split(",") if p.strip()]
+        matched = [p for p in candidate_parts if p in exclusive_cpu_partitions]
+        if matched:
             if sbatch_kwargs is None:
                 sbatch_kwargs = {}
             sbatch_kwargs["exclusive"] = True
+            gpu_parts = {
+                p.strip()
+                for p in (cluster_config.get("partition") or "").split(",")
+                if p.strip()
+            }
+            gpu_matches = [p for p in matched if p in gpu_parts]
+            if gpu_matches:
+                LOG.warning(
+                    "Applying --exclusive to GPU partition(s) %s via exclusive_cpu_partitions; "
+                    "these appear in cluster_config['partition']=%r and may have been listed "
+                    "unintentionally.",
+                    gpu_matches, cluster_config.get("partition"),
+                )
 
     timeout = get_slurm_timeout_str(cluster_config, partition, with_save_delay=False)
 

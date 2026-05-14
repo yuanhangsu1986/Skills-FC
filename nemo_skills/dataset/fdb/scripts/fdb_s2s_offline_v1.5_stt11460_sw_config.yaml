@@ -6,7 +6,7 @@
 
 cluster: s2s_eval_oci_iad
 partition: batch_block1,batch_block3,batch_block4
-cpu_partition: cpu_short
+cpu_partition: cpu
 
 model: /lustre/fsw/portfolios/llmservice/users/apasad/projects/nemo_s2s_merged_dec/exp_SFT-nano9b/IAD_nano9b_parakeet600m_from_PT_32k_64gpu_5e-5_PT0.5_SFT0.15_QA0.02_TEXT0.1_loss0.5_MCQ0.03_prompt2_ASR0.01_fillerlong_offset2_sysp0.05_NoiseDefault_asr_dtc2_dst15_lossDefault_ei0.033_ot8_TN_all_data_v3.2_ir_fix_seq_mask/checkpoints_hf_11460
 

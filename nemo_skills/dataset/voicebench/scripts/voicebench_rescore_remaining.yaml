@@ -3,7 +3,7 @@
 
 cluster: oci_iad
 partition: batch_block1,batch_block3,batch_block4
-cpu_partition: cpu_short
+cpu_partition: cpu
 
 # Dummy model (not used for scoring_only)
 model: /lustre/fsw/portfolios/llmservice/users/apasad/projects/nemo_s2s_merged_dec/exp_SFT-nano9b/IAD_nano9b_parakeet600m_from_PT_32k_64gpu_5e-5_PT0.7_SFT0.05_QA0.02_TEXT0.1_loss0.5_MCQ0.03_ASR0.01_sysp0.03_NoiseProb0.5_SNR-30-60_asr_dtc2_dst15_loss_text5.0_bos10.0_eos5.0_pad1.0_eosplacementsfix_nospecaug_ei0.1_ot8_TN_all_data_v3.2_ir/checkpoints_hf_step-12556-last.ckpt

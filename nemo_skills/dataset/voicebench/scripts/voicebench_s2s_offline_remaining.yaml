@@ -4,7 +4,7 @@
 # Cluster settings
 cluster: oci_iad
 partition: batch_block1,batch_block3,batch_block4
-cpu_partition: cpu_short  # For scoring jobs (no GPU needed)
+cpu_partition: cpu  # For scoring jobs (no GPU needed)
 
 # Model checkpoint - latest IAD nano9b model (Jan 2026)
 # STT checkpoint in HuggingFace format

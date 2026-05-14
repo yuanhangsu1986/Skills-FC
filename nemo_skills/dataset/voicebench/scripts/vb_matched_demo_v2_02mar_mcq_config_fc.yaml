@@ -12,7 +12,7 @@
 # Cluster settings
 cluster: s2s_eval_oci_iad_oncluster
 partition: batch_block1,batch_block3,batch_block4
-cpu_partition: cpu_short
+cpu_partition: cpu
 
 model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
 
