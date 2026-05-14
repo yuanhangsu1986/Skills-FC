@@ -8,7 +8,7 @@
 
 cluster: s2s_eval_oci_iad
 partition: batch_block1,batch_block3,batch_block4
-cpu_partition: cpu
+cpu_partition: cpu_short
 
 model: /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Nemotron-VoiceChat-november/duplex-eartts-2mim_sw_et_eos_dp_eos_dup_fp32_1delay_20_Feb_exp_3.1_afg_40k_steps-stt-AS7.8_11460_new_branch_load_fixed
 

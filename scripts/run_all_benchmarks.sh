@@ -527,6 +527,41 @@ find_scorecard() {
 # SLURM helpers
 # ---------------------------------------------------------------------------
 
+# Echoes the space-separated, deduped list of SLURM partitions referenced by
+# the selected benchmarks' cluster configs (first token of `partition:` plus
+# `cpu_partition:`). Empty if no cluster config is resolvable.
+partitions_from_configs() {
+    local -a parts=()
+    local seen_clusters=" "
+    for b in $BENCHMARKS; do
+        local bench_cfg cluster cluster_cfg
+        bench_cfg=$(config_for "$b" 2>/dev/null || true)
+        [[ -z "$bench_cfg" || ! -f "$bench_cfg" ]] && continue
+        cluster=$(grep -m1 '^cluster:' "$bench_cfg" 2>/dev/null \
+            | sed 's/^cluster:[[:space:]]*//;s/[[:space:]]*$//' || true)
+        [[ -z "$cluster" ]] && continue
+        [[ "$seen_clusters" == *" $cluster "* ]] && continue
+        seen_clusters+="$cluster "
+        cluster_cfg="${REPO_ROOT}/cluster_configs/${cluster}.yaml"
+        [[ ! -f "$cluster_cfg" ]] && continue
+        local p
+        for key in partition cpu_partition; do
+            p=$(grep -m1 "^${key}:" "$cluster_cfg" 2>/dev/null \
+                | sed "s/^${key}:[[:space:]]*//;s/[[:space:]]*\$//;s/,.*//" || true)
+            [[ -n "$p" ]] && parts+=("$p")
+        done
+    done
+    # Dedupe while preserving order.
+    local seen=" " out=""
+    for p in "${parts[@]}"; do
+        if [[ "$seen" != *" $p "* ]]; then
+            seen+="$p "
+            out+="$p "
+        fi
+    done
+    echo "${out% }"
+}
+
 # Returns the SLURM max-submit-jobs limit for the current user.
 detect_max_jobs() {
     local -a limits=()
@@ -552,7 +587,8 @@ detect_max_jobs() {
         fi
     done <<< "$qos_list"
 
-    local partitions_to_check="batch_block1 batch_block3 batch_block4 cpu"
+    local partitions_to_check
+    partitions_to_check=$(partitions_from_configs)
     for part in $partitions_to_check; do
         local part_max
         part_max=$(scontrol show partition "$part" 2>/dev/null \
