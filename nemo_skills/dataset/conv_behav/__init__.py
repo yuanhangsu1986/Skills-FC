@@ -11,3 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+DATASET_GROUP = "speechlm"
+IS_BENCHMARK_GROUP = True
+
+BENCHMARKS = {
+    "conv_behav.team_20251124": {},
+}
+
+GENERATION_ARGS = "++prompt_format=openai ++eval_type=null"
+EVAL_ARGS = "++eval_type=null"
+SCORE_MODULE = None
