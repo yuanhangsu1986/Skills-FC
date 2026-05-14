@@ -32,6 +32,20 @@
 
 set -euo pipefail
 
+# Some submission paths allocate a pseudo-terminal.  If one exits abruptly, the
+# parent terminal can be left with echo disabled, making typed input invisible.
+_TTY_STATE=""
+if [[ -t 0 ]]; then
+    _TTY_STATE="$(stty -g 2>/dev/null || true)"
+fi
+
+restore_terminal() {
+    if [[ -n "$_TTY_STATE" && -t 0 ]]; then
+        stty "$_TTY_STATE" 2>/dev/null || stty sane 2>/dev/null || true
+    fi
+}
+trap restore_terminal EXIT HUP INT TERM
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
