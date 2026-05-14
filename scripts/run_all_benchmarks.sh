@@ -140,7 +140,8 @@ Options:
                                          (DSFTS codebase, nemo_duplex sqsh).
                             customized:  every selected benchmark must be given an
                                          explicit --config_<name> PATH.
-                            conv_behav has only one config and is used regardless of mode.
+                            conv_behav uses its incremental/offline greedy YAMLs
+                            according to the selected mode, like the other benchmarks.
 
   Decoding-param overrides (all four required together when any is set; also
   requires --output_dir).  Without these, defaults from the greedy YAML are used.
@@ -311,8 +312,7 @@ BENCHMARKS="${ordered# }"
 # ---------------------------------------------------------------------------
 # Returns the YAML path for a given benchmark.  Selects the incremental or
 # offline greedy YAML based on $DECODING_MODE; a user-supplied --config_<name>
-# always wins.  conv_behav has a single config (no incremental/offline split)
-# and is used in every mode.
+# always wins.
 config_for() {
     local name="$1"
     local inc off
@@ -353,8 +353,9 @@ config_for() {
             _emit_config "$CONFIG_BFCL" "$inc" "$off"
             ;;
         conv_behav)
-            # conv_behav has only one config; it does not split by decoding mode.
-            echo "${CONFIG_CONV_BEHAV:-${CB_BASE}/conv_behav_config_greedy.yaml}"
+            inc="${CB_BASE}/conv_behav_incremental_config_greedy.yaml"
+            off="${CB_BASE}/conv_behav_offline_config_greedy.yaml"
+            _emit_config "$CONFIG_CONV_BEHAV" "$inc" "$off"
             ;;
     esac
 }
@@ -376,12 +377,11 @@ _emit_config() {
 }
 
 # Validate that customized mode has --config_<name> for every selected
-# benchmark (except conv_behav, which has a single config).
+# benchmark.
 validate_customized_configs() {
     [[ "$DECODING_MODE" == "customized" ]] || return 0
     local missing=()
     for b in $BENCHMARKS; do
-        [[ "$b" == "conv_behav" ]] && continue
         local got
         got=$(config_for "$b")
         if [[ -z "$got" ]]; then
@@ -991,6 +991,9 @@ extra_args() {
     if [[ "$DRY_RUN" == "true" ]]; then
         echo "--dry_run"
     fi
+    if [[ "$FORCE_RERUN" == "true" ]]; then
+        echo "--scoring_force"
+    fi
 }
 
 run_benchmark() {
@@ -1028,9 +1031,6 @@ run_benchmark() {
     printf ' %-30s  %s\n' "Started:" "$(date '+%Y-%m-%d %H:%M:%S')"
     printf ' %-30s  %s\n' "Config:" "$base_config"
     printf ' %-30s  %s\n' "Patched config:" "$tmp_config"
-    if [[ "$name" == "conv_behav" && "$DECODING_MODE" != "offline" && "$DECODING_MODE" != "customized" ]]; then
-        printf ' %-30s  %s\n' "Note:" "conv_behav only ships an offline config; ignoring --decoding_mode=$DECODING_MODE."
-    fi
     echo "======================================================================"
 
     local rc=0

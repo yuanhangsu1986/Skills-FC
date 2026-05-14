@@ -59,7 +59,7 @@ Default order when `--benchmarks` is omitted (smallest to largest): `conv_behav 
 | `--config_fdb PATH` | Config YAML for FDB | `nemo_skills/dataset/fdb/scripts/fdb_s2s_incremental_v2_02mar_config_fc_greedy.yaml` |
 | `--config_bba PATH` | Config YAML for BBA | `nemo_skills/dataset/bba/scripts/bba_config_fc_s2s_incremental_v2_greedy.yaml` |
 | `--config_bfcl PATH` | Config YAML for BFCL | `nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_s2s_incremental_v2_greedy.yaml` |
-| `--config_conv_behav PATH` | Config YAML for conv_behav | `nemo_skills/dataset/conv_behav/scripts/conv_behav_config_greedy.yaml` |
+| `--config_conv_behav PATH` | Config YAML for conv_behav | `nemo_skills/dataset/conv_behav/scripts/conv_behav_incremental_config_greedy.yaml` |
 | `--output_dir PATH` | Redirect all benchmark outputs under `PATH/{name}_{commit}` | (from each config YAML) |
 | `--model PATH` | Override the model checkpoint for every benchmark; pairs with `--code_path` | (from each config YAML) |
 | `--code_path PATH` | Override the NeMo source code directory for every benchmark; pairs with `--model` | (from each config YAML) |

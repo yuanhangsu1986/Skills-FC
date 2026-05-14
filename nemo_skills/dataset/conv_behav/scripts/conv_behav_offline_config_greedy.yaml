@@ -2,7 +2,7 @@
 #
 # Run:
 #   python nemo_skills/dataset/conv_behav/scripts/run_eval.py \
-#     --config nemo_skills/dataset/conv_behav/scripts/conv_behav_config_greedy.yaml
+#     --config nemo_skills/dataset/conv_behav/scripts/conv_behav_offline_config_greedy.yaml
 
 # ---------------------------------------------------------------------------
 # Cluster
@@ -17,10 +17,11 @@ model: /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrin
 
 # ---------------------------------------------------------------------------
 # NeMo codebase paths
-#   nemo_code_path: used for inference AND scoring script location
-#     (expects scripts/speech_eval/eval_conversation_behavior.py inside)
+#   nemo_code_path: used for inference.
+#   scoring_nemo_code_path: used for scripts/speech_eval/eval_conversation_behavior.py.
 # ---------------------------------------------------------------------------
 nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DSFTS
+scoring_nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DSFTS
 pretrained_llm: nvidia/NVIDIA-Nemotron-Nano-9B-v2
 inference_config_path: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/config/inference
 inference_config_name: infer_nano_9b_team_20251124_s2t
@@ -54,6 +55,13 @@ repetition_penalty: 1.0
 # HuggingFace cache dir (avoids re-downloading weights on each job)
 hf_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
 
+# PyTorch hub cache dir — must contain hub/snakers4_silero-vad_master.
+# When the cache exists, torch.hub skips the GitHub API validation call entirely,
+# avoiding rate-limit errors on compute nodes without internet access.
+# Run once to populate: cp -r ~/.cache/torch/hub/snakers4_silero-vad_master \
+#   /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/torch/hub/
+torch_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/torch
+
 # ---------------------------------------------------------------------------
 # Scoring thresholds
 # ---------------------------------------------------------------------------
@@ -69,10 +77,13 @@ scoring_gpus: 1
 # ---------------------------------------------------------------------------
 inference_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
 inference_container_python_exec: python3
+scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+scoring_container_python_exec: python3
 
 # ---------------------------------------------------------------------------
 # Installation commands
 # ---------------------------------------------------------------------------
+installation_command: ""
 scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile openai jiwer whisper-normalizer"
 
 # ---------------------------------------------------------------------------

@@ -106,7 +106,8 @@ def build_inference_command(config: dict) -> str:
 
 
 def build_scoring_command(config: dict) -> str:
-    eval_script = f"{config['nemo_code_path']}/scripts/speech_eval/eval_conversation_behavior.py"
+    scoring_nemo_code_path = config.get("scoring_nemo_code_path") or config["nemo_code_path"]
+    eval_script = f"{scoring_nemo_code_path}/scripts/speech_eval/eval_conversation_behavior.py"
     cmd = (
         f"{config.get('scoring_container_python_exec') or config.get('inference_container_python_exec') or 'python'} nemo_skills/dataset/conv_behav/scripts/run_scoring.py"
         f" --output_dir {config['output_dir']}/eval-results"
@@ -187,6 +188,14 @@ def run_conv_behav_eval(config: dict):
     print(f"Shar dir:   {config['shar_input_dir']}")
     print(f"Model:      {config['model']}")
     print(f"Output dir: {config['output_dir']}")
+    print(f"Infer src:  {config['nemo_code_path']}")
+    print(f"Score src:  {config.get('scoring_nemo_code_path') or config['nemo_code_path']}")
+    print(f"Infer ctr:  {config.get('inference_container')}")
+    print(f"Score ctr:  {config.get('scoring_container') or config.get('inference_container')}")
+    print(
+        "Score py:   "
+        f"{config.get('scoring_container_python_exec') or config.get('inference_container_python_exec') or 'python'}"
+    )
 
     infer_submitted = False
     if not scoring_only:
@@ -205,8 +214,13 @@ def main():
     parser.add_argument("--output_dir", help="Override output directory")
     parser.add_argument("--shar_input_dir", help="Override shar input directory")
     parser.add_argument("--dataset_name", help="Override dataset name")
-    parser.add_argument("--nemo_code_path", help="Override NeMo path (inference + scoring script)")
+    parser.add_argument("--nemo_code_path", help="Override NeMo path for inference")
+    parser.add_argument("--scoring_nemo_code_path", help="Override NeMo path for conv_behav scoring script")
     parser.add_argument("--pretrained_llm", help="Override LLM backbone HF model ID or path")
+    parser.add_argument("--inference_container", help="Override container used for inference")
+    parser.add_argument("--scoring_container", help="Override container used for scoring")
+    parser.add_argument("--inference_container_python_exec", help="Python executable used for inference inside the inference container")
+    parser.add_argument("--scoring_container_python_exec", help="Python executable used for scoring inside the scoring container")
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--inference_only", action="store_true")
     parser.add_argument("--scoring_only", action="store_true")
@@ -215,7 +229,19 @@ def main():
 
     config = load_config(args.config)
 
-    for key in ["model", "output_dir", "shar_input_dir", "dataset_name", "nemo_code_path", "pretrained_llm"]:
+    for key in [
+        "model",
+        "output_dir",
+        "shar_input_dir",
+        "dataset_name",
+        "nemo_code_path",
+        "scoring_nemo_code_path",
+        "pretrained_llm",
+        "inference_container",
+        "scoring_container",
+        "inference_container_python_exec",
+        "scoring_container_python_exec",
+    ]:
         if getattr(args, key, None) is not None:
             config[key] = getattr(args, key)
     if args.dry_run:

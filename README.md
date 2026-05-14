@@ -82,7 +82,7 @@ Configs to update if you prefer to edit them directly:
 | FDB | `nemo_skills/dataset/fdb/scripts/fdb_s2s_incremental_v2_02mar_config_fc.yaml` |
 | BBA | `nemo_skills/dataset/bba/scripts/bba_config_fc.yaml` |
 | BFCL | `nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config.yaml` |
-| conv_behav | `nemo_skills/dataset/conv_behav/scripts/conv_behav_config.yaml` |
+| conv_behav | `nemo_skills/dataset/conv_behav/scripts/conv_behav_incremental_config_greedy.yaml` |
 
 ### 2. Set your job directory
 
