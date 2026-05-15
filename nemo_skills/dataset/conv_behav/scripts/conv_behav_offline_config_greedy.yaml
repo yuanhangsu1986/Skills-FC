@@ -1,4 +1,4 @@
-# conv_behav direct_hydra evaluation — greedy decoding (force_turn_taking=true)
+# conv_behav drirf_offline evaluation — greedy decoding (force_turn_taking=true)
 #
 # Run:
 #   python nemo_skills/dataset/conv_behav/scripts/run_eval.py \
@@ -17,7 +17,7 @@ model: /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrin
 
 # ---------------------------------------------------------------------------
 # NeMo codebase paths
-#   nemo_code_path: used for wrapper-backed direct_hydra inference.
+#   nemo_code_path: used for wrapper-backed drirf_offline inference.
 #   scoring_nemo_code_path: used for scripts/speech_eval/eval_conversation_behavior.py.
 # ---------------------------------------------------------------------------
 nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
@@ -44,7 +44,7 @@ force_turn_taking: true
 force_turn_taking_threshold: 40
 force_turn_taking_pad_window: 25
 speaker_reference: /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
-direct_hydra_engine_type: native
+drirf_offline_engine_type: native
 disable_rnnt_decoder_cuda_graphs: true
 matmul_precision: medium
 inference_user_pad_boost: 0.8
@@ -77,7 +77,7 @@ scoring_gpus: 1
 # ---------------------------------------------------------------------------
 # Containers
 # ---------------------------------------------------------------------------
-# direct_hydra uses the DRIRF runtime for wrapper-backed checkpoint loading;
+# drirf_offline uses the DRIRF runtime for wrapper-backed checkpoint loading;
 # scoring uses the DSFTS/offline runtime because eval_conversation_behavior.py
 # lives in the DSFTS tree.
 inference_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
@@ -95,7 +95,7 @@ scoring_installation_command: "python3 -m pip install numpy scipy scikit-learn s
 # Pipeline control
 # ---------------------------------------------------------------------------
 expname: conv_behav_greedy
-pipeline_mode: direct_hydra
+pipeline_mode: drirf_offline
 inference_only: false
 generation_only: false
 scoring_only: false

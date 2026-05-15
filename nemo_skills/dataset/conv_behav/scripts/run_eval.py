@@ -16,18 +16,18 @@
 Run conv_behav (conversational behavior) evaluation.
 
 Supported pipeline modes:
-  dsfts_hydra
+  dsfts_offline
       Original DSFTS Hydra/Lightning validation pipeline used by the deleted
       conv_behav_config_greedy.yaml. This keeps inference and scoring in the
-      DSFTS tree and preserves the legacy validation_logs output contract.
+      DSFTS tree and preserves the validation_logs output contract.
 
-  direct_hydra
-      Legacy Lightning validation/scoring contract, but checkpoint loading is
+  drirf_offline
+      Offline Lightning validation/scoring contract, but checkpoint loading is
       delegated to NemotronVoicechatInferenceWrapper so current DRIRF/DSFTS HF
       checkpoints use the same config merge and state-dict loading path as the
       shared backend.
 
-  legacy_drirf
+  drirf_incremental
       Keeps the original conv_behav output contract
       (<output_dir>/eval-results/validation_logs/...) and scoring script, but
       runs inference through the existing DRIRF s2s_incremental_v2 backend.
@@ -54,11 +54,11 @@ from nemo_skills.pipeline.cli import eval as nemo_eval
 from nemo_skills.pipeline.cli import maybe_merge_before_scoring, run_cmd, wrap_arguments
 from nemo_skills.pipeline.utils.cluster import get_git_commit_hash, isolate_job_dir
 
-_DIRECT_HYDRA_SCRIPT = (
-    "/nemo_run/code/nemo_skills/dataset/conv_behav/scripts/conv_behav_direct_hydra_infer.py"
+_DRIRF_OFFLINE_SCRIPT = (
+    "/nemo_run/code/nemo_skills/dataset/conv_behav/scripts/conv_behav_drirf_offline_infer.py"
 )
-_LEGACY_DRIRF_SCRIPT = (
-    "/nemo_run/code/nemo_skills/dataset/conv_behav/scripts/conv_behav_drirf_legacy_infer.py"
+_DRIRF_INCREMENTAL_SCRIPT = (
+    "/nemo_run/code/nemo_skills/dataset/conv_behav/scripts/conv_behav_drirf_incremental_infer.py"
 )
 
 
@@ -248,10 +248,10 @@ def _base_env_prefix(config: dict, code_path_key: str = "nemo_code_path") -> str
     return " && ".join(env_parts)
 
 
-def build_dsfts_hydra_inference_command(config: dict) -> str:
+def build_dsfts_offline_inference_command(config: dict) -> str:
     nemo_code_path = config["nemo_code_path"]
     script = config.get(
-        "inference_script_path",
+        "dsfts_offline_inference_script_path",
         f"{nemo_code_path}/examples/speechlm2/s2s_duplex_stt_infer.py",
     )
 
@@ -305,15 +305,21 @@ def build_dsfts_hydra_inference_command(config: dict) -> str:
         cmd_parts.append(config["inference_args"])
 
     env_prefix = _base_env_prefix(config)
-    command = " ".join(cmd_parts)
+    output_json = Path(config["output_dir"]) / "eval-results" / "validation_logs" / "metadatas" / f"{dataset_name}.json"
+    done_marker = output_json.with_suffix(output_json.suffix + ".done")
+    command = (
+        " ".join(cmd_parts)
+        + f" && test -s {_q(output_json)}"
+        + f" && printf 'done\\n' > {_q(done_marker)}"
+    )
     return f"{env_prefix} && {command}" if env_prefix else command
 
 
-def build_direct_hydra_inference_command(config: dict) -> str:
+def build_drirf_offline_inference_command(config: dict) -> str:
     num_nodes = config.get("num_nodes", 1)
     num_gpus = config.get("num_gpus", 1)
     python_exec = config.get("inference_container_python_exec", "python3")
-    script = config.get("direct_hydra_inference_script_path", _DIRECT_HYDRA_SCRIPT)
+    script = config.get("drirf_offline_inference_script_path", _DRIRF_OFFLINE_SCRIPT)
     if num_nodes == 1:
         launcher = f"{python_exec} -m torch.distributed.run --standalone --nproc_per_node={num_gpus}"
     else:
@@ -335,7 +341,7 @@ def build_direct_hydra_inference_command(config: dict) -> str:
         "--num_nodes",
         str(num_nodes),
         "--engine_type",
-        _q(config.get("direct_hydra_engine_type", "native")),
+        _q(config.get("drirf_offline_engine_type", "native")),
         "--matmul_precision",
         _q(config.get("matmul_precision", "medium")),
         "--temperature",
@@ -379,9 +385,9 @@ def build_direct_hydra_inference_command(config: dict) -> str:
     return f"{env_prefix} && {command}" if env_prefix else command
 
 
-def build_legacy_drirf_inference_command(config: dict) -> str:
+def build_drirf_incremental_inference_command(config: dict) -> str:
     python_exec = config.get("inference_container_python_exec", "python3")
-    script = config.get("legacy_inference_script_path", _LEGACY_DRIRF_SCRIPT)
+    script = config.get("drirf_incremental_inference_script_path", _DRIRF_INCREMENTAL_SCRIPT)
     output_dir = Path(config["output_dir"]) / "eval-results"
 
     cmd_parts = [
@@ -463,7 +469,7 @@ def build_legacy_drirf_inference_command(config: dict) -> str:
     return f"{env_prefix} && {command}" if env_prefix else command
 
 
-def build_legacy_scoring_command(config: dict) -> str:
+def build_validation_logs_scoring_command(config: dict) -> str:
     scoring_nemo_code_path = config.get("scoring_nemo_code_path") or config["nemo_code_path"]
     eval_script = f"{scoring_nemo_code_path}/scripts/speech_eval/eval_conversation_behavior.py"
     python_exec = config.get("scoring_container_python_exec") or config.get("inference_container_python_exec") or "python3"
@@ -517,7 +523,7 @@ def build_nemo_eval_scoring_command(config: dict, benchmark: str) -> str:
     return f"{env_prefix} && {command}" if env_prefix else command
 
 
-def run_legacy_inference_stage(config: dict, expname: str, dry_run: bool, command_builder, label: str) -> bool:
+def run_validation_logs_inference_stage(config: dict, expname: str, dry_run: bool, command_builder, label: str) -> bool:
     output_json = Path(config["output_dir"]) / "eval-results" / "validation_logs" / "metadatas" / f"{config['dataset_name']}.json"
     done_marker = output_json.with_suffix(output_json.suffix + ".done")
     if (
@@ -556,8 +562,8 @@ def run_legacy_inference_stage(config: dict, expname: str, dry_run: bool, comman
     return True
 
 
-def run_legacy_scoring_stage(config: dict, expname: str, run_after, dry_run: bool, force: bool = False):
-    print("\n--- Stage 2: Running legacy conv_behav scoring ---")
+def run_validation_logs_scoring_stage(config: dict, expname: str, run_after, dry_run: bool, force: bool = False):
+    print("\n--- Stage 2: Running conv_behav validation_logs scoring ---")
     scoring_config = dict(config)
     if force:
         scoring_config["scoring_force"] = True
@@ -569,7 +575,7 @@ def run_legacy_scoring_stage(config: dict, expname: str, run_after, dry_run: boo
     run_cmd(
         ctx=wrap_arguments(""),
         cluster=cluster,
-        command=build_legacy_scoring_command(scoring_config),
+        command=build_validation_logs_scoring_command(scoring_config),
         container=config.get("scoring_container") or config.get("inference_container"),
         num_gpus=config.get("scoring_gpus", 1),
         partition=config.get("scoring_partition") or config.get("partition"),
@@ -582,30 +588,30 @@ def run_legacy_scoring_stage(config: dict, expname: str, run_after, dry_run: boo
     )
 
 
-def run_legacy_pipeline(config: dict, mode: str) -> None:
+def run_validation_logs_pipeline(config: dict, mode: str) -> None:
     inference_only = config.get("inference_only", False)
     scoring_only = config.get("scoring_only", False)
     dry_run = config.get("dry_run", False)
     expname = config.get("expname", "conv_behav")
 
-    if mode == "legacy_drirf":
-        command_builder = build_legacy_drirf_inference_command
-        label = "DRIRF s2s_incremental_v2 legacy adapter"
-    elif mode == "dsfts_hydra":
-        command_builder = build_dsfts_hydra_inference_command
-        label = "DSFTS Hydra Lightning validation"
+    if mode == "drirf_incremental":
+        command_builder = build_drirf_incremental_inference_command
+        label = "DRIRF incremental s2s_incremental_v2 adapter"
+    elif mode == "dsfts_offline":
+        command_builder = build_dsfts_offline_inference_command
+        label = "DSFTS offline Hydra Lightning validation"
     else:
-        command_builder = build_direct_hydra_inference_command
-        label = "wrapper-backed direct Lightning validation"
+        command_builder = build_drirf_offline_inference_command
+        label = "DRIRF offline wrapper-backed Lightning validation"
 
     infer_submitted = False
     if not scoring_only:
-        infer_submitted = run_legacy_inference_stage(config, expname, dry_run, command_builder, label)
+        infer_submitted = run_validation_logs_inference_stage(config, expname, dry_run, command_builder, label)
         if inference_only:
             return
 
     run_after = [expname] if infer_submitted else None
-    run_legacy_scoring_stage(config, expname, run_after, dry_run, force=infer_submitted)
+    run_validation_logs_scoring_stage(config, expname, run_after, dry_run, force=infer_submitted)
 
 
 def _nemo_eval_generation_complete(eval_results_path: Path, num_chunks: int) -> bool:
@@ -700,8 +706,8 @@ def run_nemo_eval_pipeline(config: dict) -> None:
 
 
 def run_conv_behav_eval(config: dict):
-    mode = config.get("pipeline_mode", "direct_hydra")
-    valid_modes = {"dsfts_hydra", "direct_hydra", "legacy_drirf", "nemo_eval"}
+    mode = config.get("pipeline_mode", "drirf_offline")
+    valid_modes = {"dsfts_offline", "drirf_offline", "drirf_incremental", "nemo_eval"}
     if mode not in valid_modes:
         raise ValueError(f"Unknown conv_behav pipeline_mode={mode!r}; expected one of {sorted(valid_modes)}")
 
@@ -723,7 +729,7 @@ def run_conv_behav_eval(config: dict):
     if mode == "nemo_eval":
         run_nemo_eval_pipeline(config)
     else:
-        run_legacy_pipeline(config, mode)
+        run_validation_logs_pipeline(config, mode)
 
 
 def main():
@@ -734,13 +740,13 @@ def main():
     parser.add_argument("--shar_input_dir", help="Override shar input directory")
     parser.add_argument("--dataset_name", help="Override dataset name")
     parser.add_argument("--benchmark", help="Override nemo_eval benchmark name, e.g. conv_behav.team_20251124")
-    parser.add_argument("--pipeline_mode", choices=["dsfts_hydra", "direct_hydra", "legacy_drirf", "nemo_eval"])
+    parser.add_argument("--pipeline_mode", choices=["dsfts_offline", "drirf_offline", "drirf_incremental", "nemo_eval"])
     parser.add_argument("--nemo_code_path", help="Override NeMo path for inference")
     parser.add_argument("--scoring_nemo_code_path", help="Override NeMo path for conv_behav scoring script")
     parser.add_argument("--pretrained_llm", help="Override LLM backbone HF model ID or path")
-    parser.add_argument("--inference_script_path", help="Override DSFTS Hydra inference script path")
-    parser.add_argument("--direct_hydra_inference_script_path", help="Override wrapper-backed direct Hydra adapter path")
-    parser.add_argument("--legacy_inference_script_path", help="Override legacy DRIRF adapter path")
+    parser.add_argument("--dsfts_offline_inference_script_path", help="Override DSFTS offline Hydra inference script path")
+    parser.add_argument("--drirf_offline_inference_script_path", help="Override DRIRF offline adapter path")
+    parser.add_argument("--drirf_incremental_inference_script_path", help="Override DRIRF incremental adapter path")
     parser.add_argument("--inference_container", help="Override container used for inference")
     parser.add_argument("--server_container", help="Override container used for nemo_eval server")
     parser.add_argument("--scoring_container", help="Override container used for scoring")
@@ -767,9 +773,9 @@ def main():
         "nemo_code_path",
         "scoring_nemo_code_path",
         "pretrained_llm",
-        "inference_script_path",
-        "direct_hydra_inference_script_path",
-        "legacy_inference_script_path",
+        "dsfts_offline_inference_script_path",
+        "drirf_offline_inference_script_path",
+        "drirf_incremental_inference_script_path",
         "inference_container",
         "server_container",
         "scoring_container",

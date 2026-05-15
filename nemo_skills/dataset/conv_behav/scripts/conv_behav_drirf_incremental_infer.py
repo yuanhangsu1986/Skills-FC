@@ -15,7 +15,7 @@
 
 """
 Run conv_behav inference with DRIRF's s2s_incremental_v2 backend while writing
-the legacy validation_logs artifacts consumed by the original conv_behav scorer.
+the validation_logs artifacts consumed by the original conv_behav scorer.
 
 This intentionally delegates model construction, checkpoint loading, vLLM setup,
 and frame-by-frame inference to the existing DRIRF backend. The only logic here
@@ -265,17 +265,17 @@ def run(args) -> None:
             meta_fout.flush()
             rank_fout.flush()
             processed += 1
-            print(f"[conv_behav_drirf] {processed}: wrote {pred_audio_path}")
+            print(f"[conv_behav_drirf_incremental] {processed}: wrote {pred_audio_path}")
 
-    print(f"[conv_behav_drirf] Wrote {processed} samples")
-    print(f"[conv_behav_drirf] Metadata: {metadata_path}")
+    print(f"[conv_behav_drirf_incremental] Wrote {processed} samples")
+    print(f"[conv_behav_drirf_incremental] Metadata: {metadata_path}")
     if processed == 0:
         raise RuntimeError(f"No conv_behav samples were processed from {args.shar_input_dir}")
     done_marker.write_text("done\n", encoding="utf-8")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run conv_behav legacy-format inference via DRIRF backend")
+    parser = argparse.ArgumentParser(description="Run conv_behav incremental-format inference via DRIRF backend")
     parser.add_argument("--model_path", required=True)
     parser.add_argument("--llm_checkpoint_path")
     parser.add_argument("--tts_checkpoint_path")

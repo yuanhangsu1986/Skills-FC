@@ -1,5 +1,5 @@
 # Deprecated fallback config for the old s2s_duplex_stt_infer.py path.
-# run_eval.py's direct_hydra mode now uses conv_behav_direct_hydra_infer.py,
+# run_eval.py's drirf_offline mode now uses conv_behav_drirf_offline_infer.py,
 # which keeps the Lightning validation contract but loads current HF checkpoints
 # through NemotronVoicechatInferenceWrapper.
 #

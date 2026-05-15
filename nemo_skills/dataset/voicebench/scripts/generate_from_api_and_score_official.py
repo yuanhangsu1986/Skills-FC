@@ -273,13 +273,17 @@ def run_voicebench_eval(config: dict):
             if agent_audio_stage_enabled:
                 print("\n--- Running scoring (agent ASR) ---")
                 score_command_asr = f"{build_score_command(config, subtest, force=config.get('scoring_force', False))} --input_jsonl output_asr.jsonl --metrics_variant asr"
+                # Both scoring variants use the VoiceBench conversion filenames in
+                # eval_results_dir, so run the ASR scorer only after the generated
+                # scorer has finished to avoid file races.
+                score_asr_run_after = [agent_audio_expname, score_generated_expname]
                 run_cmd(
                     ctx=wrap_arguments(""),
                     cluster=config["cluster"],
                     command=score_command_asr,
                     container=scoring_container,
                     partition=config.get("cpu_partition") or config.get("partition"),
-                    run_after=[agent_audio_expname],
+                    run_after=score_asr_run_after,
                     expname=f"{expname}_score_asr",
                     installation_command=config.get("scoring_installation_command"),
                     log_dir=f"{eval_results_path}/summarized-results",

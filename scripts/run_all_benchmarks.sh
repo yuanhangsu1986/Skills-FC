@@ -467,64 +467,172 @@ find_benchmark_result() {
     [[ -d "$outdir" ]] || return 0
     config=$(config_for "$name")
 
-    # For benchmarks with subtests/categories every item must have metrics.json
-    # before we consider the benchmark complete.  A partial result (some done,
-    # others not) must not suppress resubmission.
-    local expected_paths
-    expected_paths=$("$PYTHON" - "$config" "$outdir" <<'PYEOF'
-import sys, yaml, pathlib
+    # Completion checks are benchmark-aware so a partial multi-stage run cannot
+    # suppress resubmission.  In particular, VoiceBench incremental runs need
+    # both generated and ASR metrics, and BBA needs its aggregate metrics.
+    local result_path
+    result_path=$("$PYTHON" - "$config" "$outdir" "$name" <<'PYEOF'
+import json
+import sys
+from pathlib import Path
 
-config_path, outdir = sys.argv[1], sys.argv[2]
+import yaml
+
+config_path, outdir, name = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(config_path) as f:
-    cfg = yaml.safe_load(f)
+    cfg = yaml.safe_load(f) or {}
 
-eval_results = pathlib.Path(outdir) / "eval-results"
+eval_results = Path(outdir) / "eval-results"
 
-def emit_items(items, prefix):
-    if not items or items == "all":
+VOICEBENCH_ALL = [
+    "advbench",
+    "alpacaeval",
+    "alpacaeval_full",
+    "alpacaeval_speaker",
+    "bbh",
+    "commoneval",
+    "ifeval",
+    "mmsu",
+    "mtbench",
+    "openbookqa",
+    "sd_qa",
+    "sd_qa_usa",
+    "wildvoice",
+]
+FDB_V1_ALL = ["pause_candor", "pause_synthetic", "backchannel", "turn_taking", "interruption"]
+FDB_V1_5_ALL = ["background_speech", "talking_to_other", "backchannel", "interruption"]
+BBA_ALL = ["formal_fallacies", "navigate", "object_counting", "web_of_lies"]
+BFCL_ALL = ["simple", "parallel", "multiple", "parallel_multiple", "irrelevance"]
+
+
+def as_items(value, default):
+    if not value or value == "all":
+        return list(default)
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return list(value)
+
+
+def as_bool(value):
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def load_json(path):
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def metric_file_has(path, key):
+    data = load_json(path)
+    return isinstance(data, dict) and bool(data.get(key))
+
+
+def voicebench_complete(path, subtest, require_asr):
+    data = load_json(path)
+    if not isinstance(data, dict):
         return False
-    if isinstance(items, str):
-        items = [s.strip() for s in items.split(",")]
-    sep = "." if prefix else ""
-    for item in items:
-        print(eval_results / f"{prefix}{sep}{item}" / "metrics.json")
+    metrics = data.get(f"voicebench.{subtest}")
+    if not isinstance(metrics, dict):
+        return False
+    has_generated = any((not k.startswith("agent_")) and (not k.endswith("_asr")) for k in metrics)
+    if not has_generated:
+        return False
+    if require_asr and not any(k.endswith("_asr") for k in metrics):
+        return False
     return True
 
-if "subtests" in cfg:
-    fdb_ver = cfg.get("fdb_version", "")
-    if fdb_ver == "v1.5":
-        prefix = "fdb_v1_5"
-    elif fdb_ver:
-        prefix = "fdb_v1"
+
+def complete_all(paths_and_checks):
+    first = None
+    for path, check in paths_and_checks:
+        if first is None:
+            first = path
+        if not path.exists() or not check(path):
+            return None
+    return first
+
+
+if name in {"vb_mcq", "vb_nonmcq"}:
+    require_asr = cfg.get("agent_audio_stage_enabled")
+    if require_asr is None:
+        require_asr = "--decode_audio" in (cfg.get("server_args") or "")
+    subtests = as_items(cfg.get("subtests", "all"), VOICEBENCH_ALL)
+    checks = [
+        (
+            eval_results / f"voicebench.{subtest}" / "metrics.json",
+            lambda path, subtest=subtest: voicebench_complete(path, subtest, as_bool(require_asr)),
+        )
+        for subtest in subtests
+    ]
+    result = complete_all(checks)
+    if result:
+        print(result)
+elif name in {"fdb_v1", "fdb_v1_5"}:
+    fdb_version = cfg.get("fdb_version", "v1.0")
+    prefix = "fdb_v1_5" if fdb_version == "v1.5" else "fdb_v1"
+    subtests = as_items(cfg.get("subtests", "all"), FDB_V1_5_ALL if fdb_version == "v1.5" else FDB_V1_ALL)
+    checks = [
+        (
+            eval_results / f"{prefix}.{subtest}" / "metrics.json",
+            lambda path, prefix=prefix, subtest=subtest: metric_file_has(path, f"{prefix}.{subtest}"),
+        )
+        for subtest in subtests
+    ]
+    result = complete_all(checks)
+    if result:
+        print(result)
+elif name == "fdb_v3":
+    path = eval_results / "fdb_v3.tool_call" / "metrics.json"
+    if path.exists() and metric_file_has(path, "fdb_v3.tool_call"):
+        print(path)
+elif name == "bba":
+    categories = as_items(cfg.get("categories", "all"), BBA_ALL)
+    checks = [
+        (
+            eval_results / category / "metrics.json",
+            lambda path, category=category: metric_file_has(path, f"bba.{category}"),
+        )
+        for category in categories
+    ]
+    checks.append((eval_results / "bba_aggregate" / "metrics.json", lambda path: metric_file_has(path, "bba.aggregate")))
+    result = complete_all(checks)
+    if result:
+        print(result)
+elif name == "bfcl":
+    categories = as_items(cfg.get("categories", "all"), BFCL_ALL)
+    checks = [
+        (
+            eval_results / category / "metrics.json",
+            lambda path, category=category: metric_file_has(path, f"bfcl_fc.{category}"),
+        )
+        for category in categories
+    ]
+    result = complete_all(checks)
+    if result:
+        print(result)
+elif name == "conv_behav":
+    path = eval_results / "metrics.json"
+    if path.exists() and metric_file_has(path, "conv_behav"):
+        print(path)
+else:
+    first_metric = next(eval_results.glob("*/metrics.json"), None)
+    if first_metric:
+        print(first_metric)
     else:
-        prefix = "voicebench"
-    if not emit_items(cfg["subtests"], prefix):
-        # subtests == "all": fall through to flat search
-        pass
-elif "categories" in cfg:
-    emit_items(cfg.get("categories", []), "")
-# else: flat benchmark — emit nothing; bash falls through to find
+        report = Path(outdir) / "report.html"
+        if report.exists():
+            print(report)
 PYEOF
     2>/dev/null || true)
 
-    if [[ -n "$expected_paths" ]]; then
-        local first_result=""
-        while IFS= read -r mf; do
-            [[ -z "$mf" ]] && continue
-            if [[ ! -f "$mf" ]]; then
-                return 0
-            fi
-            [[ -z "$first_result" ]] && first_result="$mf"
-        done <<< "$expected_paths"
-        [[ -n "$first_result" ]] && echo "$first_result"
+    if [[ -n "$result_path" ]]; then
+        echo "$result_path"
         return 0
     fi
-
-    local f
-    f=$(find "${outdir}/eval-results" -name "metrics.json" -maxdepth 2 2>/dev/null | head -1 || true)
-    [[ -n "$f" ]] && { echo "$f"; return; }
-    f=$(find "${outdir}" -name "report.html" -maxdepth 1 2>/dev/null | head -1 || true)
-    [[ -n "$f" ]] && echo "$f"
     return 0
 }
 
@@ -1140,14 +1248,14 @@ else
 fi
 echo "======================================================================"
 
-# If the aggregate scorecard already exists, all benchmarks are considered done.
+# An existing scorecard is informational only.  It may be stale or generated
+# from a different subset, so per-benchmark metrics remain the source of truth.
 if [[ "$FORCE_RERUN" != "true" ]]; then
     SCORECARD=$(find_scorecard)
     if [[ -n "$SCORECARD" ]]; then
         echo ""
         echo "Scorecard found: $SCORECARD"
-        echo "All benchmarks appear complete. Use --force_rerun to re-run anyway."
-        exit 0
+        echo "Continuing with per-benchmark result checks."
     fi
 fi
 

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """
-Run conv_behav through the legacy Lightning validation loop, but load the
+Run conv_behav through the DRIRF offline Lightning validation loop, but load the
 current DRIRF/DSFTS HuggingFace checkpoints with NemotronVoicechatInferenceWrapper.
 
 The old DRIRF script directly instantiated DuplexSTTModel from a Hydra config.
@@ -58,8 +58,8 @@ def _wrapper_config(args, local_rank: int):
 
     if "vllm" in args.engine_type:
         raise ValueError(
-            "direct_hydra uses Lightning validation/offline_inference. "
-            "Use pipeline_mode=legacy_drirf or pipeline_mode=nemo_eval for vLLM engine_type."
+            "drirf_offline uses Lightning validation/offline_inference. "
+            "Use pipeline_mode=drirf_incremental or pipeline_mode=nemo_eval for vLLM engine_type."
         )
 
     speaker_reference = args.speaker_reference or _speaker_reference_from_checkpoint(args.tts_checkpoint_path or args.model_path)
@@ -205,7 +205,7 @@ def run(args) -> None:
             disable_rnnt_decoder_cuda_graphs_for_model,
         )
 
-        disable_rnnt_decoder_cuda_graphs_for_model(model, log_prefix="[conv_behav_direct_hydra]")
+        disable_rnnt_decoder_cuda_graphs_for_model(model, log_prefix="[conv_behav_drirf_offline]")
 
     cfg = _validation_config(model, args)
     trainer = Trainer(**resolve_trainer_cfg(cfg.trainer))
@@ -232,7 +232,7 @@ def run(args) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run conv_behav direct validation with wrapper-backed checkpoint loading")
+    parser = argparse.ArgumentParser(description="Run conv_behav DRIRF offline validation with wrapper-backed checkpoint loading")
     parser.add_argument("--model_path", required=True)
     parser.add_argument("--llm_checkpoint_path")
     parser.add_argument("--tts_checkpoint_path")
@@ -264,7 +264,7 @@ def main():
     parser.add_argument("--no_cuda", action="store_true")
     args, unknown = parser.parse_known_args()
     if unknown:
-        print(f"[conv_behav_direct_hydra] Warning: ignoring unsupported args: {' '.join(unknown)}")
+        print(f"[conv_behav_drirf_offline] Warning: ignoring unsupported args: {' '.join(unknown)}")
     args.use_cuda_device = not args.no_cuda
     run(args)
 
