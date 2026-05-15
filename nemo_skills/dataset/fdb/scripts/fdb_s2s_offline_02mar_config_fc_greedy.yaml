@@ -51,6 +51,9 @@ data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_offline_greedy/fdb_fc
 fdb_repo_path: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/Full-Duplex-Bench
 fdb_data_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb_raw
+# Local snakers4/silero-vad checkout (must contain hubconf.py). Used to pre-populate TORCH_HOME
+# so timing analysis (get_timing.py) skips the GitHub download.
+silero_vad_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/silero-vad
 
 subtests:
   - backchannel
