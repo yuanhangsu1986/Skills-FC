@@ -83,6 +83,9 @@ def build_score_command(config: dict, subtest: str, force: bool = False) -> str:
     fdb_data_path = config.get("fdb_data_path")
     if fdb_data_path:
         cmd_args.append(f"--fdb_data_path {shlex.quote(str(fdb_data_path))}")
+    silero_vad_dir = config.get("silero_vad_dir")
+    if silero_vad_dir:
+        cmd_args.append(f"--silero_vad_dir {shlex.quote(str(silero_vad_dir))}")
     if force:
         cmd_args.append("--force")
 

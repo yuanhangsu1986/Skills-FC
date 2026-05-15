@@ -24,6 +24,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ASR_TASK_MAP = {
@@ -59,6 +60,46 @@ ASR_TASK_MAP_V1_5 = {
 }
 
 
+def _stage_evaluation_dir(eval_src: Path) -> Path:
+    """Mirror eval_src into a writable temp dir via symlinks so evaluate.py /
+    get_timing.py can write their `<dir_name>_<task>.log` next to themselves.
+    fdb_repo/evaluation is typically owned by another user (read-only for us),
+    which makes evaluate.py crash with PermissionError before printing the
+    `Ratios (C-axis): ...` summary line that downstream parsing depends on.
+    Skips existing .log files so writes create fresh files in the staging dir
+    rather than dereferencing a symlink back to the read-only original."""
+    staging = Path(tempfile.mkdtemp(prefix="fdb_eval_staging_"))
+    for entry in eval_src.iterdir():
+        if entry.suffix == ".log":
+            continue
+        try:
+            os.symlink(entry.resolve(), staging / entry.name, target_is_directory=entry.is_dir())
+        except OSError as e:
+            print(f"Warning: could not symlink {entry} into staging dir: {e}")
+    return staging
+
+
+def _prepare_torch_hub_env(env: dict, silero_vad_dir):
+    """If silero_vad_dir is set, point TORCH_HOME at a temp dir pre-populated
+    with `hub/snakers4_silero-vad_master` -> silero_vad_dir, so torch.hub.load
+    inside get_timing.py finds the cached repo and skips the GitHub download.
+    Mutates env in place. Returns the temp TORCH_HOME or None."""
+    if silero_vad_dir is None:
+        return None
+    silero_vad_dir = Path(silero_vad_dir)
+    if not silero_vad_dir.exists():
+        print(f"Warning: silero_vad_dir {silero_vad_dir} does not exist; get_timing.py will fall back to torch.hub download.")
+        return None
+    if not (silero_vad_dir / "hubconf.py").exists():
+        print(f"Warning: silero_vad_dir {silero_vad_dir} has no hubconf.py; torch.hub.load will fail. Falling back to download.")
+        return None
+    torch_home = Path(tempfile.mkdtemp(prefix="torch_hub_"))
+    (torch_home / "hub").mkdir(parents=True, exist_ok=True)
+    os.symlink(silero_vad_dir.resolve(), torch_home / "hub" / "snakers4_silero-vad_master", target_is_directory=True)
+    env["TORCH_HOME"] = str(torch_home)
+    return torch_home
+
+
 def _convert_stereo_to_mono(fdb_prepared: Path):
     """Convert stereo output.wav files to mono (model channel) for Silero-VAD compatibility."""
     try:
@@ -87,6 +128,11 @@ def main():
     parser.add_argument("--fdb_data_path", type=Path, default=None, help="FDB dataset root; required for turn_taking (turn_taking.json) and interruption (interrupt.json)")
     parser.add_argument("--fdb_version", default="v1.0", choices=["v1.0", "v1.5"], help="FDB dataset version (metadata paths and metrics key)")
     parser.add_argument("--force", action="store_true", help="Re-run scoring even if metrics.json exists")
+    parser.add_argument(
+        "--silero_vad_dir", type=Path, default=None,
+        help="Path to a local snakers4/silero-vad git checkout (containing hubconf.py). "
+             "If set, used to pre-populate TORCH_HOME so get_timing.py's torch.hub.load skips the GitHub download.",
+    )
     args = parser.parse_args()
 
     eval_results_dir = args.eval_results_dir.resolve()
@@ -147,11 +193,15 @@ def main():
     # ASR already ran in prep_cmd above, so converting here does not affect output.json transcripts.
     if args.subtest == "backchannel" and args.fdb_version == "v1.0":
         _convert_stereo_to_mono(fdb_prepared)
-    # Run from evaluation/ so FDB scripts find ./icc_gt_distribution.json (backchannel) and other relative paths.
+    # Stage evaluation/ into a writable temp dir. FDB scripts find ./icc_gt_distribution.json
+    # (backchannel) and write ./<dir_name>_<task>.log relative to cwd — the original dir is
+    # typically read-only for us, which crashes evaluate.py with PermissionError before it can
+    # print the `Ratios (C-axis): ...` line that downstream parsing relies on.
     # Pass through env so NVIDIA_API_KEY is available for interruption/behavior tasks (NVIDIA NIM API).
+    staging_eval_dir = _stage_evaluation_dir(fdb_repo / "evaluation")
     result = subprocess.run(
         [sys.executable, str(evaluate_script), "--task", fdb_task, "--root_dir", str(fdb_prepared)],
-        cwd=str(fdb_repo / "evaluation"), capture_output=True, text=True, env=os.environ.copy(),
+        cwd=str(staging_eval_dir), capture_output=True, text=True, env=os.environ.copy(),
     )
     stdout, stderr = result.stdout, result.stderr
     print(stdout)
@@ -215,9 +265,11 @@ def main():
         if timing_script.exists():
             _convert_stereo_to_mono(fdb_prepared)
             print(f"Running timing analysis (get_timing.py) on {fdb_prepared} ...")
+            timing_env = os.environ.copy()
+            _prepare_torch_hub_env(timing_env, args.silero_vad_dir)
             timing_result = subprocess.run(
                 [sys.executable, str(timing_script), "--root_dir", str(fdb_prepared)],
-                cwd=str(fdb_repo / "evaluation"), capture_output=True, text=True,
+                cwd=str(staging_eval_dir), capture_output=True, text=True, env=timing_env,
             )
             print(timing_result.stdout)
             if timing_result.stderr:
