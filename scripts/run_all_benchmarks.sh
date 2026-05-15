@@ -368,7 +368,9 @@ config_for() {
             ;;
         conv_behav)
             inc="${CB_BASE}/conv_behav_incremental_config_greedy.yaml"
-            off="${CB_BASE}/conv_behav_offline_config_greedy.yaml"
+            # Default offline mode uses DSFTS (matches the pre-split conv_behav_config_greedy.yaml behavior).
+            # To run drirf_offline instead, pass --config_conv_behav <path to conv_behav_offline_config_greedy.yaml>.
+            off="${CB_BASE}/conv_behav_dsfts_offline_config_greedy.yaml"
             _emit_config "$CONFIG_CONV_BEHAV" "$inc" "$off"
             ;;
     esac
