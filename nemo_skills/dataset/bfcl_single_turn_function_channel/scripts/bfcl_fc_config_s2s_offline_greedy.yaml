@@ -39,7 +39,9 @@ server_args: >-
 server_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
 server_container_python_exec: python3
 
-server_port: 8000
+# server_port: omitted on purpose — run_eval.py picks a random high port via
+# get_free_port(strategy="random") at submit time. Hardcoding 8000 caused
+# collisions when SLURM packed multiple bfcl jobs onto the same node.
 poll_interval: 30
 max_poll_attempts: 40
 request_timeout: 300

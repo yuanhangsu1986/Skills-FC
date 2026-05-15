@@ -81,6 +81,15 @@ temperature: 0.0
 top_p: 1.0
 repetition_penalty: 1.0
 
+# TTS classifier-free-guidance / sampling knobs (s2s_incremental_v2 backend).
+# Leave commented to use checkpoint defaults; set explicit values to override.
+# These flow through build_drirf_incremental_inference_command into
+# conv_behav_drirf_incremental_infer.py and onto S2SIncrementalV2Config.
+inference_guidance_scale: 0.2
+inference_top_p_or_k: 0.95
+inference_noise_scale: 0.001
+tts_sliding_window: 7500
+
 # HuggingFace cache dir (avoids re-downloading weights on each job)
 hf_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
 
@@ -108,41 +117,6 @@ scoring_gpus: 1
 # runtime because eval_conversation_behavior.py lives in the DSFTS tree.
 inference_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
 inference_container_python_exec: python3
-server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
-server_type: vllm
-server_gpus: 1
-num_chunks: 8
-server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
-server_args: >-
-  --backend s2s_incremental_v2
-  --decode_audio
-  --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
-  --num_frames_per_inference 3
-  --engine_type vllm_llm_vllm_eartts
-  --use_perception_cache
-  --use_perception_cudagraph
-  --use_codec_cache
-  --disable_rnnt_decoder_cuda_graphs
-  --buffer_size_frames 21
-  --codec_token_history_size 60
-  --matmul_precision medium
-  --vllm_gpu_memory_utilization 0.35
-  --vllm_max_model_len 8192
-  --force_turn_taking
-  --force_turn_taking_threshold 40
-  --force_turn_taking_pad_window 25
-  --inference_user_pad_boost 0.8
-  --silence_padding_sec 0
-  --max_new_tokens 4500
-  --temperature 0.0
-  --top_p 1.0
-  --repetition_penalty 1.0
-  --ignore_system_prompt
-  --merge_user_channel_v2
-  --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/conv_behav_artifacts
-  --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
-  --pip_install "hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 soundfile nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
-server_server_type: vllm_multimodal
 scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
 scoring_container_python_exec: python3
 
@@ -156,7 +130,7 @@ scoring_installation_command: "python3 -m pip install numpy scipy scikit-learn s
 # Pipeline control
 # ---------------------------------------------------------------------------
 expname: conv_behav_greedy
-pipeline_mode: drirf_offline
+pipeline_mode: drirf_incremental
 inference_only: false
 generation_only: false
 scoring_only: false

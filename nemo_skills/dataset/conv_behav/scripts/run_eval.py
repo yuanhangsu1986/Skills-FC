@@ -443,6 +443,10 @@ def build_drirf_incremental_inference_command(config: dict) -> str:
         "force_turn_taking_pad_window": config.get("force_turn_taking_pad_window"),
         "pad_to_duration_secs": config.get("pad_to_duration_secs"),
         "max_samples": config.get("max_samples"),
+        "inference_guidance_scale": config.get("inference_guidance_scale"),
+        "inference_top_p_or_k": config.get("inference_top_p_or_k"),
+        "inference_noise_scale": config.get("inference_noise_scale"),
+        "tts_sliding_window": config.get("tts_sliding_window"),
     }
     for key, value in optional_values.items():
         if value is not None:
@@ -460,6 +464,7 @@ def build_drirf_incremental_inference_command(config: dict) -> str:
         "disable_rnnt_decoder_cuda_graphs",
         "output_frame_alignment",
         "no_save_session_artifacts",
+        "no_inference_guidance_enabled",
     ):
         if config.get(flag, False):
             cmd_parts.append(f"--{flag}")

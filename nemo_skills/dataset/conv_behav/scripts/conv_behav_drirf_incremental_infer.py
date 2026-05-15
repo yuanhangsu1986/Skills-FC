@@ -175,6 +175,11 @@ def _build_backend(args):
         vllm_tts_config=vllm_tts_config,
         matmul_precision=args.matmul_precision,
         max_new_tokens=args.max_new_tokens,
+        inference_guidance_enabled=not args.no_inference_guidance_enabled,
+        inference_guidance_scale=args.inference_guidance_scale,
+        inference_top_p_or_k=args.inference_top_p_or_k,
+        inference_noise_scale=args.inference_noise_scale,
+        tts_sliding_window=args.tts_sliding_window,
     )
     backend = S2SIncrementalBackendV2(cfg)
     backend.load_model()
@@ -312,6 +317,14 @@ def main():
     parser.add_argument("--inference_user_pad_boost", type=float)
     parser.add_argument("--inference_user_bos_boost", type=float)
     parser.add_argument("--inference_user_eos_boost", type=float)
+    # TTS classifier-free-guidance / sampling knobs. Leave unset to use the
+    # checkpoint defaults baked into S2SIncrementalV2Config; pass explicit values
+    # (matching serve_unified's CLI surface) to override.
+    parser.add_argument("--no_inference_guidance_enabled", action="store_true")
+    parser.add_argument("--inference_guidance_scale", type=float)
+    parser.add_argument("--inference_top_p_or_k", type=float)
+    parser.add_argument("--inference_noise_scale", type=float)
+    parser.add_argument("--tts_sliding_window", type=int)
     parser.add_argument("--output_frame_alignment", action="store_true")
     parser.add_argument("--no_save_session_artifacts", action="store_true")
     parser.add_argument("--hf_home")

@@ -174,12 +174,38 @@ single global system message and cannot support this, so BFCL uses a standalone 
 client (`run_bfcl_fc_inference.py`) instead.
 
 Each Slurm inference job:
-1. Starts `serve_unified` in the background on `localhost:<server_port>` with
+1. Starts `serve_unified` in the background on `localhost:<port>` with
    `--decode_function_channel --tool_call_parser ... --use_function_channel_for_tool_calls`
 2. Runs the inference client, which polls until the server is healthy, then sends one
    request per sample with the per-sample system prompt (tool definitions)
 3. Writes `output.jsonl` with `generation` = raw `<TOOLCALL>[...]</TOOLCALL>` text
 4. Kills the server and exits
+
+### Server port allocation
+
+`run_eval.py` picks the server port via `get_free_port(strategy="random")` from
+`nemo_skills.pipeline.utils.server` — the same mechanism `nemo_eval` uses for every
+other benchmark (BBA, FDB, VoiceBench, ...). Each of the 5 category submissions gets
+an independent `random.randint(1024, 65535)` port, resolved at submit time.
+
+You can override this with `--server_port <int>` (or `server_port:` in the YAML) for
+local debugging, but **do not hardcode a port in production runs**: an earlier version
+of this script pinned port 8000, which caused silent failures when SLURM packed
+multiple bfcl jobs onto the same node — the second job's `serve_unified` failed to
+bind, while its client could still poll `/health` on 8000 and unwittingly send
+requests to the first job's server (on the wrong GPU).
+
+**Residual race (small, unmitigated):** `get_free_port(strategy="random")` does
+`random.randint(1024, 65535)` *on the submission host* — it does not verify that
+the chosen port is free on the compute node where the job eventually runs. So if
+two bfcl jobs (or one bfcl job and an unrelated process on the same node) happen
+to draw the same random port AND land on the same node, the second `serve_unified`
+will fail to bind. This is the same compromise the rest of nemo_skills makes;
+collision probability across N jobs is ≈ N²/(2·64k), e.g. ~0.003 for N=20.
+If we ever see this hit in practice, the fix is to switch to a runtime port
+pick on the compute node (e.g. `python -c "import socket; s=socket.socket();
+s.bind(('',0)); print(s.getsockname()[1])"` inside the bash command) so the OS
+hands us an ephemeral port that is guaranteed free at bind time.
 
 ## Output
 

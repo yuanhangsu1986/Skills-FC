@@ -246,7 +246,10 @@ def main():
             print(f"Warning: {timing_script} not found, skipping timing metrics.")
 
     if not metrics:
-        metrics["status"] = "no_metrics_found"
+        raise RuntimeError(
+            f"FDB scoring produced no metrics for {benchmark_key} — refusing to write an empty "
+            f"metrics.json. Inspect the evaluate.py / timing outputs under {fdb_prepared} to diagnose."
+        )
 
     existing_metrics = {}
     if metrics_file.exists():

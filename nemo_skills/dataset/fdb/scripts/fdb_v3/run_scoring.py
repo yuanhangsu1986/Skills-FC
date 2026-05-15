@@ -393,6 +393,13 @@ def main() -> None:
         "analyze_tool_latency",
     )
 
+    if eval_report is None and pass_report is None and latency_report is None:
+        raise RuntimeError(
+            f"FDB v3 scoring produced no reports — all of evaluate_tool_calls, evaluate_pass_rate, "
+            f"and analyze_tool_latency failed. Refusing to write a metrics.json containing only "
+            f"metadata. Inspect the evaluator stderr above and the layout under {layout_root}."
+        )
+
     metrics: dict[str, Any] = {benchmark_key: {}}
     if eval_report is not None:
         metrics[benchmark_key]["eval"] = eval_report

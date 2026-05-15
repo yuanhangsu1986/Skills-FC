@@ -34,10 +34,6 @@ server_args: >-
   --inference_user_pad_boost 0
   --inference_user_bos_boost 0
   --inference_user_eos_boost 0
-  --inference_guidance_scale 0.2
-  --inference_top_p_or_k 0.95
-  --inference_noise_scale 0.001
-  --tts_sliding_window 7500
   --force_turn_taking
   --top_p 1.0
   --repetition_penalty 1.0
@@ -54,7 +50,9 @@ server_args: >-
 server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
 server_container_python_exec: python3
 
-server_port: 8000
+# server_port: omitted on purpose — run_eval.py picks a random high port via
+# get_free_port(strategy="random") at submit time. Hardcoding 8000 caused
+# collisions when SLURM packed multiple bfcl jobs onto the same node.
 poll_interval: 30       # seconds between server health checks
 max_poll_attempts: 40   # give server up to 20 min to start
 request_timeout: 300    # per-request HTTP timeout in seconds

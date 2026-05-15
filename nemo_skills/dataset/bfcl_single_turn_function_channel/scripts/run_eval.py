@@ -40,6 +40,7 @@ import yaml
 
 from nemo_skills.pipeline.cli import run_cmd, wrap_arguments
 from nemo_skills.pipeline.utils.cluster import get_git_commit_hash, isolate_job_dir
+from nemo_skills.pipeline.utils.server import get_free_port
 
 from nemo_skills.dataset.bfcl_single_turn_function_channel.constants import SINGLE_TURN_CATEGORIES
 
@@ -58,7 +59,13 @@ def build_infer_command(config: dict, category: str) -> str:
     """
     model = config["model"]
     server_args = config.get("server_args", "")
-    port = config.get("server_port", 8000)
+    # Pick a random high port per submission. Hardcoding port 8000 caused
+    # collisions when SLURM packed multiple bfcl jobs onto the same node:
+    # the second job's serve_unified failed to bind, while its client could
+    # still see the first job's server on 8000 and silently send requests
+    # there. This matches nemo_eval's strategy (pipeline/utils/server.py
+    # should_get_random_port + get_free_port) used by every other benchmark.
+    port = config.get("server_port") or get_free_port(strategy="random")
     data_dir = config["data_dir"]
     output_dir = config["output_dir"]
     poll_interval = config.get("poll_interval", 30)
@@ -91,8 +98,7 @@ def build_infer_command(config: dict, category: str) -> str:
         f" --max_tokens {max_tokens}"
     )
 
-    # Kill any stale server process left on the port by a previous job on the same node,
-    # then wrap server+client in a compound command { } so that any installation_command
+    # Wrap server+client in a compound command { } so that any installation_command
     # prepended by install_packages_wrap (via "&&") runs synchronously before either
     # process starts.  Without the braces, bash operator precedence (&&  before  &)
     # would group the install guard with the server into the background job, leaving
@@ -100,9 +106,7 @@ def build_infer_command(config: dict, category: str) -> str:
     # The explicit "cd /nemo_run/code &&" is still needed before infer_cmd because
     # get_cmd prepends its own "cd /nemo_run/code &&" which gets absorbed into the
     # background server side inside the braces.
-    port_cleanup = f"fuser -k {port}/tcp 2>/dev/null; sleep 10"
     return (
-        f"{port_cleanup}; "
         f"{{ {serve_cmd} & "
         f"cd /nemo_run/code && {infer_cmd}; "
         f"_BFCL_EXIT=$?; kill %1 2>/dev/null; wait %1 2>/dev/null; exit $_BFCL_EXIT; }}"
