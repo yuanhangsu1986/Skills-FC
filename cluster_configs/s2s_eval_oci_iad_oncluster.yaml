@@ -3,10 +3,11 @@ executor: slurm
 # Running directly from cluster — no ssh_tunnel needed
 job_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/code/nemo-run-fc
 
-account: llmservice_nemo_speechlm
+account: nemotron_speech_chat
 # account: llmservice_nemo_reasoning
 partition: batch_block1,batch_block3,batch_block4
-cpu_partition: cpu
+cpu_partition: cpu_short
+exclusive_cpu_partitions: [cpu, cpu_short]
 job_name_prefix: ""
 
 containers:
@@ -25,18 +26,26 @@ mounts:
   - /lustre/fs12/portfolios/llmservice/projects/llmservice_nemo_speechlm/data/nemo_skills/dataset:/dataset
 
 required_env_vars:
-  - NV_INFERENCE_KEY
+  - NV_INFERENCE_KEY=
 
 env_vars:
   - HF_HOME=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
   - AUDIO_SAVE_DIR=/lustre/fsw/portfolios/llmservice/users/yuanhangs/nemo_skills_fc/audio_save_dir
   - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+  # Shared lustre caches — avoid re-downloading pip wheels, torch.hub repos,
+  # vLLM/triton kernel artifacts, and other ~/.cache content on every job.
+  - PIP_CACHE_DIR=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip
+  - UV_CACHE_DIR=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/uv
+  - TORCH_HOME=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/torch
+  - TRITON_CACHE_DIR=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/triton
+  - VLLM_CACHE_ROOT=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/vllm
+  - XDG_CACHE_HOME=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/xdg
 
 timeouts:
   batch_block1,batch_block3,batch_block4: 04:00:00
   interactive: 04:00:00
   interactive_singlenode: 04:00:00
-  cpu: 04:00:00
+  cpu_short: 04:00:00
 
 mail_type: FAIL
 mail_user: # <your email goes here>
