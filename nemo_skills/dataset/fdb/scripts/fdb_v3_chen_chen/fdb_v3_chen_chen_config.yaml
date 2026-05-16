@@ -10,12 +10,17 @@
 
 cluster: s2s_eval_oci_iad_oncluster
 partition: batch_block1,batch_block3,batch_block4
+# Scoring is pure JSON shuffling — route it to a CPU partition since the GPU
+# partition rejects 0-GPU job requests.
+cpu_partition: cpu_short
 
 # 2 GPUs on one node: orchestrator pins Backend GPU=0 (vLLM) and S2S GPU=1.
 num_gpus: 2
 
 # REQUIRED: the S2S checkpoint to evaluate.
-s2s_checkpoint_dir: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
+# Use the `model:` key (not `s2s_checkpoint_dir:`) so scripts/run_all_benchmarks.sh
+# `make_patched_config` can rewrite it when --model is given globally.
+model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
 
 # NeMo source on PYTHONPATH (must provide NemotronVoicechatInferenceWrapper).
 nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
@@ -33,13 +38,31 @@ server_container: /lustre/fsw/portfolios/llmservice/users/cchen1/containers/eval
 scoring_container: /lustre/fsw/portfolios/llmservice/users/cchen1/containers/eval_agent.sqsh
 scoring_container_python_exec: python3
 
-# LLM judge: hits NVIDIA's gateway by default (set api key via env var name below).
-openai_base_url: https://inference-api.nvidia.com/v1
-openai_api_key_env_var: NVIDIA_API_KEY
-judge_model: openai/openai/gpt-5.2
+# No custom container mounts needed.
+#
+# Cluster default mounts /lustre:/lustre.
+# All cache locations (HF_HOME, TRITON_CACHE_DIR, VLLM_CACHE_ROOT, NEMO_CACHE_DIR,
+# MODELSCOPE_CACHE, TRANSFORMERS_CACHE, TORCH_HOME, XDG_CACHE_HOME, PIP_CACHE_DIR,
+# UV_CACHE_DIR) are env vars set in cluster_configs/s2s_eval_oci_iad_oncluster.yaml
+# and point at /lustre paths, so nothing needs to write to the container's /root.
 
-# Optional caches; pick paths writable inside the container.
-hf_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
+# Benchmark-specific env vars. Cache locations (HF_HOME, TRITON_CACHE_DIR,
+# VLLM_CACHE_ROOT, NEMO_CACHE_DIR, etc.) are injected by the cluster YAML and
+# don't belong here. This dict carries only the FD3-specific knobs: auth for
+# the judge / local vLLM, judge model name, etc.
+#
+# API key plumbing: the cluster injects NV_INFERENCE_KEY; upstream Backend
+# Agent's graph_fd3.py:85 looks for VLLM_API_KEY → NVIDIA_API_KEY in that
+# order. We forward NV_INFERENCE_KEY into all three of OPENAI_API_KEY /
+# NVIDIA_API_KEY / VLLM_API_KEY via shell expansion so a single cluster-side
+# key satisfies the gateway judge AND the local vLLM check.
+env:
+  OPENAI_BASE_URL: https://inference-api.nvidia.com/v1
+  OPENAI_API_KEY: ${NV_INFERENCE_KEY:-}
+  NVIDIA_API_KEY: ${NV_INFERENCE_KEY:-}
+  VLLM_API_KEY: ${NV_INFERENCE_KEY:-dummy}
+  FD3_JUDGE_MODEL: openai/openai/gpt-5.2
+  JUDGE_MODEL: openai/openai/gpt-5.2
 
 # Output: eval-results/<benchmark>/ holds metrics.json + summarized-results/.
 # eval-results/<benchmark>/fd3_run/ holds upstream artifacts
@@ -58,6 +81,16 @@ max_examples: null
 
 # Scoring stage is pure JSON shuffling — no GPU needed.
 scoring_gpus: 0
+
+# Container-specific shell snippet executed before the orchestrator. Use this
+# for setup that depends on the container layout (PATH fixups, symlinks,
+# module sourcing, etc.). Leave empty to assume nothing.
+#
+# Example for cchen1's eval_agent.sqsh: the container ships only `python3`,
+# but Backend_agent/start_backend_agent.sh invokes `python`. Their sbatch
+# wrapper papers over this with a symlink:
+#   pre_command: 'ln -sf "$(which python3)" /usr/local/bin/python 2>/dev/null || true'
+pre_command: 'ln -sf "$(which python3)" /usr/local/bin/python 2>/dev/null || true'
 
 # Pre-flight installs (mostly already in the container; left empty by default).
 installation_command: ""

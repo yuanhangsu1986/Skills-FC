@@ -26,7 +26,8 @@ mounts:
   - /lustre/fs12/portfolios/llmservice/projects/llmservice_nemo_speechlm/data/nemo_skills/dataset:/dataset
 
 required_env_vars:
-  - NV_INFERENCE_KEY=sk-0FmWOB5rZSCzoBLYbFKl8Q
+  - NV_INFERENCE_KEY=
+  - HF_TOKEN=
 
 env_vars:
   - HF_HOME=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
@@ -45,6 +46,9 @@ env_vars:
   - TRITON_CACHE_DIR=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/triton
   - VLLM_CACHE_ROOT=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/vllm
   - XDG_CACHE_HOME=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/xdg
+  - TRANSFORMERS_CACHE=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/transformers
+  - MODELSCOPE_CACHE=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/modelscope
+  - NEMO_CACHE_DIR=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/nemo
 
 timeouts:
   batch_block1,batch_block3,batch_block4: 04:00:00

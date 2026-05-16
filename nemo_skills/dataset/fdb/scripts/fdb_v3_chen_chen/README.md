@@ -36,7 +36,7 @@ branch. That's the point — `chen_chen` is the upstream-comparable baseline.
 ```bash
 python nemo_skills/dataset/fdb/scripts/fdb_v3_chen_chen/run_eval.py \
     --config nemo_skills/dataset/fdb/scripts/fdb_v3_chen_chen/fdb_v3_chen_chen_config.yaml \
-    --s2s_checkpoint_dir /path/to/s2s_ckpt
+    --model /path/to/s2s_ckpt
 ```
 
 Common flags:

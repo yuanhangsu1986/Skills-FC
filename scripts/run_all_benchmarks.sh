@@ -66,6 +66,7 @@ export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 VB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts/generate_from_api_and_score_official.py"
 FDB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/run_eval.py"
 FDB_V3_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py"
+FDB_V3_CHEN_CHEN_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3_chen_chen/run_eval.py"
 BBA_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bba/scripts/run_bba_eval.py"
 BFCL_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py"
 CONV_BEHAV_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/run_eval.py"
@@ -74,6 +75,7 @@ CONV_BEHAV_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/run_eval.
 VB_BASE="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts"
 FDB_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts"
 FDB_V3_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3"
+FDB_V3_CHEN_CHEN_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3_chen_chen"
 BBA_BASE="${REPO_ROOT}/nemo_skills/dataset/bba/scripts"
 BFCL_BASE="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts"
 CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
@@ -81,7 +83,7 @@ CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
 # ---------------------------------------------------------------------------
 # Argument defaults
 # ---------------------------------------------------------------------------
-ALL_BENCHMARKS="conv_behav fdb_v1 fdb_v1_5 fdb_v3 bba bfcl vb_mcq vb_nonmcq"
+ALL_BENCHMARKS="conv_behav fdb_v1 fdb_v1_5 fdb_v3 fdb_v3_chen_chen bba bfcl vb_mcq vb_nonmcq"
 # Aliases that expand to multiple benchmark names in --benchmarks.
 declare -A BENCHMARK_ALIASES=(
     [fdb]="fdb_v1 fdb_v1_5 fdb_v3"
@@ -93,6 +95,7 @@ CONFIG_VB_MCQ=""
 CONFIG_FDB_V1=""
 CONFIG_FDB_V1_5=""
 CONFIG_FDB_V3=""
+CONFIG_FDB_V3_CHEN_CHEN=""
 CONFIG_BBA=""
 CONFIG_BFCL=""
 CONFIG_CONV_BEHAV=""
@@ -105,6 +108,11 @@ MAX_JOBS_OVERRIDE=""
 POLL_INTERVAL=60
 DRY_RUN=false
 FORCE_RERUN=false
+# RESUME bypasses the "config.json exists -> error out" guard so partial/failed
+# runs can resume in place. Unlike FORCE_RERUN, it does NOT pass --scoring_force
+# to benchmark scripts — they'll skip generation if output.jsonl is present and
+# skip scoring on the compute node if metrics.json is complete.
+RESUME=false
 
 # Decoding-param overrides (all four required together when any is set, plus --output_dir)
 CUSTOM_FORCE_TURN_TAKING=""   # "true" or "false"
@@ -125,8 +133,8 @@ waits until a slot is free.
 
 Decoding defaults to greedy via each benchmark's *_greedy.yaml config.
 
-Benchmark names: vb_nonmcq  vb_mcq  fdb_v1  fdb_v1_5  fdb_v3  bba  bfcl  conv_behav
-Aliases:         fdb -> fdb_v1,fdb_v1_5,fdb_v3
+Benchmark names: vb_nonmcq  vb_mcq  fdb_v1  fdb_v1_5  fdb_v3  fdb_v3_chen_chen  bba  bfcl  conv_behav
+Aliases:         fdb -> fdb_v1,fdb_v1_5,fdb_v3   (fdb_v3_chen_chen is opt-in: name it explicitly)
 
 Options:
   --benchmarks LIST         Comma-separated subset of the benchmark names above.
@@ -137,6 +145,7 @@ Options:
   --config_fdb_v1     PATH Config YAML for FDB v1.0
   --config_fdb_v1_5   PATH Config YAML for FDB v1.5
   --config_fdb_v3     PATH Config YAML for FDB v3
+  --config_fdb_v3_chen_chen PATH Config YAML for FDB v3 ChenChen (upstream end-to-end variant)
   --config_bba        PATH Config YAML for BBA
   --config_bfcl       PATH Config YAML for BFCL
   --config_conv_behav PATH Config YAML for conv_behav
@@ -168,7 +177,25 @@ Options:
   --max_jobs          N     Override SLURM job limit (auto-detected by default)
   --poll_interval     N     Seconds between SLURM queue checks (default: 60)
   --dry_run                 Pass --dry_run to every benchmark script
-  --force_rerun             Re-run all benchmarks even if results already exist
+  --force_rerun             Re-run all benchmarks even if results already exist,
+                            and pass --scoring_force to each benchmark (forces
+                            re-scoring even when metrics.json is already correct).
+                            If the existing config.json doesn't match the current
+                            settings, the per-benchmark output dir is wiped so
+                            generation also redoes (otherwise the benchmark python
+                            script would skip generation when output.jsonl + .done
+                            markers are present).
+  --resume                  Allow re-entering output dirs that already have a
+                            config.json (e.g. partial/failed prior run), WITHOUT
+                            forcing scoring to redo. Fully-complete benchmarks
+                            are still skipped via find_benchmark_result; partial
+                            ones re-invoke the benchmark python script, which
+                            does per-stage skipping (generation skipped if
+                            output.jsonl + .done markers present; scoring jobs
+                            no-op on the compute node if metrics.json is good).
+                            If the existing config.json doesn't match the current
+                            settings, the benchmark is SKIPPED with the diff
+                            printed — pass --force_rerun to override and wipe.
   --help                    Show this message and exit
 EOF
 }
@@ -184,6 +211,7 @@ while [[ $# -gt 0 ]]; do
         --config_fdb_v1)     CONFIG_FDB_V1="$2";         shift 2 ;;
         --config_fdb_v1_5)   CONFIG_FDB_V1_5="$2";       shift 2 ;;
         --config_fdb_v3)     CONFIG_FDB_V3="$2";         shift 2 ;;
+        --config_fdb_v3_chen_chen) CONFIG_FDB_V3_CHEN_CHEN="$2"; shift 2 ;;
         --config_bba)        CONFIG_BBA="$2";            shift 2 ;;
         --config_bfcl)       CONFIG_BFCL="$2";           shift 2 ;;
         --config_conv_behav) CONFIG_CONV_BEHAV="$2";     shift 2 ;;
@@ -199,6 +227,7 @@ while [[ $# -gt 0 ]]; do
         --temperature)       CUSTOM_TEMPERATURE="$2";     shift 2 ;;
         --dry_run)           DRY_RUN=true;                shift ;;
         --force_rerun)       FORCE_RERUN=true;            shift ;;
+        --resume)            RESUME=true;                 shift ;;
         --help|-h)           usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -355,6 +384,14 @@ config_for() {
             inc="${FDB_V3_BASE}/fdb_v3_s2s_incremental_v2_config_fc_greedy.yaml"
             off="${FDB_V3_BASE}/fdb_v3_s2s_offline_config_fc_greedy.yaml"
             _emit_config "$CONFIG_FDB_V3" "$inc" "$off"
+            ;;
+        fdb_v3_chen_chen)
+            # Upstream-end-to-end variant: single YAML drives the FD3 orchestrator
+            # (Backend Agent + Qwen3 vLLM + DRIRF-wrapped S2S), so decoding_mode is
+            # irrelevant — same config in both incremental and offline slots.
+            inc="${FDB_V3_CHEN_CHEN_BASE}/fdb_v3_chen_chen_config.yaml"
+            off="${FDB_V3_CHEN_CHEN_BASE}/fdb_v3_chen_chen_config.yaml"
+            _emit_config "$CONFIG_FDB_V3_CHEN_CHEN" "$inc" "$off"
             ;;
         bba)
             inc="${BBA_BASE}/bba_config_fc_s2s_incremental_v2_greedy.yaml"
@@ -590,6 +627,10 @@ elif name in {"fdb_v1", "fdb_v1_5"}:
 elif name == "fdb_v3":
     path = eval_results / "fdb_v3.tool_call" / "metrics.json"
     if path.exists() and metric_file_has(path, "fdb_v3.tool_call"):
+        print(path)
+elif name == "fdb_v3_chen_chen":
+    path = eval_results / "fdb_v3_chen_chen.tool_call" / "metrics.json"
+    if path.exists() and metric_file_has(path, "fdb_v3_chen_chen.tool_call"):
         print(path)
 elif name == "bba":
     categories = as_items(cfg.get("categories", "all"), BBA_ALL)
@@ -1062,6 +1103,85 @@ print(json.dumps({
 PYEOF
 }
 
+# Deep-diff the to-be-written config (current patched YAML + current CLI
+# overrides) against an existing config.json. Used in --resume / --force_rerun
+# modes to detect when a partial output dir was produced under different
+# settings than the current invocation.
+#
+# Args:
+#   $1 new_yaml_path     patched temp YAML produced by make_patched_config
+#   $2 existing_json     path to the existing <outdir>/config.json
+#   $3 benchmark_name    benchmark label (for diff header)
+#
+# Stdout: nothing on match; "CONFIG MISMATCH ..." + per-key diff lines on mismatch.
+# Exit:   0 on match (or if the JSON can't be parsed — silent), 1 on mismatch.
+compare_resolved_config() {
+    local new_yaml="$1"
+    local existing_json="$2"
+    local benchmark="$3"
+    PATCH_OVERRIDES_JSON="$_OVERRIDES_JSON" \
+    "$PYTHON" - "$new_yaml" "$existing_json" "$benchmark" <<'PYEOF'
+import json, os, sys, yaml
+
+new_yaml_path = sys.argv[1]
+existing_json_path = sys.argv[2]
+benchmark = sys.argv[3]
+
+try:
+    with open(existing_json_path) as f:
+        existing = json.load(f)
+except Exception as e:
+    # Unreadable existing config -> can't compare; treat as mismatch.
+    print(f"CONFIG MISMATCH ({benchmark}): existing config.json unreadable ({e})", file=sys.stderr)
+    sys.exit(1)
+
+existing_overrides = existing.get('cli_overrides') or {}
+existing_resolved  = existing.get('resolved_config') or {}
+
+try:
+    new_overrides = json.loads(os.environ.get('PATCH_OVERRIDES_JSON') or '{}')
+except Exception:
+    new_overrides = {}
+with open(new_yaml_path) as f:
+    new_resolved = yaml.safe_load(f) or {}
+
+def deep_diff(a, b, path=""):
+    """List of human-readable lines describing where a differs from b."""
+    out = []
+    if type(a) != type(b):
+        out.append(f"  ~ {path or '<root>'}: {type(a).__name__}({a!r}) -> {type(b).__name__}({b!r})")
+        return out
+    if isinstance(a, dict):
+        for k in sorted(set(a) | set(b)):
+            sub = f"{path}.{k}" if path else k
+            if k not in a:
+                out.append(f"  + {sub}: {b[k]!r}")
+            elif k not in b:
+                out.append(f"  - {sub}: {a[k]!r}")
+            else:
+                out.extend(deep_diff(a[k], b[k], sub))
+    elif isinstance(a, list):
+        if a != b:
+            out.append(f"  ~ {path}: {a!r} -> {b!r}")
+    else:
+        if a != b:
+            out.append(f"  ~ {path}: {a!r} -> {b!r}")
+    return out
+
+diffs  = deep_diff(existing_overrides, new_overrides, "cli_overrides")
+diffs += deep_diff(existing_resolved,  new_resolved,  "resolved_config")
+
+if diffs:
+    print(f"CONFIG MISMATCH ({benchmark}):", file=sys.stderr)
+    for d in diffs[:50]:
+        print(d, file=sys.stderr)
+    if len(diffs) > 50:
+        print(f"  ... ({len(diffs)-50} more differences truncated)", file=sys.stderr)
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+}
+
 # ---------------------------------------------------------------------------
 # Pre-flight: existing-config conflict detection
 # ---------------------------------------------------------------------------
@@ -1072,6 +1192,7 @@ PYEOF
 # _EXPNAME_SUFFIX in place.
 check_existing_configs_and_maybe_reprompt() {
     [[ "$FORCE_RERUN" == "true" ]] && return 0
+    [[ "$RESUME" == "true" ]] && return 0
     [[ "$DRY_RUN" == "true" ]] && return 0
     while true; do
         local -a conflicts=()
@@ -1173,6 +1294,9 @@ run_benchmark() {
         fdb_v3)
             "$PYTHON" "$FDB_V3_SCRIPT" --config "$config" "${extra[@]}"
             ;;
+        fdb_v3_chen_chen)
+            "$PYTHON" "$FDB_V3_CHEN_CHEN_SCRIPT" --config "$config" "${extra[@]}"
+            ;;
         bba)
             "$PYTHON" "$BBA_SCRIPT" --config "$config" "${extra[@]}"
             ;;
@@ -1234,6 +1358,7 @@ echo " HTML name    : ${HTML_NAME}.html"
 echo " Poll interval: ${POLL_INTERVAL}s"
 echo " Dry run      : $DRY_RUN"
 echo " Force rerun  : $FORCE_RERUN"
+echo " Resume       : $RESUME"
 echo " Commit       : $COMMIT"
 
 if [[ -n "$MAX_JOBS_OVERRIDE" ]]; then
@@ -1269,6 +1394,39 @@ check_existing_configs_and_maybe_reprompt
 _OVERRIDES_JSON=$(_build_overrides_json)
 
 for benchmark in $BENCHMARKS; do
+    # Config-mismatch handling (--resume or --force_rerun only). Runs BEFORE
+    # find_benchmark_result so that stale-config results don't get used
+    # silently in --resume mode.
+    #   --resume + mismatch      -> skip this benchmark with diff printed;
+    #                               require --force_rerun to override
+    #   --force_rerun + mismatch -> wipe the output dir so the run starts truly
+    #                               clean (otherwise the benchmark python
+    #                               script would skip generation when
+    #                               output.jsonl + .done markers exist)
+    #   match (either mode) or no existing config -> proceed normally
+    if [[ "$RESUME" == "true" || "$FORCE_RERUN" == "true" ]]; then
+        _outdir=$(resolve_output_dir "$benchmark")
+        if [ -f "$_outdir/config.json" ]; then
+            _new_patched=$(make_patched_config "$benchmark" "$(config_for "$benchmark")")
+            if ! compare_resolved_config "$_new_patched" "$_outdir/config.json" "$benchmark"; then
+                rm -f "$_new_patched"
+                if [[ "$RESUME" == "true" ]]; then
+                    echo "  Skipping $benchmark: --resume + config mismatch (see diff above). Use --force_rerun to override and rerun from scratch."
+                    continue
+                else
+                    echo "  $benchmark: config mismatch under --force_rerun; clearing $_outdir for full rerun."
+                    if [[ "$DRY_RUN" == "true" ]]; then
+                        echo "    (dry_run — would rm -rf $_outdir)"
+                    else
+                        rm -rf "$_outdir"
+                    fi
+                fi
+            else
+                rm -f "$_new_patched"
+            fi
+        fi
+    fi
+
     if [[ "$FORCE_RERUN" != "true" ]]; then
         result=$(find_benchmark_result "$benchmark")
         if [[ -n "$result" ]]; then
@@ -1276,6 +1434,7 @@ for benchmark in $BENCHMARKS; do
             continue
         fi
     fi
+
     cancel_stale_jobs "$benchmark"
     if [[ -n "$MAX_JOBS" && "$DRY_RUN" != "true" ]]; then
         wait_for_slot "$MAX_JOBS" "$benchmark"

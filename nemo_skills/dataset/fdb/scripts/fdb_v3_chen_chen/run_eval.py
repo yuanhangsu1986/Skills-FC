@@ -65,9 +65,15 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     fdb_repo = config["fdb_repo_path"]
     drirf_path = config["nemo_code_path"]
     backend_repo = config["backend_repo_path"]
-    s2s_ckpt = config["s2s_checkpoint_dir"]
+    # Accept both `model` (rewritten by run_all_benchmarks.sh make_patched_config)
+    # and `s2s_checkpoint_dir` (the YAML's original key) for backward compat.
+    s2s_ckpt = config.get("model") or config.get("s2s_checkpoint_dir")
+    if not s2s_ckpt:
+        raise SystemExit("Config missing 'model' / 's2s_checkpoint_dir'")
     provider = config.get("provider", "fdb_v3_chen_chen")
-    run_label = config.get("run_label") or provider
+    # Match upstream FDBV3_CHENCHEN/FD3/slurm/fd3_audio_eval.sh:35 — RUN_LABEL
+    # defaults to basename(checkpoint). Drives `model_name` in model_report.json.
+    run_label = config.get("run_label") or Path(s2s_ckpt).name
     run_root = _fd3_run_root(config)
 
     # Optional knobs forwarded to run_fd3_eval.sh -> run_s2s_offline_benchmark.py
@@ -91,6 +97,10 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     pass_args += list(extra_passthrough)
     pass_args_str = " ".join(shlex.quote(a) for a in pass_args)
 
+    # Derived env vars (depend on other YAML fields). These are the only ones
+    # the script computes itself; everything else is user-controlled via
+    # the `env:` dict in the YAML so we don't bake assumptions about which
+    # variables the upstream Backend Agent / orchestrator needs.
     env_exports = [
         f"export S2S_CHECKPOINT_DIR={shlex.quote(s2s_ckpt)}",
         f"export RUN_LABEL={shlex.quote(run_label)}",
@@ -98,20 +108,11 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
         f"export FD3_RUN_ROOT={shlex.quote(run_root)}",
         f"export PYTHONPATH={shlex.quote(drirf_path)}:${{PYTHONPATH:-}}",
     ]
-    if config.get("hf_home"):
-        env_exports.append(f"export HF_HOME={shlex.quote(config['hf_home'])}")
-    if config.get("hf_token"):
-        env_exports.append(f"export HF_TOKEN={shlex.quote(config['hf_token'])}")
-    if config.get("openai_base_url"):
-        env_exports.append(f"export OPENAI_BASE_URL={shlex.quote(config['openai_base_url'])}")
-    if config.get("openai_api_key_env_var"):
-        # forward whichever env var the cluster config already injects (e.g. NVIDIA_API_KEY)
-        v = config["openai_api_key_env_var"]
-        env_exports.append(f'export OPENAI_API_KEY="${{{v}:-${{OPENAI_API_KEY:-}}}}"')
-        env_exports.append(f'export NVIDIA_API_KEY="${{{v}:-${{NVIDIA_API_KEY:-}}}}"')
-    if config.get("judge_model"):
-        env_exports.append(f"export FD3_JUDGE_MODEL={shlex.quote(config['judge_model'])}")
-        env_exports.append(f"export JUDGE_MODEL={shlex.quote(config['judge_model'])}")
+    # Free-form env vars. Values are double-quoted so shell expansion (${...})
+    # works — that's how the user redirects between upstream-expected names
+    # and whatever the cluster actually injects.
+    for k, v in (config.get("env") or {}).items():
+        env_exports.append(f'export {k}="{v}"')
 
     orchestrator = f"{backend_repo}/FD3/bin/run_fd3_audio_eval_job.sh"
     # Fallback: if backend_repo doesn't ship FD3/, use the FDBV3_CHENCHEN copy
@@ -119,8 +120,16 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     # sbatch wrapper uses and is known to work end-to-end).
     fallback = f"{fdb_repo}/FD3/bin/run_fd3_audio_eval_job.sh"
 
+    # Optional container-specific setup the user controls via YAML, e.g. a
+    # `python -> python3` symlink shim if the container only ships `python3`
+    # while upstream Backend_agent/start_backend_agent.sh invokes `python`.
+    # Empty by default — no assumptions baked into the script.
+    pre_command = (config.get("pre_command") or "").strip()
+    pre_command_block = (pre_command + "\n") if pre_command else ""
+
     return (
-        "\n".join(env_exports)
+        pre_command_block
+        + "\n".join(env_exports)
         + "\n"
         + f'if [[ -x {shlex.quote(orchestrator)} ]]; then orchestrator={shlex.quote(orchestrator)}; '
         + f'else orchestrator={shlex.quote(fallback)}; fi\n'
@@ -192,7 +201,12 @@ def run_fdb_v3_chen_chen_eval(config: dict, extra_passthrough: list[str]) -> Non
         scoring_container = (
             config.get("scoring_container") or config.get("server_container") or "nemo-skills"
         )
-        scoring_partition = config.get("scoring_partition") or config.get("partition")
+        scoring_gpus = config.get("scoring_gpus", 0)
+        # GPU partitions reject 0-GPU jobs; fall back to cpu_partition for the
+        # scoring step (it's pure JSON ingestion).
+        scoring_partition = config.get("scoring_partition")
+        if not scoring_partition:
+            scoring_partition = config.get("cpu_partition") if scoring_gpus == 0 else config.get("partition")
         run_after = [expname] if generation_submitted else None
         run_cmd(
             ctx=wrap_arguments(""),
@@ -200,7 +214,7 @@ def run_fdb_v3_chen_chen_eval(config: dict, extra_passthrough: list[str]) -> Non
             command=score_command,
             container=scoring_container,
             partition=scoring_partition,
-            num_gpus=config.get("scoring_gpus", 0),
+            num_gpus=scoring_gpus,
             run_after=run_after,
             expname=f"{expname}_score",
             installation_command=config.get("scoring_installation_command"),
@@ -217,6 +231,9 @@ def main() -> None:
     parser.add_argument("--config", required=True, help="Path to YAML config file")
     parser.add_argument("--cluster", help="Override cluster")
     parser.add_argument("--partition", help="Override partition")
+    parser.add_argument("--model", help="Override S2S checkpoint path (alias for --s2s_checkpoint_dir; "
+                                        "the orchestrator scripts/run_all_benchmarks.sh forwards --model "
+                                        "to every benchmark)")
     parser.add_argument("--s2s_checkpoint_dir", help="Override S2S checkpoint path")
     parser.add_argument("--output_dir", help="Override output directory")
     parser.add_argument("--max_examples", type=int, help="Override max_examples")
@@ -233,6 +250,10 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config)
+    # --model is an alias for --s2s_checkpoint_dir; it wins if both are set since the
+    # orchestrator only forwards --model.
+    if args.model is not None:
+        config["model"] = args.model
     for key in ["cluster", "partition", "s2s_checkpoint_dir", "output_dir", "max_examples"]:
         if getattr(args, key, None) is not None:
             config[key] = getattr(args, key)
