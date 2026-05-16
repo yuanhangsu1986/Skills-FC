@@ -27,7 +27,8 @@ branch. That's the point — `chen_chen` is the upstream-comparable baseline.
 ## Prerequisites
 
 - 2-GPU node access (`num_gpus: 2` — orchestrator pins Backend to GPU 0, S2S to GPU 1).
-- Read access to `/lustre/fsw/portfolios/llmservice/users/cchen1/code/Backend_agent` and `.../containers/eval_agent.sqsh` (defaults; overridable in YAML).
+- A self-contained local mirror of upstream's FD3 + Backend_agent at `fdb_repo_path` (default: `…/yuanhangs/codes/NeMo/FDBV3_CHENCHEN/`). Must contain: `FD3/bin/run_fd3_audio_eval_job.sh`, `FD3/release_code/` (writable), `FD3/fdb_v3_data_released/` (writable, with the 100 input samples), and `Backend_agent/` (the inner Python package with `setup_llm.sh`, `start_backend_agent.sh`, `langGraph/`).
+- Read access to the upstream container `.../containers/eval_agent.sqsh` (default; overridable in YAML).
 - DRIRF checkout at `nemo_code_path` containing `nemo/collections/speechlm2/inference/model_wrappers/nemotron_voicechat_inference_wrapper.py`.
 - API key for the LLM judge (defaults to NVIDIA gateway). Set `NVIDIA_API_KEY` (or override `openai_api_key_env_var` in YAML).
 

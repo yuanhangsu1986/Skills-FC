@@ -64,7 +64,6 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     """
     fdb_repo = config["fdb_repo_path"]
     drirf_path = config["nemo_code_path"]
-    backend_repo = config["backend_repo_path"]
     # Accept both `model` (rewritten by run_all_benchmarks.sh make_patched_config)
     # and `s2s_checkpoint_dir` (the YAML's original key) for backward compat.
     s2s_ckpt = config.get("model") or config.get("s2s_checkpoint_dir")
@@ -114,11 +113,7 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     for k, v in (config.get("env") or {}).items():
         env_exports.append(f'export {k}="{v}"')
 
-    orchestrator = f"{backend_repo}/FD3/bin/run_fd3_audio_eval_job.sh"
-    # Fallback: if backend_repo doesn't ship FD3/, use the FDBV3_CHENCHEN copy
-    # (kept as the secondary path because cchen1's Backend_agent is what their
-    # sbatch wrapper uses and is known to work end-to-end).
-    fallback = f"{fdb_repo}/FD3/bin/run_fd3_audio_eval_job.sh"
+    orchestrator = f"{fdb_repo}/FD3/bin/run_fd3_audio_eval_job.sh"
 
     # Optional container-specific setup the user controls via YAML, e.g. a
     # `python -> python3` symlink shim if the container only ships `python3`
@@ -127,14 +122,13 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     pre_command = (config.get("pre_command") or "").strip()
     pre_command_block = (pre_command + "\n") if pre_command else ""
 
+    # The orchestrator's REPO_ROOT is computed as `dirname(dirname(dirname(script)))`,
+    # so cd-ing into REPO_ROOT first ensures it picks up the sibling Backend_agent/.
     return (
         pre_command_block
         + "\n".join(env_exports)
         + "\n"
-        + f'if [[ -x {shlex.quote(orchestrator)} ]]; then orchestrator={shlex.quote(orchestrator)}; '
-        + f'else orchestrator={shlex.quote(fallback)}; fi\n'
-        + f'cd "$(dirname "$(dirname "$(dirname "${{orchestrator}}")")")" && '
-        + f'bash "${{orchestrator}}" {pass_args_str}'
+        + f'cd {shlex.quote(fdb_repo)} && bash {shlex.quote(orchestrator)} {pass_args_str}'
     )
 
 
