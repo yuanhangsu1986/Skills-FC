@@ -13,6 +13,43 @@ from its function channel for FD3 audio prompts. It mirrors `cchen1`'s
 | FD3 source | Vendored at `/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN`, referenced via `fdb_repo_path`. |
 | LLM judge | `openai/openai/gpt-5.2` via NVIDIA inference API; auth uses `NV_INFERENCE_KEY` from cluster env. |
 | Engine | `vllm_llm_vllm_eartts` (existing v2 backend already patches `nemotron_h.py`). |
+| System prompt | **Nano v2 full-schema** (rendered by `render_prompt.py` from `vtrinh/.../template.jinja` over `FD3_TOOL_SPEC`). See [Prompt choice](#prompt-choice) for why and how to switch. |
+| Output transcript | Parakeet ASR (`nvidia/parakeet-tdt-0.6b-v2`) on the generated `output_<provider>.wav`, matching the original `run_s2s_offline_benchmark.py` pipeline. Requires `scoring_gpus >= 1`. Falls back to the cleaned S2S text channel only when ASR returns no text. |
+
+## Prompt choice
+
+The original FD3 paper baselines use a **lightweight** system prompt — only
+each tool's `name` and `description`, ending with "You can also directly
+respond to the user." (see `FD3/release_code/run_s2s_offline_benchmark.py:204-217`
+and `FD3/release_code/README.md`).
+
+This Skills-FC pipeline deliberately uses a **different default**: the Nemotron
+Nano v2 voicechat tool-calling format (full JSON schema with parameters, plus
+explicit `<TOOLCALL>` / `<TOOL_RESPONSE>` framing), rendered by
+`render_prompt.py` from `vtrinh/projects/function_calling_share/script/template.jinja`.
+
+Implications:
+
+- **Recommended default for paper-comparable numbers**: the original
+  lightweight FD3 prompt. Use it whenever you need to compare against
+  published FD3 baselines or against other agents that ran under that prompt.
+- **Why we diverge here**: the Jinja template self-identifies as "adapted from
+  the full `nano_v2_chat_template.jinja` released with Nemotron Nano v2." It
+  matches the system-prompt shape the Nemotron Nano v2 LLM backbone expects
+  for tool-calling. We have not separately verified which prompt shape the
+  S2S checkpoints' FC fine-tuning data was formatted with, so this is the
+  best-effort match to the LLM backbone's native format rather than a
+  confirmed training-time prompt.
+- **Numbers under the two prompts are not directly comparable.** Switch one
+  prompt for the other and tool_selection / argument_acc can move several
+  points independent of any model change.
+
+To switch to the original FD3 lightweight prompt, edit `render_prompt.py` to
+build the string from `FD3_TOOL_NAME_DESCRIPTION_SPEC` (name + description
+only) and emit the EVA-style trailer, or point `--template_path` (in
+`prepare.py`) at an alternative Jinja template that renders the lightweight
+format. Re-run `prepare.py` after any change — the rendered prompt is baked
+into `test.jsonl`.
 
 ## Files
 
@@ -50,6 +87,11 @@ python nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py \
 python nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py \
     --config nemo_skills/dataset/fdb/scripts/fdb_v3/fdb_v3_s2s_incremental_v2_config_fc_greedy.yaml \
     --scoring_only --scoring_force
+
+# 4) Re-score without ASR (debug only — collapses response_qual; skips GPU).
+python nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py \
+    --config nemo_skills/dataset/fdb/scripts/fdb_v3/fdb_v3_s2s_incremental_v2_config_fc_greedy.yaml \
+    --scoring_only --scoring_force --skip_asr
 ```
 
 ## Where outputs land

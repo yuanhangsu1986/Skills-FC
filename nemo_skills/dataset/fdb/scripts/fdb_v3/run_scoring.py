@@ -47,8 +47,15 @@ def _alias_judge_api_key():
 
 _alias_judge_api_key()
 
+# Match the cache locations the original FD3 pipeline sets, so HF/NeMo model
+# downloads land on a writable path inside the scoring container.
+for _var in ("HF_HOME", "TORCH_HOME", "NEMO_CACHE_DIR", "TRITON_CACHE_DIR"):
+    os.environ.setdefault(_var, "/tmp/cache")
+
 DEFAULT_FDB_REPO = Path("/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN")
 TOOLCALL_RE = re.compile(r"<TOOLCALL>(.*?)</TOOLCALL>", re.DOTALL)
+# Parakeet ASR used by the original FD3 pipeline (run_tool_benchmark.py).
+ASR_MODEL_NAME = "nvidia/parakeet-tdt-0.6b-v2"
 
 
 def _import_module(path: Path, name: str):
@@ -107,6 +114,138 @@ def _parse_toolcall_text(text: str) -> list[dict[str, Any]]:
     return calls
 
 
+def _clean_s2s_text(text: str) -> str:
+    """Strip the S2S text-channel control tokens (`<$0.72$>`, `<|...|>`, `<SPECIAL_N>`, `^`)
+    so the LLM judge sees plain text. Mirrors `_clean_s2s_text` in
+    FD3/release_code/run_s2s_offline_benchmark.py."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"<\$\d+(?:\.\d+)?\$>", " ", text)
+    cleaned = re.sub(r"<\|\d+(?:\.\d+)?\|>", " ", cleaned)
+    cleaned = re.sub(r"<SPECIAL_\d+>", " ", cleaned)
+    cleaned = cleaned.replace("^", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+
+def _load_asr_model():
+    """Load NeMo Parakeet for output-audio ASR. Returns None when NeMo is
+    unavailable so the caller can fall back to silence-only detection."""
+    try:
+        import nemo.collections.asr as nemo_asr
+        import torch
+    except Exception as e:
+        print(f"  warning: NeMo ASR unavailable ({e}); falling back to silence-only detection")
+        return None
+    try:
+        print(f"  loading ASR model {ASR_MODEL_NAME}...")
+        model = nemo_asr.models.ASRModel.from_pretrained(model_name=ASR_MODEL_NAME)
+        if torch.cuda.is_available() and hasattr(model, "cuda"):
+            model = model.cuda()
+            print("  ASR model on CUDA")
+        else:
+            print("  ASR model on CPU (slow — scoring_gpus=0)")
+        return model
+    except Exception as e:
+        print(f"  warning: failed to load Parakeet ASR ({e}); continuing without ASR")
+        return None
+
+
+def _unwrap_transcribe_output(outputs):
+    """NeMo's transcribe() return shape varies by model. Reduce it to a single
+    result object. Mirrors run_tool_benchmark.py."""
+    value = outputs
+    while isinstance(value, tuple) and value:
+        value = value[0]
+    if isinstance(value, dict):
+        for key in ("pred_text", "text", "hypotheses", "results"):
+            if key in value and value[key]:
+                value = value[key]
+                break
+    if isinstance(value, list):
+        if not value:
+            return None
+        value = value[0]
+    return value
+
+
+def _parse_transcribe_result(result) -> dict:
+    """Extract `{text, chunks}` from one NeMo transcription result. Chunks carry
+    `timestamp: [start_s, end_s]` per word."""
+    if result is None:
+        return {"text": "", "chunks": []}
+    text = ""
+    chunks: list[dict[str, Any]] = []
+    word_items: list = []
+    if isinstance(result, str):
+        text = result
+    elif isinstance(result, dict):
+        text = str(result.get("text") or result.get("pred_text") or result.get("transcript") or "")
+        timestamp = result.get("timestamp") or {}
+        if isinstance(timestamp, dict):
+            word_items = timestamp.get("word") or []
+    else:
+        text = str(getattr(result, "text", "") or getattr(result, "pred_text", "") or "")
+        timestamp = getattr(result, "timestamp", {}) or {}
+        if isinstance(timestamp, dict):
+            word_items = timestamp.get("word") or []
+    if isinstance(word_items, list):
+        for item in word_items:
+            if not isinstance(item, dict):
+                continue
+            token_text = str(item.get("word") or item.get("text") or item.get("token") or "").strip()
+            start, end = item.get("start"), item.get("end")
+            if token_text and start is not None and end is not None:
+                chunks.append({"text": token_text, "timestamp": [float(start), float(end)]})
+    if not text and chunks:
+        text = " ".join(c["text"] for c in chunks).strip()
+    return {"text": text.strip(), "chunks": chunks}
+
+
+def _run_asr(asr_model, audio_path: Path) -> dict:
+    """Transcribe `audio_path` with NeMo Parakeet. Returns `{text, chunks}` or
+    `{text: '', chunks: []}` on any failure."""
+    if asr_model is None or not audio_path.exists():
+        return {"text": "", "chunks": []}
+    for label, kwargs in (("timestamps", {"timestamps": True}), ("plain", {"timestamps": False})):
+        try:
+            outputs = asr_model.transcribe([str(audio_path)], **kwargs)
+            return _parse_transcribe_result(_unwrap_transcribe_output(outputs))
+        except Exception as e:
+            print(f"  ASR retry ({label}) on {audio_path.name} failed: {e}")
+    return {"text": "", "chunks": []}
+
+
+def _to_mono_wav(audio_path: Path, dst: Path) -> Path:
+    """Convert audio to mono so older Parakeet checkpoints don't trip on stereo
+    input. Falls back to the source path if pydub is unavailable."""
+    try:
+        from pydub import AudioSegment
+
+        AudioSegment.from_file(str(audio_path)).set_channels(1).export(str(dst), format="wav")
+        return dst
+    except Exception:
+        return audio_path
+
+
+def _user_speech_end_from_chunks(chunks: list[dict], bounds: dict) -> float | None:
+    """Locate when the user finished speaking. Prefer ASR chunks with a 2s-gap
+    heuristic (matches run_s2s_offline_benchmark.py); fall back to silence-based
+    bounds otherwise."""
+    if chunks:
+        for idx in range(len(chunks) - 1):
+            curr_end = chunks[idx]["timestamp"][1]
+            next_start = chunks[idx + 1]["timestamp"][0]
+            if next_start - curr_end > 2.0:
+                return float(curr_end)
+        return float(chunks[-1]["timestamp"][1])
+    if bounds.get("last_speech_s") is not None:
+        return float(bounds["last_speech_s"])
+    if bounds.get("duration_s") is not None:
+        return float(bounds["duration_s"])
+    return None
+
+
 def _measure_latency(input_wav: Path, output_wav: Path, silence_threshold_db: int = -40) -> dict:
     try:
         from pydub import AudioSegment
@@ -149,26 +288,29 @@ def _detect_speech_bounds(audio_path: Path, silence_threshold_db: int = -40) -> 
 
 
 def _extract_text_from_row(row: dict[str, Any]) -> tuple[str, list[dict[str, Any]], str]:
-    """Return (function_channel_text, actual_tool_calls, transcript) from an output.jsonl row."""
+    """Return (function_channel_text, actual_tool_calls, s2s_text_channel) from an
+    output.jsonl row. `s2s_text_channel` is the model's raw text-channel output
+    (often just `<$0.72$>` for tool-call-only responses) — it is NOT an ASR
+    transcript and should only be used as a fallback after _clean_s2s_text."""
     generation = str(row.get("generation") or "")
+    s2s_text = ""
     serialized = row.get("serialized_output") or []
-    transcript = ""
     if isinstance(serialized, list):
         for msg in serialized:
             if not isinstance(msg, dict):
                 continue
             audio = msg.get("audio") or {}
             if isinstance(audio, dict) and audio.get("transcript"):
-                transcript = audio["transcript"]
+                s2s_text = audio["transcript"]
                 break
             if msg.get("content"):
-                transcript = transcript or msg["content"]
-    if not transcript:
+                s2s_text = s2s_text or msg["content"]
+    if not s2s_text:
         audio = row.get("audio") or {}
         if isinstance(audio, dict):
-            transcript = audio.get("transcript", "")
-    if not transcript:
-        transcript = generation
+            s2s_text = audio.get("transcript", "")
+    if not s2s_text:
+        s2s_text = generation
 
     function_text = generation
     actual_calls = _parse_toolcall_text(generation)
@@ -182,7 +324,7 @@ def _extract_text_from_row(row: dict[str, Any]) -> tuple[str, list[dict[str, Any
                 if isinstance(fn, dict):
                     actual_calls.append(_normalize_tool_call(fn))
         actual_calls = [c for c in actual_calls if c]
-    return function_text, actual_calls, transcript
+    return function_text, actual_calls, s2s_text
 
 
 def _reconstruct_fd3_layout(
@@ -191,12 +333,20 @@ def _reconstruct_fd3_layout(
     layout_root: Path,
     provider: str,
     skip_latency: bool,
+    skip_asr: bool = False,
 ) -> int:
     """Materialize layout_root/{example_id}_{speaker_id}/result_<provider>.json
     plus an output_<provider>.wav copy when the generated audio path is reachable.
     Returns the number of result files written.
+
+    When ASR is enabled (default), this transcribes the generated output audio
+    with Parakeet and uses the ASR result for `transcript` + first-speech timing.
+    The S2S model's text-channel output is preserved separately in
+    `s2s_pred_text` (cleaned of control tokens) and only used as a transcript
+    fallback when ASR returns no text.
     """
     layout_root.mkdir(parents=True, exist_ok=True)
+    asr_model = None if skip_asr else _load_asr_model()
     written = 0
     with output_jsonl.open("r", encoding="utf-8") as fin:
         for line in fin:
@@ -216,7 +366,8 @@ def _reconstruct_fd3_layout(
             fd3_input_dir = fd3_data_root / sample_id
             input_wav = fd3_input_dir / "input.wav"
 
-            function_text, actual_calls, transcript = _extract_text_from_row(row)
+            function_text, actual_calls, raw_s2s_text = _extract_text_from_row(row)
+            s2s_pred_text = _clean_s2s_text(raw_s2s_text)
 
             audio_meta = row.get("audio") or {}
             output_wav_src = Path(audio_meta["path"]) if isinstance(audio_meta, dict) and audio_meta.get("path") else None
@@ -224,6 +375,28 @@ def _reconstruct_fd3_layout(
             if output_wav_src and output_wav_src.exists():
                 if not output_wav_dst.exists() or output_wav_dst.stat().st_size != output_wav_src.stat().st_size:
                     shutil.copy2(output_wav_src, output_wav_dst)
+
+            output_asr = {"text": "", "chunks": []}
+            input_asr = {"text": "", "chunks": []}
+            if asr_model is not None:
+                if output_wav_dst.exists():
+                    output_asr = _run_asr(asr_model, output_wav_dst)
+                if input_wav.exists():
+                    mono_path = sample_dir / "_input_mono.wav"
+                    asr_input_path = _to_mono_wav(input_wav, mono_path)
+                    input_asr = _run_asr(asr_model, asr_input_path)
+                    if mono_path.exists():
+                        try:
+                            mono_path.unlink()
+                        except OSError:
+                            pass
+
+            if output_asr["text"]:
+                transcript = output_asr["text"]
+                transcript_source = "asr"
+            else:
+                transcript = s2s_pred_text
+                transcript_source = "s2s_pred_text_fallback"
 
             latency = {}
             user_speech_end_rel = None
@@ -233,8 +406,11 @@ def _reconstruct_fd3_layout(
                 latency = _measure_latency(input_wav, output_wav_dst)
                 bounds_in = _detect_speech_bounds(input_wav)
                 bounds_out = _detect_speech_bounds(output_wav_dst)
-                user_speech_end_rel = bounds_in.get("last_speech_s")
-                agent_speech_start_rel = bounds_out.get("first_speech_s")
+                user_speech_end_rel = _user_speech_end_from_chunks(input_asr["chunks"], bounds_in)
+                if output_asr["chunks"]:
+                    agent_speech_start_rel = float(output_asr["chunks"][0]["timestamp"][0])
+                elif bounds_out.get("first_speech_s") is not None:
+                    agent_speech_start_rel = float(bounds_out["first_speech_s"])
                 if user_speech_end_rel is not None and agent_speech_start_rel is not None:
                     perceived_total_latency = round(agent_speech_start_rel - user_speech_end_rel, 3)
 
@@ -251,12 +427,15 @@ def _reconstruct_fd3_layout(
                 "function_channel_text_raw": function_text,
                 "actual_tool_calls": actual_calls,
                 "function_call_count": len(actual_calls),
-                "s2s_pred_text": transcript,
+                "s2s_pred_text": s2s_pred_text,
                 "transcript": transcript,
-                "output_transcript_source": "s2s_pred_text_fallback",
+                "asr_chunks": output_asr["chunks"],
+                "input_transcript": input_asr["text"],
+                "input_asr_chunks": input_asr["chunks"],
+                "output_transcript_source": transcript_source,
                 "agent_audio_detected": agent_speech_start_rel is not None,
-                "user_speech_end_rel": user_speech_end_rel,
-                "audio_agent_speech_start": agent_speech_start_rel,
+                "user_speech_end_rel": round(user_speech_end_rel, 3) if user_speech_end_rel is not None else None,
+                "audio_agent_speech_start": round(agent_speech_start_rel, 3) if agent_speech_start_rel is not None else None,
                 "perceived_total_latency": perceived_total_latency,
                 "absolute_total_latency": perceived_total_latency,
                 "latency": latency,
@@ -316,6 +495,15 @@ def main() -> None:
     parser.add_argument("--provider", type=str, default="fdb_v3")
     parser.add_argument("--use_llm_judge", action="store_true", help="Pass --use-llm to the FD3 evaluators")
     parser.add_argument("--skip_latency", action="store_true", help="Skip audio-derived latency computation")
+    parser.add_argument(
+        "--skip_asr",
+        action="store_true",
+        help=(
+            "Skip Parakeet ASR on the output audio. Without ASR, response_qual is "
+            "judged against the S2S text channel (often just `<$0.72$>` for tool-call-only "
+            "replies) which can collapse the metric — only use this for debugging."
+        ),
+    )
     parser.add_argument("--force", action="store_true", help="Re-run even if metrics.json already populated")
     args = parser.parse_args()
 
@@ -346,7 +534,7 @@ def main() -> None:
     layout_root = eval_results_dir / "fdb_v3_layout"
     print(f"Reconstructing FD3 layout under {layout_root}")
     n_results = _reconstruct_fd3_layout(
-        output_jsonl, fd3_data_root, layout_root, args.provider, args.skip_latency
+        output_jsonl, fd3_data_root, layout_root, args.provider, args.skip_latency, args.skip_asr
     )
     print(f"Wrote {n_results} result_{args.provider}.json files")
 

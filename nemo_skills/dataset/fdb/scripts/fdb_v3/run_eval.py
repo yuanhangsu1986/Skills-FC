@@ -59,6 +59,8 @@ def build_score_command(config: dict, force: bool = False) -> str:
         cmd_args.append("--use_llm_judge")
     if config.get("skip_latency"):
         cmd_args.append("--skip_latency")
+    if config.get("skip_asr"):
+        cmd_args.append("--skip_asr")
     if force:
         cmd_args.append("--force")
     return " ".join(cmd_args)
@@ -171,6 +173,11 @@ def main() -> None:
     parser.add_argument("--scoring_force", action="store_true")
     parser.add_argument("--use_llm_judge", action="store_true", help="Enable FD3 LLM judge for response quality")
     parser.add_argument("--skip_latency", action="store_true", help="Skip audio-derived latency in scoring")
+    parser.add_argument(
+        "--skip_asr",
+        action="store_true",
+        help="Skip Parakeet ASR on output audio (response_qual will degrade — debug only)",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -189,6 +196,8 @@ def main() -> None:
         config["use_llm_judge"] = True
     if args.skip_latency:
         config["skip_latency"] = True
+    if args.skip_asr:
+        config["skip_asr"] = True
 
     output_dir = config.get("output_dir", "")
     if output_dir:

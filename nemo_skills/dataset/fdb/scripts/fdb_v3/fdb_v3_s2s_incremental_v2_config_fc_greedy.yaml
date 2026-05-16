@@ -52,10 +52,12 @@ server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/cont
 scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
 scoring_container_python_exec: python3
 
-# Scoring is CPU-only: evaluate_tool_calls / evaluate_pass_rate / analyze_tool_latency
-# parse JSON and call the LLM judge over HTTP — no local GPU work.
-scoring_gpus: 0
-scoring_partition: cpu_short
+# Scoring runs Parakeet ASR on the generated output audio (and input audio for
+# user-speech-end timing) before invoking the FD3 evaluators, so we need 1 GPU.
+# Set scoring_gpus: 0 + add `--skip_asr` if you only need tool/argument accuracy
+# and are OK with response_qual being judged against the raw S2S text channel.
+scoring_gpus: 1
+scoring_partition: batch_block1,batch_block3,batch_block4
 
 server_server_type: vllm_multimodal
 

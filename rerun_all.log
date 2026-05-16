@@ -1,0 +1,17 @@
+nohup: ignoring input
+
+======================================================================
+ S2S FC Benchmark Runner
+======================================================================
+ Eval mode    : greedy+sampling
+ Benchmarks   : conv_behav fdb bba bfcl vb_mcq vb_nonmcq
+ HTML name    : rerun.html
+ Poll interval: 60s
+ Dry run      : false
+ Force rerun  : false
+ Commit       : 988e97ff
+ Detecting SLURM job limit...
+ Max jobs     : none detected — will submit without throttling
+======================================================================
+
+--- Mode: greedy ---

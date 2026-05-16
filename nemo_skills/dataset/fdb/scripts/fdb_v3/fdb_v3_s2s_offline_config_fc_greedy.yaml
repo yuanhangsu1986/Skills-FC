@@ -39,8 +39,11 @@ server_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/ne
 scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
 scoring_container_python_exec: python3
 
-scoring_gpus: 0
-scoring_partition: cpu_short
+# Scoring runs Parakeet ASR on the generated output audio before invoking the
+# FD3 evaluators (response_qual collapses without it). Set scoring_gpus: 0 +
+# `--skip_asr` if you only need tool/argument accuracy.
+scoring_gpus: 1
+scoring_partition: batch_block1,batch_block3,batch_block4
 
 server_server_type: vllm_multimodal
 

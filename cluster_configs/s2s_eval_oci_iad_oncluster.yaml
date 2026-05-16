@@ -26,7 +26,7 @@ mounts:
   - /lustre/fs12/portfolios/llmservice/projects/llmservice_nemo_speechlm/data/nemo_skills/dataset:/dataset
 
 required_env_vars:
-  - NV_INFERENCE_KEY=
+  - NV_INFERENCE_KEY=sk-0FmWOB5rZSCzoBLYbFKl8Q
 
 env_vars:
   - HF_HOME=/lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface

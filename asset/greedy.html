@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>S2S FC Eval Scorecard — greedy</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--bd:#30363d;--tx:#e6edf3;--tx2:#8b949e;
+      --ac:#58a6ff;--gr:#3fb950;--ye:#d29922;--re:#f85149;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--tx);
+     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+     line-height:1.5;padding:24px;max-width:1280px;margin:0 auto;}
+h1{font-size:1.7em;margin-bottom:6px;}
+h2{font-size:1.1em;font-weight:600;color:var(--ac);margin:24px 0 10px;
+   border-bottom:1px solid var(--bd);padding-bottom:6px;}
+.meta-row{display:flex;gap:20px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
+.meta-item{color:var(--tx2);font-size:0.88em;}
+.meta-item strong{color:var(--tx);}
+.sum-row{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0;}
+.sum-tile{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;
+          padding:16px 20px;min-width:160px;flex:1;}
+.tile-label{display:block;font-size:0.82em;color:var(--tx2);margin-bottom:4px;}
+.tile-val{display:block;font-size:2em;font-weight:700;line-height:1.1;}
+.tile-mode{display:block;font-size:0.75em;color:var(--tx2);}
+.tile-secondary{display:block;font-size:0.88em;font-weight:600;margin-top:2px;}
+.scorecard-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:16px 0;}
+.bench-card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:20px;}
+.bench-card h3{font-size:1em;font-weight:600;margin-bottom:14px;color:var(--ac);}
+.metric-row{display:flex;justify-content:space-between;align-items:center;
+            padding:5px 0;border-bottom:1px solid var(--bg3);font-size:0.88em;}
+.metric-row:last-child{border-bottom:none;}
+.metric-val{font-weight:700;font-size:0.95em;}
+.sub-hdr{font-size:0.78em;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+         color:var(--tx2);padding:8px 0 2px;border-bottom:none;}
+.not-run{color:var(--tx2);font-style:italic;font-size:0.85em;}
+.mode-tab{display:inline-block;padding:2px 7px;border-radius:4px;font-size:0.78em;
+          font-weight:600;margin-right:4px;}
+.mode-greedy{background:#1f3a5f;color:#79c0ff;}
+.mode-sampling{background:#3d2b00;color:#f0b429;}
+.chart-wrap{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:20px;}
+.aplayer{width:100%;height:34px;margin-top:6px;border-radius:4px;accent-color:var(--ac);}
+.ex-section{margin:16px 0;}
+.ex-card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;
+         margin-bottom:12px;overflow:hidden;}
+.ex-header{background:var(--bg3);padding:10px 16px;font-size:0.88em;
+           border-bottom:1px solid var(--bd);display:flex;align-items:center;
+           gap:8px;flex-wrap:wrap;}
+.ex-body{display:grid;grid-template-columns:1fr 1fr;}
+.ex-left{padding:14px 16px;border-right:1px solid var(--bd);}
+.ex-right{padding:14px 16px;}
+.bubble{border-radius:6px;padding:10px 12px;font-size:0.87em;margin-bottom:8px;line-height:1.5;}
+.bubble-q{background:#0d1f3a;border-left:3px solid var(--ac);}
+.bubble-a{background:#0d2a1a;border-left:3px solid var(--gr);}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.8em;font-weight:600;}
+.conc-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:12px 0;}
+.conc-grid ul{padding-left:18px;line-height:2;}
+@media(max-width:900px){
+  .scorecard-grid{grid-template-columns:1fr;}
+  .ex-body{grid-template-columns:1fr;}
+  .ex-left{border-right:none;border-bottom:1px solid var(--bd);}
+  .conc-grid{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<h1>S2S FC Eval Scorecard — greedy</h1>
+<div class="meta-row">
+  <span class="meta-item">Date: <strong>2026-05-03</strong></span>
+  <span class="meta-item">Commit: <strong><code>d598f0c3</code></strong></span>
+  <span class="meta-item">Modes: <span class="mode-tab mode-greedy">greedy</span></span>
+</div>
+
+<h2>Summary</h2>
+<div class="sum-row"><div class="sum-tile"><span class="tile-label">VB non-MCQ</span><span class="tile-val" style="color:var(--ye)">59.1%</span><span class="tile-mode">greedy</span></div><div class="sum-tile"><span class="tile-label">VB MCQ</span><span class="tile-val" style="color:var(--ye)">53.7%</span><span class="tile-mode">greedy</span></div><div class="sum-tile"><span class="tile-label">FDB</span><span class="tile-val" style="color:var(--ye)">51.1%</span><span class="tile-mode">greedy</span></div><div class="sum-tile"><span class="tile-label">BBA</span><span class="tile-val" style="color:var(--re)">32.7%</span><span class="tile-mode">greedy</span></div><div class="sum-tile"><span class="tile-label">BFCL</span><span class="tile-val" style="color:var(--ye)">47.6%</span><span class="tile-mode">greedy</span></div><div class="sum-tile"><span class="tile-label">conv_behav</span><span class="tile-val" style="color:var(--gr)">82.0%</span><span class="tile-mode">greedy</span></div></div>
+
+<h2>Radar Overview</h2>
+<div class="chart-wrap" style="max-width:560px;margin:16px auto">
+  <canvas id="radarChart" height="380"></canvas>
+</div>
+
+<h2>Scorecard</h2>
+<div class="scorecard-grid">
+<div class="bench-card">
+  <h3>VB non-MCQ</h3>
+  <div style="margin-bottom:12px"><span style="font-size:1.6em;font-weight:700;color:var(--ye)">59.1%</span> <span style="color:var(--tx2);font-size:0.82em">greedy</span></div>
+  <div class="sub-hdr">sd_qa</div><div class="metric-row"><span>  panda</span><span class="metric-val"><span class="mode-tab mode-greedy">G:31.6%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  gpt</span><span class="metric-val"><span class="mode-tab mode-greedy">G:31.76/5</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">alpacaeval_full</div><div class="metric-row"><span>  gpt</span><span class="metric-val"><span class="mode-tab mode-greedy">G:3.36/5</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">alpacaeval</div><div class="metric-row"><span>  gpt</span><span class="metric-val"><span class="mode-tab mode-greedy">G:3.59/5</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">ifeval</div><div class="metric-row"><span>  strict-prompt</span><span class="metric-val"><span class="mode-tab mode-greedy">G:15.4%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  strict-instruction</span><span class="metric-val"><span class="mode-tab mode-greedy">G:23.3%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  loose-prompt</span><span class="metric-val"><span class="mode-tab mode-greedy">G:15.4%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  loose-instruction</span><span class="metric-val"><span class="mode-tab mode-greedy">G:23.3%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  final</span><span class="metric-val"><span class="mode-tab mode-greedy">G:19.3%</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">advbench</div><div class="metric-row"><span>  refusal_rate</span><span class="metric-val"><span class="mode-tab mode-greedy">G:100.0%</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">commoneval</div><div class="metric-row"><span>  gpt</span><span class="metric-val"><span class="mode-tab mode-greedy">G:3.13/5</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">wildvoice</div><div class="metric-row"><span>  gpt</span><span class="metric-val"><span class="mode-tab mode-greedy">G:2.75/5</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">alpacaeval_speaker</div><div class="metric-row"><span>  gpt</span><span class="metric-val"><span class="mode-tab mode-greedy">G:3.25/5</span> <span class="not-run">S:—</span></span></div>
+</div>
+<div class="bench-card">
+  <h3>VB MCQ</h3>
+  <div style="margin-bottom:12px"><span style="font-size:1.6em;font-weight:700;color:var(--ye)">53.7%</span> <span style="color:var(--tx2);font-size:0.82em">greedy</span></div>
+  <div class="sub-hdr">bbh</div><div class="metric-row"><span>  acc</span><span class="metric-val"><span class="mode-tab mode-greedy">G:52.9%</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">openbookqa</div><div class="metric-row"><span>  acc</span><span class="metric-val"><span class="mode-tab mode-greedy">G:61.1%</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">mmsu</div><div class="metric-row"><span>  acc</span><span class="metric-val"><span class="mode-tab mode-greedy">G:47.0%</span> <span class="not-run">S:—</span></span></div>
+</div>
+<div class="bench-card">
+  <h3>FDB</h3>
+  <div style="margin-bottom:12px"><span style="font-size:1.6em;font-weight:700;color:var(--ye)">51.1%</span> <span style="color:var(--tx2);font-size:0.82em">greedy</span></div>
+  <div class="sub-hdr">turn_taking</div><div class="metric-row"><span>  tor_pct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:84.0%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  latency_ms</span><span class="metric-val"><span class="mode-tab mode-greedy">G:318ms</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">interruption</div><div class="metric-row"><span>  rating</span><span class="metric-val"><span class="mode-tab mode-greedy">G:3.60/5</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  tor_pct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:98.5%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  latency_ms</span><span class="metric-val"><span class="mode-tab mode-greedy">G:342ms</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">backchannel</div><div class="metric-row"><span>  jsd</span><span class="metric-val"><span class="mode-tab mode-greedy">G:0.996</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  frequency</span><span class="metric-val"><span class="mode-tab mode-greedy">G:0.001</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  tor_pct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:69.1%</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">pause_candor</div><div class="metric-row"><span>  tor_pct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:70.8%</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">pause_synthetic</div><div class="metric-row"><span>  tor_pct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:86.9%</span> <span class="not-run">S:—</span></span></div>
+</div>
+<div class="bench-card">
+  <h3>BBA</h3>
+  <div style="margin-bottom:12px"><span style="font-size:1.6em;font-weight:700;color:var(--re)">32.7%</span> <span style="color:var(--tx2);font-size:0.82em">greedy</span></div>
+  <div class="sub-hdr">formal_fallacies</div><div class="metric-row"><span>  accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:21.9%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  total</span><span class="metric-val"><span class="mode-tab mode-greedy">G:250</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">navigate</div><div class="metric-row"><span>  accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:42.4%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  total</span><span class="metric-val"><span class="mode-tab mode-greedy">G:250</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">object_counting</div><div class="metric-row"><span>  accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:26.0%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  total</span><span class="metric-val"><span class="mode-tab mode-greedy">G:250</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">web_of_lies</div><div class="metric-row"><span>  accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:40.4%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  total</span><span class="metric-val"><span class="mode-tab mode-greedy">G:250</span> <span class="not-run">S:—</span></span></div>
+</div>
+<div class="bench-card">
+  <h3>BFCL</h3>
+  <div style="margin-bottom:12px"><span style="font-size:1.6em;font-weight:700;color:var(--ye)">47.6%</span> <span style="color:var(--tx2);font-size:0.82em">greedy</span></div>
+  <div class="sub-hdr">simple</div><div class="metric-row"><span>  accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:51.2%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_samples</span><span class="metric-val"><span class="mode-tab mode-greedy">G:400</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_correct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:205</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">parallel</div><div class="metric-row"><span>  accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:0.0%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_samples</span><span class="metric-val"><span class="mode-tab mode-greedy">G:80</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_correct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:0</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">multiple</div><div class="metric-row"><span>  accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:56.2%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_samples</span><span class="metric-val"><span class="mode-tab mode-greedy">G:80</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_correct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:45</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">parallel_multiple</div><div class="metric-row"><span>  accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:3.0%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_samples</span><span class="metric-val"><span class="mode-tab mode-greedy">G:200</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_correct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:6</span> <span class="not-run">S:—</span></span></div><div class="sub-hdr">irrelevance</div><div class="metric-row"><span>  accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:91.7%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_samples</span><span class="metric-val"><span class="mode-tab mode-greedy">G:240</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>  num_correct</span><span class="metric-val"><span class="mode-tab mode-greedy">G:220</span> <span class="not-run">S:—</span></span></div>
+</div>
+<div class="bench-card">
+  <h3>conv_behav</h3>
+  <div style="margin-bottom:12px"><span style="font-size:1.6em;font-weight:700;color:var(--gr)">82.0%</span> <span style="color:var(--tx2);font-size:0.82em">greedy</span></div>
+  <div class="metric-row"><span>TT F1</span><span class="metric-val"><span class="mode-tab mode-greedy">G:82.0%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>TT Precision</span><span class="metric-val"><span class="mode-tab mode-greedy">G:81.8%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>TT Recall</span><span class="metric-val"><span class="mode-tab mode-greedy">G:87.4%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>Barge-in Success</span><span class="metric-val"><span class="mode-tab mode-greedy">G:97.1%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>BC Accuracy</span><span class="metric-val"><span class="mode-tab mode-greedy">G:0.0%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>Cutoff Rate</span><span class="metric-val"><span class="mode-tab mode-greedy">G:2.0%</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>TT Latency</span><span class="metric-val"><span class="mode-tab mode-greedy">G:433ms</span> <span class="not-run">S:—</span></span></div><div class="metric-row"><span>Barge-in Latency</span><span class="metric-val"><span class="mode-tab mode-greedy">G:425ms</span> <span class="not-run">S:—</span></span></div>
+</div>
+</div>
+
+<h2>Benchmark Comparison</h2>
+<div class="chart-wrap">
+  <canvas id="barChart" height="80"></canvas>
+</div>
+
+<h2>Conclusions</h2>
+<div class="conc-grid"><div><h3 style="color:var(--gr)">✓ Strongest Areas</h3><ul><li><strong>conv_behav</strong>: 82.0%</li></ul></div><div><h3 style="color:var(--re)">✗ Areas for Improvement</h3><ul><li><strong>BBA</strong>: 32.7%</li></ul></div></div>
+
+<h2>Audio Examples</h2>
+<p style="color:var(--tx2);font-size:0.88em;margin-bottom:16px">
+  Representative model outputs. Audio requires the HTTP server —
+  run <code>bash scripts/serve_scorecard.sh --name greedy</code> and follow the printed instructions.
+</p>
+
+<div class="ex-section">
+  <h3 style="color:var(--ac)">VoiceBench CommonEval — Response Quality</h3>
+  <div class="ex-card">
+  <div class="ex-header"><strong>VoiceBench CommonEval</strong> <span class="badge" style="background:var(--gr)20;color:var(--gr);border:1px solid var(--gr)">GPT 5.0/5</span> <em style='color:var(--tx2);font-size:0.8em'>good</em></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Q:</strong> Which day of the seven hath God appointed to be the weekly sabbath?</div></div>
+    <div class="ex-right"><div class="bubble bubble-a"><strong>A:</strong> God appointed the seventh day of the week, the Sabbath, to be a day of rest and worship.</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/vb_nonmcq_d598f0c3/eval-results/voicebench.commoneval/audio/chatcmpl-d40fdf52.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>VoiceBench CommonEval</strong> <span class="badge" style="background:var(--ye)20;color:var(--ye);border:1px solid var(--ye)">GPT 3.0/5</span> <em style='color:var(--tx2);font-size:0.8em'>medium</em></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Q:</strong> What can I do about my headache?</div></div>
+    <div class="ex-right"><div class="bubble bubble-a"><strong>A:</strong> I'm sorry to hear that. Have you tried drinking plenty of water and taking a pain reliever?</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/vb_nonmcq_d598f0c3/eval-results/voicebench.commoneval/audio/chatcmpl-2e8e1c9f.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>VoiceBench CommonEval</strong> <span class="badge" style="background:var(--re)20;color:var(--re);border:1px solid var(--re)">GPT 1.0/5</span> <em style='color:var(--tx2);font-size:0.8em'>bad</em></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Q:</strong> Is it chilly in Haiti</div></div>
+    <div class="ex-right"><div class="bubble bubble-a"><strong>A:</strong> No, chili is not a recognized word in the English language. It is likely a misspelling or variation of the word chile, which refers to the spicy pepper commonly used in cooking. If you are asking abou…</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/vb_nonmcq_d598f0c3/eval-results/voicebench.commoneval/audio/chatcmpl-01b95500.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+</div>
+
+<div class="ex-section">
+  <h3 style="color:var(--ac)">FDB — Turn-Taking &amp; Pause Handling</h3>
+  <div class="ex-card">
+  <div class="ex-header"><strong>FDB Turn-Taking</strong> <span class="badge" style="background:var(--gr)20;color:var(--gr);border:1px solid var(--gr)">TOOK TURN ✓</span> <code style="font-size:0.78em">1</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Input audio →</strong></div></div>
+    <div class="ex-right"><div class="bubble bubble-a">one. VIPKid two. iTalki three. Preply four. Busy Bees five. English Club six. TalkAnglo seven. English with Lucy eight. English with Mark nine. English with Tom ten. English with Sarah Note: Some of t</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/fdb_d598f0c3/eval-results/fdb_v1.turn_taking/audio/chatcmpl-c34b3919.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>FDB Turn-Taking</strong> <span class="badge" style="background:var(--gr)20;color:var(--gr);border:1px solid var(--gr)">TOOK TURN ✓</span> <code style="font-size:0.78em">10</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Input audio →</strong></div></div>
+    <div class="ex-right"><div class="bubble bubble-a">I understand you are expressing frustration, but I cannot engage with content that uses profanity or aggressive language. My purpose is to communicate respectfully and avoid harmful or inflammatory st</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/fdb_d598f0c3/eval-results/fdb_v1.turn_taking/audio/chatcmpl-a3fa52b3.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>FDB Turn-Taking</strong> <span class="badge" style="background:var(--re)20;color:var(--re);border:1px solid var(--re)">MISSED TURN ✗</span> <code style="font-size:0.78em">19</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Input audio →</strong></div></div>
+    <div class="ex-right"><div class="bubble bubble-a">(model stayed silent)</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/fdb_d598f0c3/eval-results/fdb_v1.turn_taking/audio/chatcmpl-9104b410.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>FDB Turn-Taking</strong> <span class="badge" style="background:var(--re)20;color:var(--re);border:1px solid var(--re)">MISSED TURN ✗</span> <code style="font-size:0.78em">23</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Input audio →</strong></div></div>
+    <div class="ex-right"><div class="bubble bubble-a">(model stayed silent)</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/fdb_d598f0c3/eval-results/fdb_v1.turn_taking/audio/chatcmpl-84343bb9.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+  <div class="ex-card">
+  <div class="ex-header"><strong>FDB Pause-Candor</strong> <span class="badge" style="background:var(--gr)20;color:var(--gr);border:1px solid var(--gr)">SILENT ✓</span> <code style="font-size:0.78em">1</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>User context:</strong><br>never like I know like a lot of people like my age they watch like the makeup vlogs or like I don't know a lot of my friends would watch like the momm…</div></div>
+    <div class="ex-right"><div class="bubble bubble-a">(model stayed silent)</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/fdb_d598f0c3/eval-results/fdb_v1.pause_candor/audio/chatcmpl-0d824484.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>FDB Pause-Candor</strong> <span class="badge" style="background:var(--gr)20;color:var(--gr);border:1px solid var(--gr)">SILENT ✓</span> <code style="font-size:0.78em">103</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>User context:</strong><br>Um there's people in Alaska or I guess kind of now kids are from here but like there's a lot of a lot of anybody that's older than me is basically fro…</div></div>
+    <div class="ex-right"><div class="bubble bubble-a">(model stayed silent)</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/fdb_d598f0c3/eval-results/fdb_v1.pause_candor/audio/chatcmpl-ece6e2ae.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>FDB Pause-Candor</strong> <span class="badge" style="background:var(--re)20;color:var(--re);border:1px solid var(--re)">INTERRUPTED ✗</span> <code style="font-size:0.78em">10</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>User context:</strong><br>she just like stopped what she was doing and turned to look at me when I was describing her tripping He was like anybody but she she's not like good c…</div></div>
+    <div class="ex-right"><div class="bubble bubble-a">She was looking at me.</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/fdb_d598f0c3/eval-results/fdb_v1.pause_candor/audio/chatcmpl-508a489a.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>FDB Pause-Candor</strong> <span class="badge" style="background:var(--re)20;color:var(--re);border:1px solid var(--re)">INTERRUPTED ✗</span> <code style="font-size:0.78em">100</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>User context:</strong><br>well it was like a one of the co workers we got with new tested positive for Covid and the people who work I like they didn't quite brushed under the …</div></div>
+    <div class="ex-right"><div class="bubble bubble-a">I'm happy to help! However, I want to make sure I I understand with what you're talking about. Could you    I'm sorry to hear that. I'm here to help y</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/fdb_d598f0c3/eval-results/fdb_v1.pause_candor/audio/chatcmpl-90c4042f.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+</div>
+
+<div class="ex-section">
+  <h3 style="color:var(--ac)">BBA Navigate — Correct vs Wrong</h3>
+  <div class="ex-card">
+  <div class="ex-header"><strong>BBA Navigate</strong> <span class="badge" style="background:var(--gr)20;color:var(--gr);border:1px solid var(--gr)">CORRECT ✓</span> expected: <em>No</em></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Category:</strong> navigate</div></div>
+    <div class="ex-right"><div class="bubble bubble-a">No. Despite the instructions to "always face forward" and take steps in various directions, the net displacement from the starting point is not zero. The ten steps left and ten steps right cancel each</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/bba_d598f0c3/eval-results/navigate/audio/chatcmpl-cefe54c5.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>BBA Navigate</strong> <span class="badge" style="background:var(--gr)20;color:var(--gr);border:1px solid var(--gr)">CORRECT ✓</span> expected: <em>Yes</em></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Category:</strong> navigate</div></div>
+    <div class="ex-right"><div class="bubble bubble-a">Yes</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/bba_d598f0c3/eval-results/navigate/audio/chatcmpl-17f9b47f.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>BBA Navigate</strong> <span class="badge" style="background:var(--re)20;color:var(--re);border:1px solid var(--re)">WRONG ✗</span> expected: <em>No</em></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Category:</strong> navigate</div></div>
+    <div class="ex-right"><div class="bubble bubble-a">Yes, you return to the question.  Yes, you return to the starting point.</div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/bba_d598f0c3/eval-results/navigate/audio/chatcmpl-0206bc48.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>BBA Navigate</strong> <span class="badge" style="background:var(--re)20;color:var(--re);border:1px solid var(--re)">WRONG ✗</span> expected: <em>No</em></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q"><strong>Category:</strong> navigate</div></div>
+    <div class="ex-right"><div class="bubble bubble-a"></div><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/bba_d598f0c3/eval-results/navigate/audio/chatcmpl-8c6d9060.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+</div>
+
+<div class="ex-section">
+  <h3 style="color:var(--ac)">conv_behav — Agent Session Audio (greedy)</h3>
+  <div class="ex-card">
+  <div class="ex-header"><strong>conv_behav Agent Audio</strong> <code style="font-size:0.78em">team_20251124_1.cc_record.flac_rank0.wav</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q">Full-duplex conversation session recording.</div></div>
+    <div class="ex-right"><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/conv_behav_d598f0c3/eval-results/validation_logs/agent/team_20251124_1.cc_record.flac_rank0.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>conv_behav Agent Audio</strong> <code style="font-size:0.78em">team_20251124_10.zhehuai_on_elena_s_words2_noise_45db.wav_rank0.wav</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q">Full-duplex conversation session recording.</div></div>
+    <div class="ex-right"><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/conv_behav_d598f0c3/eval-results/validation_logs/agent/team_20251124_10.zhehuai_on_elena_s_words2_noise_45db.wav_rank0.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+<div class="ex-card">
+  <div class="ex-header"><strong>conv_behav Agent Audio</strong> <code style="font-size:0.78em">team_20251124_11.zhehuai_on_elena_s_words2_laptop_24db.wav_rank0.wav</code></div>
+  <div class="ex-body">
+    <div class="ex-left"><div class="bubble bubble-q">Full-duplex conversation session recording.</div></div>
+    <div class="ex-right"><audio controls src="/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/conv_behav_d598f0c3/eval-results/validation_logs/agent/team_20251124_11.zhehuai_on_elena_s_words2_laptop_24db.wav_rank0.wav" class="aplayer"></audio></div>
+  </div>
+</div>
+</div>
+
+<script>
+new Chart(document.getElementById('radarChart'), {
+  type: 'radar',
+  data: {
+    labels: ["VB nonMCQ", "VB MCQ", "BBA", "BFCL", "conv_behav", "FDB"],
+    datasets: [{"label": "greedy", "data": [59.1, 53.7, 32.7, 47.6, 82.0, 51.1], "backgroundColor": "#58a6ff33", "borderColor": "#58a6ff", "borderWidth": 2, "pointBackgroundColor": "#58a6ff"}]
+  },
+  options: {
+    responsive: true,
+    scales: { r: {
+      min: 0, max: 100,
+      ticks: { color:'#8b949e', backdropColor:'transparent', stepSize:20 },
+      grid: { color:'#30363d' },
+      pointLabels: { color:'#e6edf3', font:{ size:13 } }
+    } },
+    plugins: { legend: { labels: { color:'#e6edf3' } } }
+  }
+});
+
+new Chart(document.getElementById('barChart'), {
+  type: 'bar',
+  data: {
+    labels: ["VB non-MCQ", "VB MCQ", "FDB", "BBA", "BFCL", "conv_behav"],
+    datasets: [
+      {label:'greedy',  data:[59.1, 53.7, 51.1, 32.7, 47.6, 82.0],backgroundColor:'#58a6ffcc',borderColor:'#58a6ff',borderWidth:1},
+      {label:'sampling',data:[null, null, null, null, null, null],backgroundColor:'#d2992244',borderColor:'#d29922',borderWidth:1}
+    ]
+  },
+  options: {
+    responsive:true,
+    plugins:{ legend:{ labels:{ color:'#e6edf3' } } },
+    scales:{
+      x:{ ticks:{ color:'#8b949e' }, grid:{ color:'#21262d' } },
+      y:{ min:0, max:100, ticks:{ color:'#8b949e' }, grid:{ color:'#21262d' } }
+    }
+  }
+});
+</script>
+</body>
+</html>
