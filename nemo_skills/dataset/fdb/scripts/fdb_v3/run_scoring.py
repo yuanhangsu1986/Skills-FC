@@ -228,6 +228,25 @@ def _to_mono_wav(audio_path: Path, dst: Path) -> Path:
         return audio_path
 
 
+def _to_model_channel_mono_wav(audio_path: Path, dst: Path) -> Path:
+    """Extract the model (agent) channel from a duplex output WAV.
+
+    Convention in this codebase (see run_fdb_scoring._convert_stereo_to_mono):
+    stereo output.wav has ch0=user, ch1=model. Averaging the two channels
+    mixes the user's mic back into the agent ASR, so we pick ch1 explicitly.
+    Mono inputs are passed through unchanged."""
+    try:
+        import soundfile as sf
+
+        data, sr = sf.read(str(audio_path))
+        if data.ndim == 2 and data.shape[1] >= 2:
+            sf.write(str(dst), data[:, 1], sr)
+            return dst
+        return audio_path
+    except Exception:
+        return _to_mono_wav(audio_path, dst)
+
+
 def _user_speech_end_from_chunks(chunks: list[dict], bounds: dict) -> float | None:
     """Locate when the user finished speaking. Prefer ASR chunks with a 2s-gap
     heuristic (matches run_s2s_offline_benchmark.py); fall back to silence-based
@@ -380,7 +399,14 @@ def _reconstruct_fd3_layout(
             input_asr = {"text": "", "chunks": []}
             if asr_model is not None:
                 if output_wav_dst.exists():
-                    output_asr = _run_asr(asr_model, output_wav_dst)
+                    out_mono_path = sample_dir / "_output_mono.wav"
+                    asr_output_path = _to_model_channel_mono_wav(output_wav_dst, out_mono_path)
+                    output_asr = _run_asr(asr_model, asr_output_path)
+                    if out_mono_path.exists():
+                        try:
+                            out_mono_path.unlink()
+                        except OSError:
+                            pass
                 if input_wav.exists():
                     mono_path = sample_dir / "_input_mono.wav"
                     asr_input_path = _to_mono_wav(input_wav, mono_path)

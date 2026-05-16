@@ -76,7 +76,7 @@ use_llm_judge: true
 skip_latency: false
 
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
-scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile pydub openai jinja2"
+scoring_installation_command: "pip install numpy scipy scikit-learn soundfile pydub openai jinja2"
 
 inference_overrides: ""
 
