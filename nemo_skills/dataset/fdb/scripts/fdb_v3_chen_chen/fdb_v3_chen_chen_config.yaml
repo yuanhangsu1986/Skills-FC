@@ -1,0 +1,70 @@
+# Full-Duplex-Bench v3 (FD3) — UPSTREAM end-to-end variant.
+#
+# Drives the upstream FD3 orchestrator (cchen1's Backend_agent + vLLM serving
+# Qwen3-30B-A3B-Instruct + S2S via DRIRF's NemotronVoicechatInferenceWrapper)
+# on a single 2-GPU node. Scoring just ingests the upstream reports into our
+# metrics.json schema under key fdb_v3_chen_chen.tool_call.
+#
+# Use this when you want numbers comparable to upstream FDBV3 reports.
+# For the in-tree variant (DSFTS inference + custom scoring), see ../fdb_v3/.
+
+cluster: s2s_eval_oci_iad_oncluster
+partition: batch_block1,batch_block3,batch_block4
+
+# 2 GPUs on one node: orchestrator pins Backend GPU=0 (vLLM) and S2S GPU=1.
+num_gpus: 2
+
+# REQUIRED: the S2S checkpoint to evaluate.
+s2s_checkpoint_dir: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
+
+# NeMo source on PYTHONPATH (must provide NemotronVoicechatInferenceWrapper).
+nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
+
+# FDBV3_CHENCHEN repo (used as fallback if backend_repo_path doesn't ship FD3/).
+fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN
+
+# Backend Agent repo: contains Backend_agent/setup_llm.sh, start_backend_agent.sh,
+# AND FD3/bin/run_fd3_audio_eval_job.sh (this is the upstream-blessed path used
+# by FDBV3_CHENCHEN/FD3/slurm/fd3_audio_eval.sh).
+backend_repo_path: /lustre/fsw/portfolios/llmservice/users/cchen1/code/Backend_agent
+
+# Container with all upstream deps (lightning, vllm, NeMo, etc.).
+server_container: /lustre/fsw/portfolios/llmservice/users/cchen1/containers/eval_agent.sqsh
+scoring_container: /lustre/fsw/portfolios/llmservice/users/cchen1/containers/eval_agent.sqsh
+scoring_container_python_exec: python3
+
+# LLM judge: hits NVIDIA's gateway by default (set api key via env var name below).
+openai_base_url: https://inference-api.nvidia.com/v1
+openai_api_key_env_var: NVIDIA_API_KEY
+judge_model: openai/openai/gpt-5.2
+
+# Optional caches; pick paths writable inside the container.
+hf_home: /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/huggingface
+
+# Output: eval-results/<benchmark>/ holds metrics.json + summarized-results/.
+# eval-results/<benchmark>/fd3_run/ holds upstream artifacts
+# (reports/, logs/, per_sample_results/, model_report.json).
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_chen_chen/fdb_v3_chen_chen
+provider: fdb_v3_chen_chen
+expname: fdb_v3_chen_chen
+
+# Inference knobs forwarded to run_s2s_offline_benchmark.py.
+engine_type: vllm_llm_vllm_eartts
+temperature: 0.0
+top_p: 1.0
+
+# Limit examples for smoke tests (null = full 100-sample run).
+max_examples: null
+
+# Scoring stage is pure JSON shuffling — no GPU needed.
+scoring_gpus: 0
+
+# Pre-flight installs (mostly already in the container; left empty by default).
+installation_command: ""
+scoring_installation_command: ""
+
+# Lifecycle flags.
+generation_only: false
+scoring_only: false
+dry_run: false
+force: false
