@@ -1,7 +1,7 @@
 # Full-Duplex-Bench v3 (FD3) — UPSTREAM end-to-end variant.
 #
 # Drives the upstream FD3 orchestrator (Backend_agent + vLLM serving
-# Qwen3-30B-A3B-Instruct + S2S via DRIRF's NemotronVoicechatInferenceWrapper)
+# Qwen3-30B-A3B-Instruct + S2S via cchen1's NemotronVoicechatInferenceWrapper)
 # on a single 2-GPU node. Scoring just ingests the upstream reports into our
 # metrics.json schema under key fdb_v3_chen_chen.tool_call.
 #
@@ -25,8 +25,13 @@ num_gpus: 2
 # `make_patched_config` can rewrite it when --model is given globally.
 model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
 
-# NeMo source on PYTHONPATH (must provide NemotronVoicechatInferenceWrapper).
-nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
+# NeMo source on PYTHONPATH — yuanhangs-owned mirror of cchen1's Backend_agent/NeMo
+# fork (where chen chen's run_s2s_offline_benchmark.py was developed against).
+# This is intentionally NOT DRIRF: cchen1's wrapper has its own FC state-machine /
+# _do_fc_prefill / get_fc_debug_counters logic that DRIRF replaced with a different
+# implementation. Using DRIRF here causes the model to emit pure PAD/EOS tokens
+# even though the system prompt, audio, and cuda-graph fixes are all correct.
+nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_Chen_Chen
 
 # Self-contained yuanhangs-owned mirror of upstream's FD3 + Backend_agent.
 # Contains: FD3/bin/run_fd3_audio_eval_job.sh, FD3/bin/run_fd3_eval.sh,
@@ -63,6 +68,16 @@ env:
   NVIDIA_API_KEY: ${NV_INFERENCE_KEY:-}
   FD3_JUDGE_MODEL: openai/openai/gpt-5.2
   JUDGE_MODEL: openai/openai/gpt-5.2
+  # ASR model used by chen chen's run_tool_benchmark.run_asr on the agent
+  # output WAV. Configurable; default is the upstream choice.
+  ASR_MODEL_NAME: nvidia/parakeet-tdt-0.6b-v2
+  # Disable RNN-T CUDA-graph decoding. NeMo's CUDA-graph path unpacks
+  # cudaStreamGetCaptureInfo's return as a 7-tuple (cu_call strips error to 6),
+  # but this container's cuda.bindings.runtime returns 6 elements (5 after
+  # strip). Symptom: "ValueError: not enough values to unpack (expected 6, got
+  # 5)" raised from super().transcribe(...) when timestamps=True. Disabling
+  # CUDA graphs skirts the affected code path.
+  ASR_DISABLE_CUDA_GRAPHS: "1"
 
 # Output: eval-results/<benchmark>/ holds metrics.json + summarized-results/.
 # eval-results/<benchmark>/fd3_run/ holds upstream artifacts
@@ -71,8 +86,28 @@ output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_ch
 provider: fdb_v3_chen_chen
 expname: fdb_v3_chen_chen
 
+# System prompt: by default, render the same Nano v2 (full-schema with
+# <TOOLCALL> framing) system prompt the in-tree fdb_v3 pipeline uses, via
+# fdb_v3/render_prompt.py:render_fd3_system_prompt. Empirically required for
+# S2S checkpoints fine-tuned on the Nano v2 chat template — the upstream
+# lightweight (name+description only) default makes them emit pure PAD tokens.
+#
+# To use upstream's lightweight prompt instead (e.g. to reproduce published
+# FD3 baselines), set `render_fd3_system_prompt: false`. To use a custom
+# prompt, put it under `env: FD3_S2S_SYSTEM_PROMPT: ...` and our render is
+# skipped automatically.
+render_fd3_system_prompt: true
+
 # Inference knobs forwarded to run_s2s_offline_benchmark.py.
-engine_type: vllm_llm_vllm_eartts
+#
+# engine_type=native uses the wrapper's PyTorch path — slower than vLLM but reliable.
+# The wrapper's vLLM-EARTTS conversion (convert_eartts_checkpoint) is fragile
+# and crashes on some checkpoint formats (e.g. `_fake_rnnt` variants) with
+# "There is no module or parameter named 'stt_model' in NemotronHForCausalLM".
+# Conv_behav's drirf_offline pipeline rejects vllm engine_types entirely
+# (conv_behav_drirf_offline_infer.py:59-62) for the same reason, so `native`
+# is the supported path.
+engine_type: native
 temperature: 0.0
 top_p: 1.0
 

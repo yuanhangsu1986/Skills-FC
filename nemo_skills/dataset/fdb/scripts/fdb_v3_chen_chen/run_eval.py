@@ -15,8 +15,9 @@
 """Run FDB v3 ChenChen (upstream-end-to-end) eval.
 
 Generation drives the upstream FD3 orchestrator (Backend Agent + vLLM + S2S via
-DRIRF's NemotronVoicechatInferenceWrapper) on one 2-GPU node. Scoring just
-ingests the upstream reports into our metrics.json schema.
+cchen1's NemotronVoicechatInferenceWrapper, mirrored at NeMo_Voice_Chat_Chen_Chen)
+on one 2-GPU node. Scoring just ingests the upstream reports into our metrics.json
+schema.
 
 Usage:
     python nemo_skills/dataset/fdb/scripts/fdb_v3_chen_chen/run_eval.py \
@@ -43,6 +44,42 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def _env_has_prompt_override(config: dict) -> bool:
+    env = config.get("env") or {}
+    return any(k in env for k in ("FD3_S2S_SYSTEM_PROMPT", "S2S_SYSTEM_PROMPT"))
+
+
+def _maybe_render_fd3_system_prompt(config: dict) -> str | None:
+    """Render the in-tree fdb_v3 Nano v2 FD3 system prompt (full schema)
+    using fdb_v3/render_prompt.py. Returns None when:
+      - user explicitly set `s2s_system_prompt` in YAML
+      - user pinned FD3_S2S_SYSTEM_PROMPT / S2S_SYSTEM_PROMPT in `env:` dict
+      - YAML toggle `render_fd3_system_prompt: false`
+      - rendering fails (jinja2 missing on submission host, etc.) — falls
+        back to upstream's lightweight default
+    """
+    if config.get("render_fd3_system_prompt") is False:
+        return None
+    if config.get("s2s_system_prompt"):
+        return None
+    if _env_has_prompt_override(config):
+        return None
+    try:
+        from nemo_skills.dataset.fdb.scripts.fdb_v3.render_prompt import (
+            render_fd3_system_prompt,
+        )
+        fdb_repo = Path(config["fdb_repo_path"])
+        rendered = render_fd3_system_prompt(fdb_repo=fdb_repo)
+        print(f"  rendered Nano v2 FD3 system prompt ({len(rendered)} chars) via fdb_v3/render_prompt.py")
+        return rendered
+    except Exception as e:
+        print(
+            f"  warning: could not render Nano v2 FD3 prompt ({type(e).__name__}: {e}); "
+            f"upstream's lightweight default will apply"
+        )
+        return None
+
+
 def _eval_results_dir(config: dict) -> str:
     return f"{config['output_dir']}/eval-results/{BENCHMARK}"
 
@@ -54,13 +91,44 @@ def _fd3_run_root(config: dict) -> str:
     return f"{_eval_results_dir(config)}/fd3_run"
 
 
+def _stage_per_sample_data_dir(config: dict, fd3_run_root: str) -> str:
+    """Create a per-run mirror of FDBV3_CHENCHEN/FD3/fdb_v3_data_released under
+    fd3_run/per_sample_data/. Each sample dir contains a symlink to the upstream
+    input.wav; outputs (output_*.wav, result_*.json, _offline_*) will land here
+    at inference time. Keeps all writes inside eval-results/, so rerun-by-deleting
+    the eval-results tree fully restores a clean slate."""
+    upstream_data = Path(config["fdb_repo_path"]) / "FD3" / "fdb_v3_data_released"
+    staged = Path(fd3_run_root) / "per_sample_data"
+    staged.mkdir(parents=True, exist_ok=True)
+    if not upstream_data.exists():
+        print(f"  warning: upstream data dir not found at {upstream_data}; per-sample staging skipped")
+        return str(staged)
+    n = 0
+    for sample_dir in upstream_data.iterdir():
+        if not sample_dir.is_dir():
+            continue
+        dst_sample_dir = staged / sample_dir.name
+        dst_sample_dir.mkdir(exist_ok=True)
+        for fname in ("input.wav", "metadata.json"):
+            src = sample_dir / fname
+            dst = dst_sample_dir / fname
+            if src.exists() and not dst.exists():
+                try:
+                    dst.symlink_to(src)
+                except OSError as e:
+                    print(f"  warning: symlink {dst} -> {src} failed: {e}")
+        n += 1
+    print(f"  staged per-sample data dir: {staged} ({n} samples linked)")
+    return str(staged)
+
+
 def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     """Compose the shell command that launches the upstream FD3 orchestrator.
 
-    Exports the env vars upstream expects, prepends DRIRF to PYTHONPATH so the
-    NemotronVoicechatInferenceWrapper import resolves, then execs the
-    orchestrator which brings up vLLM (Qwen3 on GPU 0) + Backend Agent +
-    S2S (GPU 1) and runs run_s2s_offline_benchmark + the FD3 evaluators.
+    Exports the env vars upstream expects, prepends the cchen1-NeMo mirror to
+    PYTHONPATH so the NemotronVoicechatInferenceWrapper import resolves, then
+    execs the orchestrator which brings up vLLM (Qwen3 on GPU 0) + Backend
+    Agent + S2S (GPU 1) and runs run_s2s_offline_benchmark + the FD3 evaluators.
     """
     fdb_repo = config["fdb_repo_path"]
     drirf_path = config["nemo_code_path"]
@@ -74,6 +142,18 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     # defaults to basename(checkpoint). Drives `model_name` in model_report.json.
     run_label = config.get("run_label") or Path(s2s_ckpt).name
     run_root = _fd3_run_root(config)
+
+    # Render the Nano v2 FD3 system prompt — the same one the in-tree fdb_v3
+    # pipeline uses and the format these S2S checkpoints were fine-tuned on.
+    # Chen chen's run_fd3_eval.sh defaults to a lightweight (name+description
+    # only) prompt; with that, the model emits pure PAD tokens. We inject the
+    # rendered Nano v2 prompt via FD3_S2S_SYSTEM_PROMPT, which run_fd3_eval.sh
+    # honors (line 39): S2S_SYSTEM_PROMPT > FD3_S2S_SYSTEM_PROMPT > default.
+    rendered_prompt = _maybe_render_fd3_system_prompt(config)
+    if rendered_prompt is not None:
+        env_exports_extra_prompt = [f"export FD3_S2S_SYSTEM_PROMPT={shlex.quote(rendered_prompt)}"]
+    else:
+        env_exports_extra_prompt = []
 
     # Optional knobs forwarded to run_fd3_eval.sh -> run_s2s_offline_benchmark.py
     pass_args: list[str] = []
@@ -96,6 +176,13 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     pass_args += list(extra_passthrough)
     pass_args_str = " ".join(shlex.quote(a) for a in pass_args)
 
+    # Stage per-run data dir (symlinks for input.wav). Forces all writes
+    # — per-sample result/output WAV, _offline_/wrapper_output, logs, reports —
+    # to live under eval-results/.../fd3_run/, NOT in the FDBV3_CHENCHEN tree.
+    per_sample_data_dir = _stage_per_sample_data_dir(config, run_root)
+    logs_dir = f"{run_root}/logs"
+    reports_dir = f"{run_root}/reports"
+
     # Derived env vars (depend on other YAML fields). These are the only ones
     # the script computes itself; everything else is user-controlled via
     # the `env:` dict in the YAML so we don't bake assumptions about which
@@ -105,6 +192,9 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
         f"export RUN_LABEL={shlex.quote(run_label)}",
         f"export FD3_PROVIDER={shlex.quote(provider)}",
         f"export FD3_RUN_ROOT={shlex.quote(run_root)}",
+        f"export FD3_RESULTS_DIR={shlex.quote(per_sample_data_dir)}",
+        f"export FD3_LOGS_DIR={shlex.quote(logs_dir)}",
+        f"export FD3_REPORTS_DIR={shlex.quote(reports_dir)}",
         f"export PYTHONPATH={shlex.quote(drirf_path)}:${{PYTHONPATH:-}}",
     ]
     # Free-form env vars. Values are double-quoted so shell expansion (${...})
@@ -112,6 +202,11 @@ def build_generation_command(config: dict, extra_passthrough: list[str]) -> str:
     # and whatever the cluster actually injects.
     for k, v in (config.get("env") or {}).items():
         env_exports.append(f'export {k}="{v}"')
+    # Append the rendered FD3 prompt last so that explicit user overrides
+    # placed in the `env:` dict (FD3_S2S_SYSTEM_PROMPT or S2S_SYSTEM_PROMPT)
+    # are NOT overridden when present; if not present, our render takes effect.
+    if env_exports_extra_prompt and not _env_has_prompt_override(config):
+        env_exports.extend(env_exports_extra_prompt)
 
     orchestrator = f"{fdb_repo}/FD3/bin/run_fd3_audio_eval_job.sh"
 

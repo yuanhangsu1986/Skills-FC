@@ -41,7 +41,7 @@ server_args: >-
   --output_dir /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/FEB_26/voicebench_incremental_v2_text_26feb_artifacts
   --batch_size 2
   --code_path /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/NeMo
-  --pip_install "hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
+  --pip_install "--cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
 
 server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
 server_server_type: vllm_multimodal
@@ -69,7 +69,7 @@ api_type: nvidia
 nvidia_model: azure/openai/gpt-4o-mini
 
 installation_command: ""
-scoring_installation_command: "pip install sacrebleu qa_metrics"
+scoring_installation_command: "pip install --cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip sacrebleu qa_metrics"
 
 expname: voicebench_s2s_incremental_v2_text_26feb
 decoding_mode: greedy

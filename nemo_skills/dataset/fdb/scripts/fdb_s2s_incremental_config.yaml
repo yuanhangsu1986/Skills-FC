@@ -42,7 +42,7 @@ fdb_data_path: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/
 subtests:
   - turn_taking
 
-scoring_installation_command: "pip install numpy scipy scikit-learn silero-vad soundfile"
+scoring_installation_command: "pip install --cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip numpy scipy scikit-learn silero-vad soundfile"
 
 expname: fdb_v1_s2s_incremental
 decoding_mode: greedy

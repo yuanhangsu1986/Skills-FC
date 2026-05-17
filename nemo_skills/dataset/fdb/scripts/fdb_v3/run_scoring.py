@@ -395,50 +395,62 @@ def _reconstruct_fd3_layout(
                 if not output_wav_dst.exists() or output_wav_dst.stat().st_size != output_wav_src.stat().st_size:
                     shutil.copy2(output_wav_src, output_wav_dst)
 
-            output_asr = {"text": "", "chunks": []}
-            input_asr = {"text": "", "chunks": []}
-            if asr_model is not None:
+            # Pre-extract the mono input + model-channel-only output WAVs ONCE.
+            # Both ASR and silence-based latency need them; in the stereo
+            # output, ch0 is the user (loud, starting at t≈0) and ch1 is the
+            # model. Using the raw stereo WAV for silence-detection causes
+            # `first_speech_s = 0` for every sample (because ch0 fires
+            # immediately), which collapses every sample into "interruption"
+            # and breaks avg latency.
+            asr_output_path = output_wav_dst
+            asr_input_path = input_wav
+            out_mono_path = sample_dir / "_output_mono.wav"
+            mono_path = sample_dir / "_input_mono.wav"
+            try:
                 if output_wav_dst.exists():
-                    out_mono_path = sample_dir / "_output_mono.wav"
                     asr_output_path = _to_model_channel_mono_wav(output_wav_dst, out_mono_path)
-                    output_asr = _run_asr(asr_model, asr_output_path)
-                    if out_mono_path.exists():
-                        try:
-                            out_mono_path.unlink()
-                        except OSError:
-                            pass
                 if input_wav.exists():
-                    mono_path = sample_dir / "_input_mono.wav"
                     asr_input_path = _to_mono_wav(input_wav, mono_path)
-                    input_asr = _run_asr(asr_model, asr_input_path)
-                    if mono_path.exists():
+
+                output_asr = {"text": "", "chunks": []}
+                input_asr = {"text": "", "chunks": []}
+                if asr_model is not None:
+                    if output_wav_dst.exists():
+                        output_asr = _run_asr(asr_model, asr_output_path)
+                    if input_wav.exists():
+                        input_asr = _run_asr(asr_model, asr_input_path)
+
+                if output_asr["text"]:
+                    transcript = output_asr["text"]
+                    transcript_source = "asr"
+                else:
+                    transcript = s2s_pred_text
+                    transcript_source = "s2s_pred_text_fallback"
+
+                latency = {}
+                user_speech_end_rel = None
+                agent_speech_start_rel = None
+                perceived_total_latency = None
+                if not skip_latency and input_wav.exists() and output_wav_dst.exists():
+                    # Use mono channels here too — otherwise silence detection
+                    # on the stereo output hits ch0 (user) at t=0.
+                    latency = _measure_latency(asr_input_path, asr_output_path)
+                    bounds_in = _detect_speech_bounds(asr_input_path)
+                    bounds_out = _detect_speech_bounds(asr_output_path)
+                    user_speech_end_rel = _user_speech_end_from_chunks(input_asr["chunks"], bounds_in)
+                    if output_asr["chunks"]:
+                        agent_speech_start_rel = float(output_asr["chunks"][0]["timestamp"][0])
+                    elif bounds_out.get("first_speech_s") is not None:
+                        agent_speech_start_rel = float(bounds_out["first_speech_s"])
+                    if user_speech_end_rel is not None and agent_speech_start_rel is not None:
+                        perceived_total_latency = round(agent_speech_start_rel - user_speech_end_rel, 3)
+            finally:
+                for tmp in (out_mono_path, mono_path):
+                    if tmp.exists():
                         try:
-                            mono_path.unlink()
+                            tmp.unlink()
                         except OSError:
                             pass
-
-            if output_asr["text"]:
-                transcript = output_asr["text"]
-                transcript_source = "asr"
-            else:
-                transcript = s2s_pred_text
-                transcript_source = "s2s_pred_text_fallback"
-
-            latency = {}
-            user_speech_end_rel = None
-            agent_speech_start_rel = None
-            perceived_total_latency = None
-            if not skip_latency and input_wav.exists() and output_wav_dst.exists():
-                latency = _measure_latency(input_wav, output_wav_dst)
-                bounds_in = _detect_speech_bounds(input_wav)
-                bounds_out = _detect_speech_bounds(output_wav_dst)
-                user_speech_end_rel = _user_speech_end_from_chunks(input_asr["chunks"], bounds_in)
-                if output_asr["chunks"]:
-                    agent_speech_start_rel = float(output_asr["chunks"][0]["timestamp"][0])
-                elif bounds_out.get("first_speech_s") is not None:
-                    agent_speech_start_rel = float(bounds_out["first_speech_s"])
-                if user_speech_end_rel is not None and agent_speech_start_rel is not None:
-                    perceived_total_latency = round(agent_speech_start_rel - user_speech_end_rel, 3)
 
             result = {
                 "pid": speaker_id,

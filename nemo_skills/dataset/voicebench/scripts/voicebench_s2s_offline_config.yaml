@@ -57,7 +57,7 @@ nvidia_model: azure/openai/gpt-4o-mini
 
 # Installation commands
 installation_command: ""
-scoring_installation_command: "pip install sacrebleu qa_metrics"
+scoring_installation_command: "pip install --cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip sacrebleu qa_metrics"
 
 # Experiment settings
 expname: voicebench_s2s_offline

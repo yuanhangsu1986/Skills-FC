@@ -83,7 +83,7 @@ inference_container_python_exec: python3
 # ---------------------------------------------------------------------------
 # Installation commands
 # ---------------------------------------------------------------------------
-scoring_installation_command: "pip install numpy scipy scikit-learn soundfile openai jiwer whisper-normalizer"
+scoring_installation_command: "pip install --cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip numpy scipy scikit-learn soundfile openai jiwer whisper-normalizer"
 
 # ---------------------------------------------------------------------------
 # Pipeline control
