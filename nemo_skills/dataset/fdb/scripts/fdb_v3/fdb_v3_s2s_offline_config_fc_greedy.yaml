@@ -47,7 +47,7 @@ scoring_partition: batch_block1,batch_block3,batch_block4
 
 server_server_type: vllm_multimodal
 
-fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN
+fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN
 
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_offline_greedy/fdb_v3_fc

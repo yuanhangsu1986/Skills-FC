@@ -18,25 +18,26 @@ model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_
 
 server_type: vllm
 server_gpus: 1
-num_chunks: 4
+num_chunks: 8
 
 server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
 server_args: >-
   --backend s2s_incremental_v2
   --decode_audio
   --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
-  --num_frames_per_inference 3
+  --num_frames_per_inference 2
   --engine_type vllm_llm_vllm_eartts
   --use_perception_cache
   --use_perception_cudagraph
   --use_codec_cache
-  --buffer_size_frames 21
+  --buffer_size_frames 25
   --codec_token_history_size 60
   --matmul_precision medium
   --vllm_gpu_memory_utilization 0.35
   --vllm_max_model_len 8192
   --force_turn_taking
-  --inference_user_pad_boost 0
+  --inference_user_pad_boost 0.8
+  --silence_padding_sec 10
   --max_new_tokens 4500
   --top_p 1.0
   --temperature 0.0
@@ -46,7 +47,7 @@ server_args: >-
   --decode_function_channel
   --tool_call_parser /nemo_run/code/recipes/multimodal/server/tool_calling/nemotron_v2_voicechat_toolcall_parser.py
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
-  --pip_install "--cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
+  --pip_install "--cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1 langchain-core"
 
 server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
 scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
@@ -62,7 +63,18 @@ scoring_partition: batch_block1,batch_block3,batch_block4
 server_server_type: vllm_multimodal
 
 # FD3 vendored repo: contains FD3/release_code/ (evaluators) + FD3/fdb_v3_data_released/ (samples).
-fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN
+fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN
+
+# Opt fdb_v3 in-tree into DRIRF's mock_api multi-turn dispatch (env-gated in
+# DRIRF wrapper, default off). When `model: mock_api`, run_eval.py writes a
+# per-benchmark patched copy of the cluster config with
+#   env_vars: BACKEND_AGENT_MODEL=mock_api, FDB_REPO_PATH=<fdb_repo_path>
+# and redirects NEMO_SKILLS_CONFIG_DIR at it for this run only. Other
+# DRIRF-using benchmarks (bfcl, conv_behav, bba, voicebench, fdb_v1*) are
+# unaffected because the redirect is process-local.
+# Set model: "" (or remove the block) to disable.
+backend_agent:
+  model: "mock_api"
 
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/fdb_v3_fc

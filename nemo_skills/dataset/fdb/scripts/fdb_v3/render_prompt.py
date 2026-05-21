@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-DEFAULT_FDB_REPO = Path("/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN")
+DEFAULT_FDB_REPO = Path("/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN")
 DEFAULT_TEMPLATE = Path(
     "/lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/script/template.jinja"
 )

@@ -17,7 +17,73 @@ partition: batch_block1,batch_block3,batch_block4
 # partition rejects 0-GPU job requests.
 cpu_partition: cpu_short
 
-# 2 GPUs on one node: orchestrator pins Backend GPU=0 (vLLM) and S2S GPU=1.
+# Multi-shard SLURM submission. Each shard is an independent SLURM job that
+# processes a disjoint subset of samples (round-robin by sorted sample-folder
+# name). Scoring waits afterok of all shards, merges per-sample outputs via
+# symlinks, and runs cchen1's evaluators ONCE over the merged tree — so the
+# headline numbers stay byte-identical to cchen1's single-machine output.
+#
+# `num_shards`: how many parallel inference jobs to submit. Clamped to [1, 8]
+#   (warn + auto-correct). Higher means faster wall clock at the cost of more
+#   independent SLURM allocations. With num_shards=1 you get the original
+#   single-job behavior (just with evaluators moved to the scoring step).
+#
+# `backend_agent`: configures the agent that the S2S model's tool calls
+#   dispatch to.
+#     model: "mock_api"  → in-process Python dispatch via
+#                          Backend_agent/langGraph/fd3_tools._execute (CPU only).
+#                          No vLLM. gpus_per_shard=1.
+#     model: "<llm-id>"  → LLM-driven backend (cchen's LangGraph + ChatOpenAI).
+#                          When `gpu: 1`, a local vLLM is started on BACKEND_GPU
+#                          serving `model`; add a `vllm_model_path` field here
+#                          pointing to the local HF checkpoint (e.g.
+#                          /lustre/.../hfcache/manual_qwen3_30b_a3b_instruct_2507).
+#                          When `gpu: 0`, the LLM is expected to be available
+#                          remotely (e.g. NIM) — no local vLLM is started.
+#     gpu: 0 | 1         → whether to start a local vLLM for the agent's LLM.
+#                          Implies gpus_per_shard = 2 if 1, else 1.
+#     trigger_function_token: "<SPECIAL_21>"
+#                        → (mock_api only) the function-head token that signals
+#                          end-of-tool-call and fires backend dispatch. Defaults
+#                          to <SPECIAL_21> which matches the chen_chen-family
+#                          checkpoints. Override here for checkpoint families
+#                          that use a different EOTC token name. The env var
+#                          BACKEND_AGENT_TRIGGER_FUNC_TOKEN can also override.
+#     intent_token / ready_token / response_open_token / response_close_token
+#                        → All four tokens are model-family-specific and MUST
+#                          be set here. The wrapper has no hardcoded defaults
+#                          and will raise at init time if intent/ready are
+#                          missing. response_open/close may be empty when the
+#                          model frames TOOL_RESPONSE with text tokens (e.g.
+#                          literal `<TOOL_RESPONSE>...</TOOL_RESPONSE>`).
+#
+# Defaults: mock_api / no GPU.
+num_shards: 8
+backend_agent:
+  model: "mock_api"
+  gpu: 0
+  # Token names appropriate for THIS model family (Nano v2). The wrapper has
+  # NO hardcoded defaults — every value below must be explicitly set here.
+  #
+  # intent_token / ready_token: drive the prefill-gate frame counters.
+  #   Nano v2 emits tool-call boundary markers only on the function head:
+  #     <SPECIAL_20> opens <TOOLCALL>, <SPECIAL_21> closes it.
+  #   There is no separate "intent" emission BEFORE the tool-call. Using
+  #   <SPECIAL_20> would dispatch with an incomplete TOOLCALL string (still
+  #   mid-emission); both pointing at <SPECIAL_21> fires dispatch right when
+  #   the TOOLCALL closes, which is correct.
+  intent_token: "<SPECIAL_21>"
+  ready_token: "<SPECIAL_21>"
+  # response_open_token / response_close_token: single-token wrapping around
+  # the prefilled TOOL_RESPONSE. Empty for Nano v2 — the model expects the
+  # text-token sequence `<TOOL_RESPONSE>...</TOOL_RESPONSE>` (already in the
+  # response_text we tokenize), so no extra single-token framing is needed.
+  response_open_token: ""
+  response_close_token: ""
+
+# Legacy single-job GPU count knob. Ignored by the multi-shard code path
+# (per-shard GPU count is determined by `backend_agent.gpu`). Kept for
+# back-compat with run_all_benchmarks.sh inspections that read this key.
 num_gpus: 2
 
 # REQUIRED: the S2S checkpoint to evaluate.
@@ -31,7 +97,7 @@ model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_
 # _do_fc_prefill / get_fc_debug_counters logic that DRIRF replaced with a different
 # implementation. Using DRIRF here causes the model to emit pure PAD/EOS tokens
 # even though the system prompt, audio, and cuda-graph fixes are all correct.
-nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_Chen_Chen
+nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN/NeMo
 
 # Self-contained yuanhangs-owned mirror of upstream's FD3 + Backend_agent.
 # Contains: FD3/bin/run_fd3_audio_eval_job.sh, FD3/bin/run_fd3_eval.sh,
@@ -40,7 +106,7 @@ nemo_code_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeM
 # Backend_agent/{setup_llm.sh, start_backend_agent.sh, langGraph/} —
 # the inner Backend_agent Python package was copied from cchen1's tree
 # (the only piece that wasn't in the FDBV3 release).
-fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN
+fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN
 
 # Container with all upstream deps (lightning, vllm, NeMo, etc.).
 server_container: /lustre/fsw/portfolios/llmservice/users/cchen1/containers/eval_agent.sqsh
@@ -110,6 +176,12 @@ render_fd3_system_prompt: true
 engine_type: native
 temperature: 0.0
 top_p: 1.0
+# Forwarded to upstream run_s2s_offline_benchmark.py via run_eval.py. Must be
+# present as top-level keys so run_all_benchmarks.sh's make_patched_config
+# (which only updates keys that already exist in the YAML) can apply CLI
+# overrides like `--repetition_penalty 1.0 --force_turn_taking false`.
+repetition_penalty: 1.0
+force_turn_taking: false
 
 # Limit examples for smoke tests (null = full 100-sample run).
 max_examples: null

@@ -10,7 +10,7 @@ from its function channel for FD3 audio prompts. It mirrors `cchen1`'s
 | Item | Choice |
 | --- | --- |
 | Subtest granularity | Single benchmark `fdb_v3.tool_call`. Per-domain / per-difficulty breakdown comes from `evaluate_tool_calls.py` (4 domains: ecommerce, finance, housing, travel). |
-| FD3 source | Vendored at `/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN`, referenced via `fdb_repo_path`. |
+| FD3 source | Vendored at `/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN` (github.com/yuanhangsu1986/FDBV3, branch `chen_chen`), referenced via `fdb_repo_path`. |
 | LLM judge | `openai/openai/gpt-5.2` via NVIDIA inference API; auth uses `NV_INFERENCE_KEY` from cluster env. |
 | Engine | `vllm_llm_vllm_eartts` (existing v2 backend already patches `nemotron_h.py`). |
 | System prompt | **Nano v2 full-schema** (rendered by `render_prompt.py` from `vtrinh/.../template.jinja` over `FD3_TOOL_SPEC`). See [Prompt choice](#prompt-choice) for why and how to switch. |

@@ -14,7 +14,9 @@
 
 # Full-Duplex-Bench v3 (FD3): direct function-head tool-call evaluation for S2S models.
 # Source: /lustre/fsw/portfolios/llmservice/users/cchen1/code/Backend_agent/FD3
-# Vendored mirror: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN
+# Vendored mirror: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN
+# (github.com/yuanhangsu1986/FDBV3, branch chen_chen; NeMo lives there as a submodule
+#  tracking github.com/yuanhangsu1986/NeMo_fc.git@fdb_v3_chen_chen)
 
 DATASET_GROUP = "speechlm"
 IS_BENCHMARK_GROUP = True

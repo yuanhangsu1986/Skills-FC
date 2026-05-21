@@ -23,6 +23,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 from pathlib import Path
 
@@ -39,6 +40,79 @@ SCORING_SCRIPT = "nemo_skills/dataset/fdb/scripts/fdb_v3/run_scoring.py"
 def load_config(config_path: str) -> dict:
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
+
+
+def _maybe_opt_into_mock_api_dispatch(config: dict, dry_run: bool) -> str | None:
+    """Opt fdb_v3 in-tree into DRIRF's mock_api multi-turn dispatch.
+
+    Returns the patched config_dir path (or None when opt-in is off). Caller
+    passes the returned path to nemo_eval(..., config_dir=...) — explicit
+    config_dir takes priority over NEMO_SKILLS_CONFIG_DIR in nemo_skills'
+    cluster lookup, avoiding env-var loss across Typer/nemo-run layers.
+
+    Mechanism: writes a benchmark-scoped patched copy of the cluster config to
+    a per-user scratch dir, with BACKEND_AGENT_MODEL=mock_api + FDB_REPO_PATH
+    appended to env_vars.
+
+    Isolation guarantee: benchmark-specific env vars (BACKEND_AGENT_MODEL,
+    FDB_REPO_PATH) are confined to the per-user /tmp patch dir, never written
+    to the shared cluster_configs/ yaml. Other benchmarks (bfcl, conv_behav,
+    bba, voicebench, fdb_v1*) running in separate Python processes use the
+    default cluster lookup and are unaffected.
+
+    Only fires when YAML config has `backend_agent.model: mock_api`. Default
+    is off (returns None, no file written).
+    """
+    ba = config.get("backend_agent") or {}
+    if str(ba.get("model", "")).strip() != "mock_api":
+        return None
+
+    # Prefer the stashed string name (set in main() before isolate_job_dir
+    # mutates config["cluster"] into a dict). Fall back to config["cluster"]
+    # only if it's still a string (i.e. isolate_job_dir hasn't run yet).
+    cluster_name = config.get("cluster_name") or (
+        config["cluster"] if isinstance(config.get("cluster"), str) else None
+    )
+    if not cluster_name:
+        print("  warning: backend_agent.model=mock_api but no cluster name in config; skipping cluster patch")
+        return None
+
+    fdb_repo = config.get("fdb_repo_path")
+    if not fdb_repo:
+        print("  warning: backend_agent.model=mock_api but no fdb_repo_path in config; mock_api will be unable to import fd3_tools")
+
+    # Locate the source cluster config (mirror get_cluster_config's lookup order)
+    src_candidates = []
+    if "NEMO_SKILLS_CONFIG_DIR" in os.environ:
+        src_candidates.append(Path(os.environ["NEMO_SKILLS_CONFIG_DIR"]) / f"{cluster_name}.yaml")
+    src_candidates.append(Path.cwd() / "cluster_configs" / f"{cluster_name}.yaml")
+    src_candidates.append(Path(__file__).resolve().parents[5] / "cluster_configs" / f"{cluster_name}.yaml")
+    src = next((p for p in src_candidates if p.exists()), None)
+    if src is None:
+        print(f"  warning: cluster config {cluster_name}.yaml not found in {src_candidates}; skipping mock_api opt-in")
+        return None
+
+    cfg = yaml.safe_load(src.read_text())
+    cfg.setdefault("env_vars", [])
+    extras = ["BACKEND_AGENT_MODEL=mock_api"]
+    if fdb_repo:
+        extras.append(f"FDB_REPO_PATH={fdb_repo}")
+    trig = ba.get("trigger_function_token")
+    if trig:
+        extras.append(f"BACKEND_AGENT_TRIGGER_FUNC_TOKEN={trig}")
+    for kv in extras:
+        if kv not in cfg["env_vars"]:
+            cfg["env_vars"].append(kv)
+
+    patched_dir = Path(f"/tmp/{os.environ.get('USER', 'user')}_fdb_v3_in_tree_cluster_patches")
+    if not dry_run:
+        patched_dir.mkdir(parents=True, exist_ok=True)
+        (patched_dir / f"{cluster_name}.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
+    print(
+        f"  mock_api opt-in: patched cluster {cluster_name} with env_vars={extras}; "
+        f"config_dir={patched_dir} (will be passed explicitly to nemo_eval)"
+    )
+    return str(patched_dir)
 
 
 def build_score_command(config: dict, force: bool = False) -> str:
@@ -103,11 +177,17 @@ def run_fdb_v3_eval(config: dict) -> None:
             print(f"Skipping generation (found {output_jsonl} and done markers)")
         else:
             print("Running generation...")
+            # Opt fdb_v3 in-tree into DRIRF's mock_api dispatch if YAML opts in.
+            # Default off; benchmark-scoped via /tmp patched yaml that we pass
+            # explicitly to nemo_eval as config_dir (env-var redirect is brittle
+            # across Typer/nemo-run subprocess boundaries).
+            patched_config_dir = _maybe_opt_into_mock_api_dispatch(config, dry_run=dry_run)
             server_gpus = config.get("server_gpus", 1)
             partition = config.get("cpu_partition") if server_gpus == 0 else config.get("partition")
             nemo_eval(
                 ctx=wrap_arguments(extra_args_str),
-                cluster=config["cluster"],
+                cluster=config.get("cluster_name") or config["cluster"],
+                config_dir=patched_config_dir,
                 output_dir=config["output_dir"],
                 benchmarks=BENCHMARK,
                 model=config["model"],
@@ -143,7 +223,7 @@ def run_fdb_v3_eval(config: dict) -> None:
         scoring_partition = config.get("scoring_partition") or config.get("partition")
         run_cmd(
             ctx=wrap_arguments(""),
-            cluster=config["cluster"],
+            cluster=config.get("cluster_name") or config["cluster"],
             command=score_command,
             container=scoring_container,
             partition=scoring_partition,
@@ -205,6 +285,11 @@ def main() -> None:
         if not output_dir.endswith(f"_{commit_hash}"):
             config["output_dir"] = f"{output_dir}_{commit_hash}"
 
+    # isolate_job_dir mutates config["cluster"] from str (name) to dict
+    # (resolved cluster config). Stash the name first so downstream code that
+    # needs the string identifier (e.g. mock_api opt-in's yaml-patching) can
+    # still find it.
+    config["cluster_name"] = config["cluster"]
     isolate_job_dir(config)
     run_fdb_v3_eval(config)
 

@@ -52,7 +52,7 @@ _alias_judge_api_key()
 for _var in ("HF_HOME", "TORCH_HOME", "NEMO_CACHE_DIR", "TRITON_CACHE_DIR"):
     os.environ.setdefault(_var, "/tmp/cache")
 
-DEFAULT_FDB_REPO = Path("/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/FDBV3_CHENCHEN")
+DEFAULT_FDB_REPO = Path("/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN")
 TOOLCALL_RE = re.compile(r"<TOOLCALL>(.*?)</TOOLCALL>", re.DOTALL)
 # Parakeet ASR used by the original FD3 pipeline (run_tool_benchmark.py).
 ASR_MODEL_NAME = "nvidia/parakeet-tdt-0.6b-v2"
@@ -439,7 +439,19 @@ def _reconstruct_fd3_layout(
                     bounds_out = _detect_speech_bounds(asr_output_path)
                     user_speech_end_rel = _user_speech_end_from_chunks(input_asr["chunks"], bounds_in)
                     if output_asr["chunks"]:
-                        agent_speech_start_rel = float(output_asr["chunks"][0]["timestamp"][0])
+                        # Skip greeting/prelude audio emitted before the user finished
+                        # speaking — otherwise latency goes negative when the model
+                        # opens with e.g. "Hi! How can I help you today?".
+                        first_chunk_ts = None
+                        if user_speech_end_rel is not None:
+                            for ch in output_asr["chunks"]:
+                                ts = float(ch["timestamp"][0])
+                                if ts >= user_speech_end_rel:
+                                    first_chunk_ts = ts
+                                    break
+                        if first_chunk_ts is None:
+                            first_chunk_ts = float(output_asr["chunks"][0]["timestamp"][0])
+                        agent_speech_start_rel = first_chunk_ts
                     elif bounds_out.get("first_speech_s") is not None:
                         agent_speech_start_rel = float(bounds_out["first_speech_s"])
                     if user_speech_end_rel is not None and agent_speech_start_rel is not None:
