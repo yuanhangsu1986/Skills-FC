@@ -100,6 +100,16 @@ def _maybe_opt_into_mock_api_dispatch(config: dict, dry_run: bool) -> str | None
     trig = ba.get("trigger_function_token")
     if trig:
         extras.append(f"BACKEND_AGENT_TRIGGER_FUNC_TOKEN={trig}")
+    # STOP_AT_LAST_TURN — forward master switch + quiet-window knob. The
+    # DRIRF wrapper arms its detector on every function-head EOTC it
+    # observes and uses a text-channel state machine (wait for speech, then
+    # watch for PAD) to trim the hallucination tail; no per-sample target
+    # is needed.
+    if config.get("stop_at_last_turn"):
+        extras.append("STOP_AT_LAST_TURN=true")
+        qw = config.get("stop_at_last_turn_quiet_window_sec")
+        if qw is not None:
+            extras.append(f"STOP_AT_LAST_TURN_QUIET_WINDOW_SEC={qw}")
     for kv in extras:
         if kv not in cfg["env_vars"]:
             cfg["env_vars"].append(kv)
@@ -115,7 +125,12 @@ def _maybe_opt_into_mock_api_dispatch(config: dict, dry_run: bool) -> str | None
     return str(patched_dir)
 
 
-def build_score_command(config: dict, force: bool = False) -> str:
+def build_score_command(config: dict, force: bool = False, stage: str = "both") -> str:
+    """Build the scoring command. `stage` controls which phase to run:
+    - 'asr'   : Parakeet ASR + FD3 layout reconstruction (GPU job, ~2 min)
+    - 'judge' : FD3 evaluators (LLM judge + latency, no GPU, can be long)
+    - 'both'  : single-job behavior (default, back-compat)
+    """
     eval_results_dir = f"{config['output_dir']}/eval-results/{BENCHMARK}"
     fdb_repo = config["fdb_repo_path"]
     python_exec = (
@@ -128,6 +143,7 @@ def build_score_command(config: dict, force: bool = False) -> str:
         f"--eval_results_dir {shlex.quote(str(eval_results_dir))}",
         f"--fdb_repo {shlex.quote(str(fdb_repo))}",
         f"--provider {shlex.quote(config.get('provider', 'fdb_v3'))}",
+        f"--stage {stage}",
     ]
     if config.get("use_llm_judge"):
         cmd_args.append("--use_llm_judge")
@@ -216,25 +232,71 @@ def run_fdb_v3_eval(config: dict) -> None:
             run_after=[expname] if generation_submitted else None,
             dry_run=dry_run,
         )
-        print("Running scoring...")
-        score_command = build_score_command(config, force=config.get("scoring_force", False))
         scoring_container = config.get("scoring_container") or config.get("server_container") or "nemo-skills"
         scoring_gpus = config.get("scoring_gpus", 1)
         scoring_partition = config.get("scoring_partition") or config.get("partition")
-        run_cmd(
-            ctx=wrap_arguments(""),
-            cluster=config.get("cluster_name") or config["cluster"],
-            command=score_command,
-            container=scoring_container,
-            partition=scoring_partition,
-            num_gpus=scoring_gpus,
-            run_after=score_run_after,
-            expname=f"{expname}_score",
-            installation_command=config.get("scoring_installation_command"),
-            log_dir=f"{eval_results_path}/summarized-results",
-            reuse_code=False,
-            dry_run=dry_run,
-        )
+        cluster_name = config.get("cluster_name") or config["cluster"]
+        # Split scoring into two SLURM jobs:
+        #   1. ASR stage:  GPU short, runs Parakeet on output WAVs (~2 min)
+        #   2. Judge stage: CPU long, runs FD3 evaluators (LLM judge over
+        #      gpt-5.2 HTTP API — can take 15-40 min, holds no GPU)
+        # Chained via run_after so judge starts after ASR completes.
+        # When split_scoring is False or unset, fall back to single-job mode
+        # (back-compat for any benchmark that hasn't opted in).
+        if config.get("split_scoring", True):
+            print("Running scoring (split: ASR stage + judge stage)...")
+            asr_expname = f"{expname}_score_asr"
+            run_cmd(
+                ctx=wrap_arguments(""),
+                cluster=cluster_name,
+                command=build_score_command(config, force=config.get("scoring_force", False), stage="asr"),
+                container=scoring_container,
+                partition=scoring_partition,
+                num_gpus=scoring_gpus,
+                run_after=score_run_after,
+                expname=asr_expname,
+                installation_command=config.get("scoring_installation_command"),
+                log_dir=f"{eval_results_path}/summarized-results",
+                reuse_code=False,
+                dry_run=dry_run,
+            )
+            # Stage 2: judge — CPU only, depends on ASR
+            judge_partition = (
+                config.get("judge_partition")
+                or config.get("cpu_partition")
+                or config.get("partition")
+            )
+            run_cmd(
+                ctx=wrap_arguments(""),
+                cluster=cluster_name,
+                command=build_score_command(config, force=config.get("scoring_force", False), stage="judge"),
+                container=scoring_container,
+                partition=judge_partition,
+                num_gpus=0,
+                run_after=[asr_expname],
+                expname=f"{expname}_score_judge",
+                installation_command=config.get("scoring_installation_command"),
+                log_dir=f"{eval_results_path}/summarized-results",
+                reuse_code=False,
+                dry_run=dry_run,
+            )
+        else:
+            print("Running scoring (single-job mode)...")
+            score_command = build_score_command(config, force=config.get("scoring_force", False), stage="both")
+            run_cmd(
+                ctx=wrap_arguments(""),
+                cluster=cluster_name,
+                command=score_command,
+                container=scoring_container,
+                partition=scoring_partition,
+                num_gpus=scoring_gpus,
+                run_after=score_run_after,
+                expname=f"{expname}_score",
+                installation_command=config.get("scoring_installation_command"),
+                log_dir=f"{eval_results_path}/summarized-results",
+                reuse_code=False,
+                dry_run=dry_run,
+            )
 
     print("Done.")
 

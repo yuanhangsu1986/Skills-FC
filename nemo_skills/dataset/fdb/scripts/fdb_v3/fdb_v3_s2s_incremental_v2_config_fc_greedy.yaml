@@ -76,6 +76,25 @@ fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHE
 backend_agent:
   model: "mock_api"
 
+# STOP_AT_LAST_TURN: bound the wrapper's inference loop so the codec doesn't
+# run past the model's last meaningful turn (avoids TTS hallucinating
+# speech-like audio over long silent tails — the dominant failure mode in
+# our FD3 response_qual analysis, ~38% of samples). Pattern-matching state
+# machine in DRIRF; no per-sample knowledge needed:
+#   1. function-head SOTC (<SPECIAL_20>) disarms the detector — text-head
+#      activity during tool-call generation is ignored
+#   2. function-head EOTC (<SPECIAL_21>) (re-)arms the detector
+#   3. once armed, wait for the text channel to emit a non-PAD token
+#      (speech turn began)
+#   4. fire when the text channel stays PAD for `quiet_window_sec`
+#      consecutive seconds after speech started (speech ended, trim tail)
+# Multi-tool-call samples toggle SOTC (off) → EOTC (on) for every call, so
+# the watcher only fires during the post-last-EOTC speech turn. Disabled
+# for other DRIRF-using benchmarks (bfcl, conv_behav, bba, voicebench,
+# fdb_v1*) — leave this section off in their YAMLs.
+stop_at_last_turn: true
+stop_at_last_turn_quiet_window_sec: 10.0
+
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/fdb_v3_fc
 

@@ -1371,31 +1371,130 @@ def compute_headlines(metrics: dict[str, Any]) -> dict[str, Any]:
     return headlines
 
 
+def _deep_merge_prefer_first(into: dict, override: dict) -> None:
+    """Deep-merge `override` into `into`, keeping existing leaves in `into`.
+
+    A key from `override` is added to `into` only if `into` lacks it. When both
+    sides have the same key and both values are dicts, recurse so older commits
+    can supply sub-keys absent from the latest. Non-dict leaves already in
+    `into` are never overwritten (latest-wins-per-leaf).
+    """
+    if not isinstance(into, dict) or not isinstance(override, dict):
+        return
+    for k, v in override.items():
+        if k not in into:
+            into[k] = v
+        elif isinstance(v, dict) and isinstance(into[k], dict):
+            _deep_merge_prefer_first(into[k], v)
+
+
+def _ordered_bench_candidates(source: Path, bench: str) -> list[Path]:
+    """Return all `<bench>_<commit>` candidate dirs directly under `source`,
+    ordered latest-first.
+
+    - The `<commit>` segment must NOT contain an underscore (rejects trailing
+      `_`-suffixed dirs and `fdb_v3_chen_chen_*` style names).
+    - The bench dir must contain at least one readable split.
+    - Ordering uses `select_latest_candidate` (git rank, mtime fallback) by
+      repeatedly picking the latest from the remaining set.
+
+    If `source` itself looks like a direct benchmark dir (single-bench layout
+    that is its own bench dir), it is returned as the sole candidate.
+
+    Note: this only scans `source/` directly — it does NOT auto-traverse into
+    `source/incremental`, `source/offline`, etc. If the caller wants those
+    layouts handled (e.g. the fake_rnnt convention), they should provide a
+    pre-built sidecar JSON or point `--metrics_dirs` at the appropriate
+    subfolder directly.
+    """
+    if is_direct_benchmark_dir(source, bench):
+        return [source]
+
+    parents = [source]
+    candidates: list[Path] = []
+    seen: set[str] = set()
+    for parent in parents:
+        if not parent.exists() or not parent.is_dir():
+            continue
+        for child in parent.iterdir():
+            if not child.is_dir():
+                continue
+            matched_prefix: str | None = None
+            for prefix in BENCH_PREFIXES[bench]:
+                if benchmark_name_matches(child.name, bench, prefix):
+                    matched_prefix = prefix
+                    break
+            if matched_prefix is None:
+                continue
+            # The commit segment is whatever follows `<prefix>_`. Reject if it
+            # contains an underscore (e.g. `bba_7f5f2792_`, `fdb_v3_chen_chen_*`).
+            commit_segment = child.name[len(matched_prefix) + 1 :] if child.name != matched_prefix else ""
+            if "_" in commit_segment:
+                continue
+            if not is_direct_benchmark_dir(child, bench):
+                continue
+            key = str(child)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(child)
+
+    if not candidates:
+        return []
+
+    ordered: list[Path] = []
+    remaining = list(candidates)
+    while remaining:
+        latest = select_latest_candidate(remaining)
+        ordered.append(latest)
+        remaining = [c for c in remaining if c != latest]
+    return ordered
+
+
 def load_metrics_from_dir(source: Path) -> tuple[dict[str, Any], dict[str, Path], dict[str, Any]]:
     metrics: dict[str, Any] = {}
     bench_dirs: dict[str, Path] = {}
     metric_sources: dict[str, Any] = {}
     for bench in BENCHMARKS:
-        bench_dir = find_benchmark_dir(source, bench)
-        if not bench_dir:
+        ordered = _ordered_bench_candidates(source, bench)
+        if not ordered:
             continue
-        bench_dirs[bench] = bench_dir
+        bench_dirs[bench] = ordered[0]
         for split in BENCH_SPLITS[bench]:
-            metrics_file = next((p for p in metric_file_candidates(bench_dir, bench, split) if p.exists()), None)
-            if not metrics_file:
+            # Collect per-candidate raw dicts latest-first, then merge with
+            # earlier (latest) commits taking precedence at the leaf level.
+            merged_raw: dict[str, Any] | None = None
+            primary_metrics_file: Path | None = None
+            for cand in ordered:
+                metrics_file = next(
+                    (p for p in metric_file_candidates(cand, bench, split) if p.exists()),
+                    None,
+                )
+                if not metrics_file:
+                    continue
+                try:
+                    raw = load_json(metrics_file)
+                except Exception as exc:
+                    print(f"warning: could not read {metrics_file}: {exc}", file=sys.stderr)
+                    continue
+                if merged_raw is None:
+                    merged_raw = raw
+                    primary_metrics_file = metrics_file
+                else:
+                    _deep_merge_prefer_first(merged_raw, raw)
+            if merged_raw is None or primary_metrics_file is None:
                 continue
-            try:
-                raw = load_json(metrics_file)
-            except Exception as exc:
-                print(f"warning: could not read {metrics_file}: {exc}", file=sys.stderr)
-                continue
-            modes = extract_metric_modes(raw, metric_key_names(bench, split), infer_mode(metrics_file))
+            modes = extract_metric_modes(
+                merged_raw, metric_key_names(bench, split), infer_mode(primary_metrics_file)
+            )
             for mode, raw_metrics in modes.items():
                 flat = numeric_leaves(raw_metrics)
                 if not flat:
                     continue
                 metrics.setdefault(bench, {}).setdefault(mode, {})[split] = flat
-                metric_sources.setdefault(bench, {}).setdefault(mode, {})[split] = cluster_path(metrics_file)
+                metric_sources.setdefault(bench, {}).setdefault(mode, {})[split] = cluster_path(
+                    primary_metrics_file
+                )
     return metrics, bench_dirs, metric_sources
 
 

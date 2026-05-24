@@ -555,6 +555,19 @@ def main() -> None:
         ),
     )
     parser.add_argument("--force", action="store_true", help="Re-run even if metrics.json already populated")
+    parser.add_argument(
+        "--stage",
+        type=str,
+        choices=["asr", "judge", "both"],
+        default="both",
+        help=(
+            "Which scoring stage(s) to run. 'asr' only reconstructs FD3 layout "
+            "+ runs Parakeet ASR on output WAVs (needs GPU; fast, ~2 min). "
+            "'judge' only runs the FD3 evaluators (LLM judge + latency analysis; "
+            "no GPU, can run for tens of minutes via gpt-5.2 API). Default 'both' "
+            "preserves the original single-job behavior."
+        ),
+    )
     args = parser.parse_args()
 
     eval_results_dir = args.eval_results_dir.resolve()
@@ -582,11 +595,33 @@ def main() -> None:
             sys.exit(f"Required FD3 path missing ({label}): {path}")
 
     layout_root = eval_results_dir / "fdb_v3_layout"
-    print(f"Reconstructing FD3 layout under {layout_root}")
-    n_results = _reconstruct_fd3_layout(
-        output_jsonl, fd3_data_root, layout_root, args.provider, args.skip_latency, args.skip_asr
-    )
-    print(f"Wrote {n_results} result_{args.provider}.json files")
+
+    # Stage 1 (ASR): reconstruct FD3 per-sample layout + run Parakeet ASR on
+    # output WAVs. Needs GPU. Idempotent — _reconstruct_fd3_layout writes
+    # per-sample result_{provider}.json files that the judge stage reads.
+    if args.stage in ("asr", "both"):
+        print(f"[stage=asr] Reconstructing FD3 layout under {layout_root}")
+        n_results = _reconstruct_fd3_layout(
+            output_jsonl, fd3_data_root, layout_root, args.provider, args.skip_latency, args.skip_asr
+        )
+        print(f"[stage=asr] Wrote {n_results} result_{args.provider}.json files")
+
+    if args.stage == "asr":
+        # ASR-only mode: write a small marker so the downstream judge job knows
+        # this layout is ready. Skip evaluators entirely.
+        marker = eval_results_dir / ".asr_done"
+        marker.write_text("ok\n")
+        print(f"[stage=asr] ASR stage complete; wrote marker {marker}")
+        return
+
+    # Stage 2 (Judge): FD3 evaluators (LLM judge for tool_calls/pass_rate +
+    # latency analysis). No GPU; calls gpt-5.2 over HTTP API. Reads from the
+    # layout written by stage 1.
+    if not layout_root.exists():
+        sys.exit(
+            f"[stage=judge] Expected per-sample layout at {layout_root}, but it "
+            f"is missing. Run with --stage=asr first, or use --stage=both."
+        )
 
     report_dir = eval_results_dir / "summarized-results"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -655,7 +690,12 @@ def main() -> None:
             "turn_take_rate": eval_report.get("turn_taking", {}).get("turn_take_rate"),
             "total_scenarios": eval_report.get("total_scenarios"),
         }
-    metrics[benchmark_key]["num_result_files"] = n_results
+    # Count result files from the on-disk layout instead of the ASR-stage
+    # return value: this code path also runs in --stage=judge (after a
+    # separate ASR job populated layout_root), where n_results is unbound.
+    metrics[benchmark_key]["num_result_files"] = sum(
+        1 for _ in layout_root.glob(f"*/result_{args.provider}.json")
+    )
     metrics[benchmark_key]["provider"] = args.provider
     metrics[benchmark_key]["fdb_repo"] = str(args.fdb_repo)
 
