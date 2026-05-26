@@ -35,7 +35,7 @@
 # Defaults reflect the S2S_hf workflow:
 #   --list         /lustre/fsw/.../yuanhangs/models/S2S_hf/ckpts_list.txt
 #   --output_root  /lustre/fsw/.../yuanhangs/workspace/voice_chat/sampling+greedy/greedy
-#   --benchmarks   vb_mcq,vb_nonmcq,fdb_v1,fdb_v1_5,conv_behav,bfcl,bba
+#   --benchmarks   vb_mcq,vb_nonmcq,fdb_v1,fdb_v1_5,fdb_v3,conv_behav,bfcl,bba
 #   --repo         /lustre/fs12/.../yuanhangs/codes/Skills-FC
 #   --start        1  (line number to start at — use 2 to skip line 1, etc.)
 #   --max_jobs     unset (run_all_benchmarks.sh auto-detects from SLURM limits)
@@ -50,7 +50,7 @@ set -eu
 # ---- defaults ----
 LIST=/lustre/fsw/portfolios/llmservice/users/yuanhangs/models/S2S_hf/ckpts_list.txt
 OUTPUT_ROOT=/lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy
-BENCHMARKS="vb_mcq,vb_nonmcq,fdb_v1,fdb_v1_5,conv_behav,bfcl,bba"
+BENCHMARKS="vb_mcq,vb_nonmcq,fdb_v1,fdb_v1_5,fdb_v3,conv_behav,bfcl,bba"
 REPO=/lustre/fs12/portfolios/llmservice/projects/llmservice_nemo_mlops/users/yuanhangs/codes/Skills-FC
 START=1
 DRY_RUN=""

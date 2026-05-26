@@ -654,24 +654,27 @@ class NemotronHForCausalLM(
         return logits
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
-        skip_keys = set()
+        # Heads we can't load: when the model wasn't built with one of these
+        # submodules (because config says it's absent for this checkpoint),
+        # the corresponding tensors in the source state_dict have no
+        # destination and must be DROPPED, not merely unmapped. Just removing
+        # them from `hf_to_vllm_mapper` leaves raw `stt_model.<head>.*` names
+        # in the iterator, which makes `AutoWeightsLoader` raise
+        # `ValueError: There is no module or parameter named 'stt_model'`.
+        absent_head_prefixes: list[str] = []
         if not self._has_asr:
-            skip_keys.update(("asr_head", "embed_asr_tokens"))
+            absent_head_prefixes.extend(("stt_model.asr_head.", "stt_model.embed_asr_tokens."))
         if not self._has_fc:
-            skip_keys.add("function_head")
+            absent_head_prefixes.append("stt_model.function_head.")
 
-        if skip_keys:
-            mapper = WeightsMapper(
-                orig_to_new_prefix={
-                    k: v
-                    for k, v in self.hf_to_vllm_mapper.orig_to_new_prefix.items()
-                    if not any(sk in k for sk in skip_keys)
-                },
-                orig_to_new_substr=self.hf_to_vllm_mapper.orig_to_new_substr,
-            )
-        else:
-            mapper = self.hf_to_vllm_mapper
+        if absent_head_prefixes:
+            def _filter(it):
+                for name, tensor in it:
+                    if any(name.startswith(p) for p in absent_head_prefixes):
+                        continue
+                    yield name, tensor
+            weights = _filter(weights)
 
         loader = AutoWeightsLoader(self)
-        return loader.load_weights(weights, mapper=mapper)
+        return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
 

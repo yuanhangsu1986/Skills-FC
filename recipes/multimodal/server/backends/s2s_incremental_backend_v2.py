@@ -444,7 +444,18 @@ class S2SIncrementalBackendV2(InferenceBackend):
         pad_to = self._compute_pad_audio_sec(audio_path)
         sys_prompt = system_prompt or self.v2_config.system_prompt
 
-        result = self._wrapper.inference_realtime_streaming(
+        # Build the full set of kwargs we'd want to forward (in the wrapper's
+        # parameter naming), then filter to those the wrapper actually accepts.
+        # This is kwarg-agnostic: adding a new kwarg to either side requires no
+        # special-case here, as long as it uses the wrapper-side name.
+        # Note: a couple of fields are intentional renames between our backend
+        # and the wrapper (e.g. backend's `num_frames_per_inference` →
+        # wrapper's `num_frames_per_chunk`); they're translated below.
+        import inspect as _inspect
+        _wrapper_params = _inspect.signature(
+            self._wrapper.inference_realtime_streaming
+        ).parameters
+        _candidate = dict(
             audio_path=audio_path,
             num_frames_per_chunk=nfpc,
             request_id=request_id,
@@ -452,6 +463,8 @@ class S2SIncrementalBackendV2(InferenceBackend):
             system_prompt=sys_prompt,
             max_new_tokens=max_new_tokens,
         )
+        _kwargs = {k: v for k, v in _candidate.items() if k in _wrapper_params}
+        result = self._wrapper.inference_realtime_streaming(**_kwargs)
 
         result["input_audio_path"] = audio_path
         total = result.get("tokens_len", torch.tensor([0]))[0].item()
