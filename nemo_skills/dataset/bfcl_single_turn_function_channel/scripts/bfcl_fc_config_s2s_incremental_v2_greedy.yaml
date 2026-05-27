@@ -62,7 +62,7 @@ server_container_python_exec: python3
 poll_interval: 30       # seconds between server health checks
 max_poll_attempts: 40   # give server up to 20 min to start
 request_timeout: 300    # per-request HTTP timeout in seconds
-max_tokens: 512         # caps per-request generation; matches server MAX_NEW_TOKENS default
+max_tokens: 1024        # AU's default (generation_kwargs.max_completion_tokens). Needed for multi-call <TOOLCALL>[{...},{...}] arrays in parallel/parallel_multiple — 512 truncated mid-array.
 
 # Paths — run prepare.py once to populate data_dir
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bfcl_fc_data

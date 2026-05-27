@@ -17,3 +17,9 @@
 METRICS_TYPE = "exact_match"
 GENERATION_ARGS = "++prompt_format=openai"
 EVAL_ARGS = "++eval_type=null"
+
+# Route through the fdb_v3 task class so FD3_TOOL_SPEC is attached as OpenAI
+# `tools` to every request. Required by the chat-template path (server-side
+# --chat_template + --no_pre_baked_system_prompt). Defined in
+# nemo_skills/dataset/fdb/fdb_v3/task.py.
+GENERATION_MODULE = "nemo_skills.dataset.fdb.fdb_v3.task"
