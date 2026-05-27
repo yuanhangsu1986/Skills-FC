@@ -503,6 +503,14 @@ def main():
         action="store_true",
         help="Decode tokens_function_pred into function_channel_text (s2s_incremental_v2; required for --use_function_channel_for_tool_calls)",
     )
+    parser.add_argument(
+        "--chat_template",
+        type=str,
+        default=None,
+        help="Path to a Jinja2 chat-template file used to render system_message + tools into the model prompt. "
+             "When set, replaces the default tools-as-JSON merge with the template's rendered output. "
+             "Mirrors AU-Harness's --chat_template; required for prompt/parser format consistency on BFCL/fdb_v3.",
+    )
 
     # Debug
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
@@ -765,6 +773,8 @@ def main():
         extra_config["tool_call_parser"] = args.tool_call_parser
     if args.use_function_channel_for_tool_calls:
         extra_config["use_function_channel_for_tool_calls"] = True
+    if args.chat_template:
+        extra_config["chat_template"] = args.chat_template
 
     # Print configuration
     print("=" * 60)

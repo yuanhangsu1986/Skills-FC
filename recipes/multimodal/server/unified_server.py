@@ -306,6 +306,53 @@ def merge_tools_into_system_prompt(
     return tool_text
 
 
+def apply_chat_template(
+    template_str: str,
+    system_message: Optional[str],
+    tools: Optional[List[Dict[str, Any]]],
+) -> str:
+    """Render a Jinja2 chat template with (system_message, tools).
+
+    Mirrors AU-Harness's `apply_chat_template` (unified_server.py:288-330 of
+    /lustre/fsw/.../au_harness_for_voice_chat/nemo-skills/recipes/multimodal/server/unified_server.py).
+
+    When `--chat_template <path>` is set on the server, this renders the
+    request's system_message + tools through the user-provided Jinja file
+    and returns the rendered string. Used INSTEAD of
+    `merge_tools_into_system_prompt` so the prompt format matches what the
+    tool-call parser (and the model's training) expect.
+    """
+    try:
+        import jinja2
+    except ImportError:
+        raise RuntimeError(
+            "jinja2 is required for --chat_template support. "
+            "Install it with: pip install jinja2"
+        )
+
+    env = jinja2.Environment(
+        loader=jinja2.BaseLoader(),
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    # Make tojson output readable (non-ASCII-escaped) — matches AU.
+    env.policies["json.dumps_kwargs"] = {"ensure_ascii": False}
+
+    template = env.from_string(template_str)
+    rendered = template.render(
+        system_message=system_message or "",
+        tools=tools,
+    )
+    out = rendered.strip()
+    if tools:
+        preview = out[:200]
+        print(
+            f"[Server] Chat template: rendered system prompt with {len(tools)} tool(s); "
+            f"len={len(out)} chars, preview={preview!r}..."
+        )
+    return out
+
+
 def create_app(
     backend_type: str = BACKEND_TYPE,
     model_path: str = MODEL_PATH,
@@ -334,6 +381,62 @@ def create_app(
         tool_parser_instance = _load_tool_parser(tool_call_parser_path)
         print(f"[Server] Tool call parser loaded from {tool_call_parser_path}")
 
+    # Chat template (BFCL / fdb_v3 / any tool-call benchmark): jinja2 template
+    # rendered at request time to produce a prompt format consistent with what
+    # the tool_call_parser (and the model's training) expects.  Also usable as
+    # a general chat templater for non-tool benchmarks if a benchmark-specific
+    # jinja is supplied.
+    #
+    # Startup guardrails (fail-fast, with intentionally minimal assumptions
+    # about template internals — we ONLY rely on our own API contract that
+    # the template is rendered with two variables, `system_message` (str)
+    # and `tools` (list|None), and nothing else):
+    #   1. File exists.
+    #   2. File is non-empty (an empty template would silently zero out the
+    #      system prompt on every request).
+    #   3. Template parses as valid Jinja2 (env.from_string in apply_chat_template).
+    #
+    # We deliberately do NOT smoke-render the template at startup. Any
+    # rendering would require synthetic values for `system_message` and `tools`,
+    # and we have no way to know the shape `tools` should take for an arbitrary
+    # user-supplied template. Rendering errors (typo'd variables, wrong shape
+    # assumptions) will surface on the first real request, where the actual
+    # tools payload is available — which is the right place to fail loud.
+    chat_template_str = None
+    chat_template_path = extra_config.pop("chat_template", None) if extra_config else None
+    if chat_template_path:
+        if not os.path.exists(chat_template_path):
+            raise FileNotFoundError(f"Chat template not found: {chat_template_path}")
+        with open(chat_template_path, "r") as f:
+            chat_template_str = f.read()
+        if not chat_template_str.strip():
+            raise ValueError(
+                f"Chat template at {chat_template_path} is empty — would silently "
+                f"zero out system prompts on every request. Refusing to start."
+            )
+        # Parse-only check (no rendering): catches Jinja2 syntax errors at
+        # startup instead of on first request.
+        try:
+            import jinja2
+        except ImportError as e:
+            raise RuntimeError(
+                "jinja2 is required for --chat_template support. "
+                "Install it with: pip install jinja2"
+            ) from e
+        try:
+            jinja2.Environment(
+                loader=jinja2.BaseLoader(),
+                undefined=jinja2.StrictUndefined,
+            ).from_string(chat_template_str)
+        except jinja2.TemplateSyntaxError as e:
+            raise ValueError(
+                f"Chat template at {chat_template_path} has Jinja2 syntax errors: "
+                f"{type(e).__name__}: {e}."
+            ) from e
+        print(f"[Server] Loaded chat template from: {chat_template_path}")
+        print(f"[Server]   (template parsed OK; renders against variables "
+              f"`system_message` and `tools` at request time)")
+
     app = FastAPI(
         title="Unified NeMo Inference Server",
         description=f"OpenAI-compatible API for NeMo model inference ({backend_type} backend)",
@@ -355,6 +458,8 @@ def create_app(
         # Tool-call parser (None → no-op, existing pipelines unaffected)
         "tool_parser": tool_parser_instance,
         "use_function_channel_for_tool_calls": use_function_channel_for_tool_calls,
+        # Chat template (None → fall back to merge_tools_into_system_prompt)
+        "chat_template": chat_template_str,
     }
 
     @app.on_event("startup")
@@ -540,11 +645,18 @@ def create_app(
             text = extract_text_from_messages(messages)
             system_prompt = extract_system_prompt(messages)
 
-            # Merge top-level "tools" field into system_prompt if not already embedded.
-            # Fallback order: client-embedded tools in system_prompt → server-extracted tools
-            # from HTTP payload → neither (proceed without tools).
+            # Merge tools into system_prompt.
+            # Preferred path: --chat_template <jinja> renders system_message + tools
+            # through the user-provided template. Used by BFCL / fdb_v3 / any tool-call
+            # benchmark to keep prompt format consistent with the tool_call_parser and
+            # the model's training.
+            # Fallback path: merge_tools_into_system_prompt appends tools as JSON.
             tools = request.get("tools", []) or []
-            system_prompt = merge_tools_into_system_prompt(tools, system_prompt)
+            _chat_template = server_config.get("chat_template")
+            if _chat_template and (system_prompt is not None or tools):
+                system_prompt = apply_chat_template(_chat_template, system_prompt, tools)
+            else:
+                system_prompt = merge_tools_into_system_prompt(tools, system_prompt)
 
             # Honor ignore_system_prompt setting
             if server_config.get("ignore_system_prompt", False):

@@ -36,8 +36,14 @@ server_args: >-
   --inference_user_pad_boost 0
   --inference_user_bos_boost 0
   --inference_user_eos_boost 0
+  --extra_decoding_seconds 60
+  --dtype float32
+  --inference_guidance_scale 0.5
+  --inference_noise_scale 0.8
+  --inference_top_p_or_k 0.8
   --decode_function_channel
   --tool_call_parser /nemo_run/code/recipes/multimodal/server/tool_calling/nemotron_v2_voicechat_toolcall_parser.py
+  --chat_template /nemo_run/code/recipes/multimodal/server/tool_calling/nano_v2_voicechat_toolcalling_chat_template.jinja
   --use_function_channel_for_tool_calls
   --no_decode_audio
   --batch_size 1
