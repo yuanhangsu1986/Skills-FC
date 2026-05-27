@@ -368,6 +368,13 @@ def create_app(
 
     # Extract server-level config from extra_config
     ignore_system_prompt = extra_config.pop("ignore_system_prompt", False) if extra_config else False
+    # When True, drop the client-supplied (pre-baked, prepare.py-built) system_prompt
+    # BEFORE chat-template rendering or tools-merging. Lets the chat template render
+    # the full prompt from (empty system_message + tools). Distinct from
+    # ignore_system_prompt which currently runs AFTER rendering.
+    no_pre_baked_system_prompt = (
+        extra_config.pop("no_pre_baked_system_prompt", False) if extra_config else False
+    )
     session_ttl = extra_config.pop("session_ttl", 300.0) if extra_config else 300.0
     max_sessions = extra_config.pop("max_sessions", 100) if extra_config else 100
 
@@ -453,6 +460,7 @@ def create_app(
         "device": device,
         "dtype": dtype,
         "ignore_system_prompt": ignore_system_prompt,
+        "no_pre_baked_system_prompt": no_pre_baked_system_prompt,
         "session_ttl": session_ttl,
         "max_sessions": max_sessions,
         # Tool-call parser (None → no-op, existing pipelines unaffected)
@@ -644,6 +652,13 @@ def create_app(
             audio_bytes_list = extract_audio_from_messages(messages)
             text = extract_text_from_messages(messages)
             system_prompt = extract_system_prompt(messages)
+
+            # Drop the client-supplied system_prompt BEFORE template rendering /
+            # tools-merging. Use this with --chat_template so the jinja template
+            # renders the full prompt from (empty system_message + tools). Distinct
+            # from --ignore_system_prompt below, which fires AFTER rendering.
+            if server_config.get("no_pre_baked_system_prompt", False) and system_prompt:
+                system_prompt = ""
 
             # Merge tools into system_prompt.
             # Preferred path: --chat_template <jinja> renders system_message + tools

@@ -511,6 +511,15 @@ def main():
              "When set, replaces the default tools-as-JSON merge with the template's rendered output. "
              "Mirrors AU-Harness's --chat_template; required for prompt/parser format consistency on BFCL/fdb_v3.",
     )
+    parser.add_argument(
+        "--no_pre_baked_system_prompt",
+        action="store_true",
+        help="Drop the per-sample system_prompt baked into the request by prepare.py (or any client) "
+             "BEFORE chat-template rendering or tools-merging runs. Use with --chat_template so the "
+             "jinja template renders the full prompt (empty system_message + tools) at request time. "
+             "Different from --ignore_system_prompt, which currently runs AFTER chat-template "
+             "rendering and would zero out the rendered output entirely.",
+    )
 
     # Debug
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
@@ -775,6 +784,8 @@ def main():
         extra_config["use_function_channel_for_tool_calls"] = True
     if args.chat_template:
         extra_config["chat_template"] = args.chat_template
+    if args.no_pre_baked_system_prompt:
+        extra_config["no_pre_baked_system_prompt"] = True
 
     # Print configuration
     print("=" * 60)
