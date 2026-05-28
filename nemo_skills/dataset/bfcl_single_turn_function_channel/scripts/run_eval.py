@@ -98,6 +98,18 @@ def build_infer_command(config: dict, category: str) -> str:
         f" --max_tokens {max_tokens}"
     )
 
+    # MULTI_TURN_FUNCTION_CALLS_ALLOWED: opts the DRIRF wrapper into the
+    # multi-turn function-call code path (see _multi_turn_fc_enabled in
+    # nemotron_voicechat_inference_wrapper.py). With this set, the
+    # wrapper's inference loop does NOT stop at the first EOTC token —
+    # required for any benchmark that may need >1 tool-call turn per
+    # request (e.g. fdb_v3 agent dispatch). For single-call categories
+    # (simple/multiple) it's a no-op: there's still only one EOTC, the
+    # loop just runs to total_frames after it. Config-toggleable; default
+    # true since BFCL is a tool-calling benchmark.
+    multi_turn_fc = bool(config.get("multi_turn_function_calls_allowed", True))
+    env_prefix = f"export MULTI_TURN_FUNCTION_CALLS_ALLOWED=true && " if multi_turn_fc else ""
+
     # Wrap server+client in a compound command { } so that any installation_command
     # prepended by install_packages_wrap (via "&&") runs synchronously before either
     # process starts.  Without the braces, bash operator precedence (&&  before  &)
@@ -106,7 +118,10 @@ def build_infer_command(config: dict, category: str) -> str:
     # The explicit "cd /nemo_run/code &&" is still needed before infer_cmd because
     # get_cmd prepends its own "cd /nemo_run/code &&" which gets absorbed into the
     # background server side inside the braces.
+    # The env-var export sits OUTSIDE the braces so it applies to both the
+    # backgrounded server process and the foreground client.
     return (
+        f"{env_prefix}"
         f"{{ {serve_cmd} & "
         f"cd /nemo_run/code && {infer_cmd}; "
         f"_BFCL_EXIT=$?; kill %1 2>/dev/null; wait %1 2>/dev/null; exit $_BFCL_EXIT; }}"

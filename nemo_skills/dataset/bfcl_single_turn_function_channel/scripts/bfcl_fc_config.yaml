@@ -62,6 +62,13 @@ max_poll_attempts: 40   # give server up to 20 min to start
 request_timeout: 300    # per-request HTTP timeout in seconds
 max_tokens: 1024        # AU's default (generation_kwargs.max_completion_tokens). Needed for multi-call <TOOLCALL>[{...},{...}] arrays in parallel/parallel_multiple — 512 truncated mid-array.
 
+# Opts the DRIRF wrapper into the multi-turn function-call code path so
+# the inference loop doesn't stop at the first EOTC token. No-op on
+# simple/multiple (only one EOTC anyway); required for any future
+# multi-turn FC scenario. Maps to env var MULTI_TURN_FUNCTION_CALLS_ALLOWED
+# consumed by _multi_turn_fc_enabled() in the DRIRF wrapper.
+multi_turn_function_calls_allowed: true
+
 # Paths — run prepare.py once to populate data_dir
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bfcl_fc_data
 
