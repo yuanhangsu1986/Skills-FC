@@ -39,8 +39,14 @@ import types
 from pathlib import Path
 from typing import List
 
-DEFAULT_AU_HARNESS = "/lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/au_harness_for_voice_chat/AU-Harness"
+DEFAULT_AU_HARNESS = "/lustre/fsw/portfolios/llmservice/users/vtrinh/projects/bfcl_eval/au_harness_for_voice_chat/AU-Harness"
 DEFAULT_CATEGORIES = ["simple", "parallel", "multiple", "parallel_multiple", "irrelevance"]
+# Vtrinh's bfcl_metric.py uses task_name to dispatch to the proper
+# category-specific BFCL checker (simple_function_checker /
+# parallel_function_checker_no_order / multiple_function_checker /
+# irrelevance short-circuit). Without task_name it falls back to "simple",
+# which is wrong for parallel/multiple categories.
+_AU_TASK_NAME_TEMPLATE = "bfcl_audio_{category}_no_prompt"
 
 
 def _install_stubs() -> None:
@@ -185,9 +191,15 @@ def score_category(scorer_cls, category: str, output_jsonl: Path) -> dict:
             references.append((expected_call, req))
 
     scorer = scorer_cls()
-    # Call WITHOUT task_name/model_name so AU's log writers are NOT invoked
-    # (we don't need their side outputs).
-    result = scorer(candidates, references)
+    # Pass task_name so vtrinh's bfcl_metric.py dispatches to the proper
+    # per-category checker. Pass NO model_name so AU's log writers stay
+    # quiet (we don't need their side outputs).
+    task_name = _AU_TASK_NAME_TEMPLATE.format(category=category)
+    try:
+        result = scorer(candidates, references, task_name=task_name)
+    except TypeError:
+        # Fallback for older bfcl_metric.py versions that don't accept task_name
+        result = scorer(candidates, references)
     return {
         "category": category,
         "num_samples": len(candidates),

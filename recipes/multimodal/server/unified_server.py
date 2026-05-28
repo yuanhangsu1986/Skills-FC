@@ -776,7 +776,13 @@ def create_app(
                 _use_fc = server_config.get("use_function_channel_for_tool_calls", False)
                 _fc_text = getattr(result, "function_channel_text", None)
                 _source = _fc_text if (_use_fc and _fc_text) else message_content
-                tool_call_info = _tool_parser.extract_tool_calls(_source or "")
+                # Pass the request's `tools` (OpenAI tool schemas) so the parser
+                # can coerce emitted arg values to their declared types (e.g.
+                # "20" → 20 when schema says integer). The parser's
+                # extract_tool_calls accepts `tools` as a kwarg with default None;
+                # older parsers that don't take it will TypeError, which we treat
+                # as a config mismatch — point at the updated parser.
+                tool_call_info = _tool_parser.extract_tool_calls(_source or "", tools=tools)
                 if tool_call_info.tools_called:
                     # Store raw function-channel text as the generation so
                     # nemo-skills inference clients capture the <TOOLCALL> block.
