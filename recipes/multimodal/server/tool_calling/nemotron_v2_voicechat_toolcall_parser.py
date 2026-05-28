@@ -52,6 +52,11 @@ logger = logging.getLogger(__name__)
 SCHEMA_TYPE_TO_PYTHON = {
     "string": str, "integer": int, "number": float, "float": float,
     "boolean": bool, "array": list, "object": dict,
+    # BFCL-idiom aliases (not in vtrinh's upstream): "dict" alongside "object",
+    # "tuple" alongside "array", "any" as pass-through. Strict superset — the
+    # added keys previously fell back to `str`, and `_coerce_value` is a no-op
+    # for non-string values, so adding them cannot regress existing behavior.
+    "dict": dict, "tuple": list, "any": object,
 }
 
 
