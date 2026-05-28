@@ -1,3 +1,4 @@
+/lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e181/s2s_rnnt/e181-step44415-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
 /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e183/s2s_rnnt/e183-step18007-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
 /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e186/s2s_rnnt/e186-step4801-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
 /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e175/s2s_rnnt/e175-step19207-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
@@ -11,7 +12,6 @@
 /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e181/s2s_rnnt/e181-step26409-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
 /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e181/s2s_rnnt/e181-step27609-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
 /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e181/s2s_rnnt/e181-step33612-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
-/lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e181/s2s_rnnt/e181-step44415-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
 /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e181/s2s_rnnt/e181-step72026-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
 /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/e181/s2s_rnnt/e181-step82831-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
 /lustre/fs11/portfolios/edgeai/projects/edgeai_riva_rivamlops/users/vtrinh/projects/combine_rnnt_ckpt/noASR_e181_s22807w70_s26409w30/s2s_rnnt/noASR_e181_s22807w70_s26409w30-tts-eartts-fp32_24ksteps_rnnt_cand4_preproc_enc_att0_vci50
