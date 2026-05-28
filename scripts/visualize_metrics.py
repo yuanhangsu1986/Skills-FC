@@ -1025,6 +1025,7 @@ def load_fdb_examples(bench_dir: Path, bench: str, split: str) -> tuple[str, lis
                 "audio_path": cluster_path(out_path) if out_src else "",
                 "input_audio_path": cluster_path(in_path) if in_src else "",
                 "word_count": word_count,
+                "judgment_source": "fallback",
             }
         )
     return label, select_examples(examples)
@@ -2204,7 +2205,15 @@ def status_badge(example: dict[str, Any] | None) -> str:
     color = {"good": "var(--gr)", "bad": "var(--re)", "ok": "var(--ye)", "missing": "var(--tx2)"}.get(
         kind, "var(--tx2)"
     )
-    return f'<span class="badge" style="background:{color}20;color:{color};border:1px solid {color}">{h(label)}</span>'
+    main = f'<span class="badge" style="background:{color}20;color:{color};border:1px solid {color}">{h(label)}</span>'
+    if (example or {}).get("judgment_source") == "fallback":
+        amber = "var(--ye)"
+        title = "Rule-based fallback (no LLM judgment available); status may be unreliable."
+        main += (
+            f'<span class="badge" title="{h(title)}" '
+            f'style="background:{amber}20;color:{amber};border:1px dashed {amber};margin-left:4px">low conf</span>'
+        )
+    return main
 
 
 def audio_player(src: str | None) -> str:
@@ -3841,11 +3850,53 @@ makeBar('d11_cut','Cutoff Rate % (↓ better)',CONV_CUT);
 """
 
 
+FALLBACK_JUDGMENT_SCOPE = ("fdb_v1", "fdb_v1_5")
+
+
+def apply_audio_judgments(ckpts: list[dict[str, Any]], picks_doc: dict[str, Any] | None) -> None:
+    """Overlay LLM-as-judge labels onto the in-memory examples.
+
+    Always stamps `judgment_source = "fallback"` on in-scope examples that
+    don't already have one (back-fills older sidecars written before the
+    load-time stamp). When `picks_doc.audio_judgments.by_ckpt` has a verdict
+    for a given ckpt+example, the status is overridden and the source is
+    upgraded to "llm". Examples outside scope are left untouched.
+    """
+    judgments: dict[str, Any] = {}
+    if isinstance(picks_doc, dict):
+        judgments = picks_doc.get("audio_judgments") or {}
+    scope = set(judgments.get("scope") or FALLBACK_JUDGMENT_SCOPE)
+    by_ckpt = judgments.get("by_ckpt") or {}
+    for ckpt in ckpts:
+        name = ckpt.get("name") or ""
+        ck_judgments = by_ckpt.get(name) or {}
+        for group, examples in (ckpt.get("audio_examples") or {}).items():
+            bench, _, _ = group.partition(":")
+            if bench not in scope:
+                continue
+            for ex in examples or []:
+                key = ex.get("key")
+                if not key:
+                    ex.setdefault("judgment_source", "fallback")
+                    continue
+                joined = f"{bench}:{key}"
+                verdict = ck_judgments.get(joined)
+                if verdict and verdict.get("status") in {"good", "bad", "ok"}:
+                    ex["status"] = verdict["status"]
+                    ex["status_label"] = verdict["status"]
+                    if verdict.get("reason"):
+                        ex["judgment_reason"] = verdict["reason"]
+                    ex["judgment_source"] = "llm"
+                else:
+                    ex.setdefault("judgment_source", "fallback")
+
+
 def _render_report_html(ckpts: list[dict[str, Any]],
                         picks_doc: dict[str, Any],
                         out_html: Path,
                         top_N: int) -> str:
     """Assemble the full report HTML (mirrors asset/report_may20.html)."""
+    apply_audio_judgments(ckpts, picks_doc)
     picks: list[dict[str, Any]] = picks_doc.get("picks", []) if isinstance(picks_doc, dict) else []
     labels = _report_short_labels_with_disambig([c.get("name", "?") for c in ckpts])
     metric_arrays = _report_derive_metrics(ckpts)

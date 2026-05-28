@@ -1,54 +1,54 @@
 ---
 name: pick_topN
-description: Pick the Top-N voice-chat checkpoints from an `<name>_metrics.xlsx` produced by `scripts/create_visual_report.py` (Stage 1). The skill applies a multi-metric, anomaly-aware heuristic distilled from the original voice-chat analysis recipe and writes the result to `asset/<name>_picks.json` so Stage 2 of the script can render the final HTML report.
+description: Pick the Top-N voice-chat checkpoints from an `<name>.xlsx` produced by `scripts/visualize_metrics.py`. The skill applies a multi-metric, anomaly-aware heuristic distilled from the original voice-chat analysis recipe and writes the result to `<output_dir>/<stem>_top<N>.json` so the visualizer's `--html_mode report` mode can render the final HTML report.
 ---
 
 # pick_topN — Top-N checkpoint selection
 
 This skill is the LLM-driven middle step of the two-stage report workflow
-implemented by `scripts/create_visual_report.py`. Stage 1 of the script writes
-an Excel workbook with the per-benchmark metrics; this skill reads that
-workbook, applies the selection heuristics below, and writes a `picks.json` file
-that Stage 2 consumes.
+implemented by `scripts/visualize_metrics.py --html_mode report`. The visualizer
+writes an Excel workbook with the per-benchmark metrics; this skill reads that
+workbook, applies the selection heuristics below, and writes a picks JSON file
+that the visualizer's report mode consumes.
 
 **This skill is non-interactive: pick, write JSON, print summary, done.** It
 does not ask the user "is this OK?", does not pause for approval, and does not
 use AskUserQuestion. After the file is written, a concise summary is printed
 to chat and the skill exits cleanly. If the user wants to override picks, they
-can edit `<name>_picks.json` manually before re-running
-`create_visual_report.py`.
+can edit the picks JSON manually before re-running the visualizer.
 
 ## Input arguments
 
-- `--N <int>` — REQUIRED. Number of checkpoints to recommend. Default `3`.
+- `--N <int>` — Number of checkpoints to recommend. Default `3`.
+- `--data_file <path>` — REQUIRED. Path to the `.xlsx` file produced by
+  `scripts/visualize_metrics.py`.
+- `--output_dir <dir>` — Directory where the picks JSON is written. Default
+  `asset/`.
 
-## Step 1 — Locate the metrics xlsx
+## Step 1 — Read `--data_file`
 
-Glob `asset/*_metrics.xlsx`. Behaviour:
+Open the xlsx supplied via `--data_file`. It is the canonical metrics workbook
+produced by `scripts/visualize_metrics.py`. Do not glob the directory; use the
+path the user passed in exactly. If the file does not exist, print an error
+noting that the visualizer must be run first to produce the xlsx, and exit
+without writing a picks file.
 
-- **Exactly one match** → use that file.
-- **Multiple matches** → choose the most recently modified file (by mtime) and
-  state that choice in the printed summary. Do not pause for user input.
-- **No matches** → print an error noting that Stage 1 of
-  `create_visual_report.py` must be run first (this skill cannot pick from
-  sidecar JSONs alone — the xlsx contains the canonical per-ckpt rows) and
-  exit without writing a picks file.
+Compute the output filename as:
 
-Store the chosen path as `metrics_xlsx`. Derive the output file name by
-replacing the trailing `_metrics.xlsx` with `_picks.json`. So for
-`asset/report_may20_metrics.xlsx` write to
-`asset/report_may20_picks.json`.
+    <output_dir>/<stem-of-data_file>_top<N>.json
+
+For example, `--data_file asset/test.xlsx --N 3` writes
+`asset/test_top3.json`.
 
 ## Step 2 — Optionally peek at the sidecars
 
 Per-ckpt headline / audio_examples information lives in the sibling sidecars
-under `asset/`:
+under the asset directory:
 
-- `asset/comparison_<run>_<ckpt>.json` — full sidecar (metrics + headlines +
-  audio_examples).
-- `asset/sidecar_<run>_<ckpt>.json` — alternate naming for the same shape.
+- `asset/<name>_<ckpt>.json` — full sidecar (metrics + headlines +
+  audio_examples). Here `<name>` is the stem of `--data_file`.
 
-You do not need to read all 36 sidecars. If a candidate is unclear after the
+You do not need to read all sidecars. If a candidate is unclear after the
 xlsx-only pass, open the matching sidecar to confirm headline values, latency
 fields, or other nuance.
 
@@ -119,13 +119,20 @@ For each pick assign `rank` 1, 2, 3, … in order of preference.
 
 ## Step 5 — Write the picks file
 
-Write `asset/<name>_picks.json` with this exact schema (`top_N` MUST equal
-`--N`, and `picks` MUST have `--N` entries):
+Write `<output_dir>/<stem-of-data_file>_top<N>.json` with this exact schema
+(`top_N` MUST equal `--N`, and `picks` MUST have `--N` entries):
 
 ```json
 {
   "top_N": 3,
-  "metrics_xlsx": "asset/report_may20_metrics.xlsx",
+  "metrics_xlsx": "asset/test.xlsx",
+  "audio_judgments": {
+    "model": null,
+    "scope": ["fdb_v1", "fdb_v1_5"],
+    "judged_at": null,
+    "max_per_split": 40,
+    "by_ckpt": {}
+  },
   "picks": [
     {
       "rank": 1,
@@ -166,9 +173,41 @@ Required fields per pick:
 | `insight` | str | 2-3 sentences explaining the ckpt's strengths and why it's recommended. Quote actual metric values. |
 | `weakness` | str | 1-2 sentences listing the trade-off / warning. If any hard-filter rule was relaxed (e.g. BFCL Irrelevance < 70 %), call it out here as critical. |
 
-## Step 6 — Validation and concise summary (NON-INTERACTIVE)
+The top-level `audio_judgments` block stores LLM-as-judge verdicts for the
+audio examples whose rule-based status is unreliable (currently
+`fdb_v1` and `fdb_v1_5`, where the sidecar status is just "spoke vs silent").
+Write it as the empty placeholder shown above; Step 6 populates `by_ckpt`.
 
-After writing the file:
+The visualizer (`scripts/visualize_metrics.py`) consumes this block in
+`--html_mode report`: examples with an entry under `by_ckpt[<full_name>]`
+keyed by `<bench>:<example_key>` use the LLM verdict; examples without one
+keep their rule-based label but render a "low conf" pill in the HTML so the
+viewer knows the status is fallback.
+
+## Step 6 — LLM-as-judge for audio examples (best-effort)
+
+Run the audio judge script against the picks file:
+
+```bash
+python3 scripts/judge_audio_examples.py --picks <picks_path>
+```
+
+Behaviour:
+
+- If `OPENAI_API_KEY` is not exported, the script exits non-zero with a clear
+  message. Treat this as a soft warning — proceed to Step 7 and note that
+  audio judgments were not generated; the visualizer will mark every FDB v1 /
+  v1.5 example as "low conf" on the fallback path.
+- If the script runs successfully, it rewrites the picks JSON in place,
+  populating `audio_judgments.model`, `audio_judgments.judged_at`, and
+  `audio_judgments.by_ckpt` with per-(ckpt, example) verdicts.
+- The script only judges the top-N picks (one sidecar per pick) and caps the
+  call volume via `--max_per_split` (default 40). The judge uses ASR
+  transcripts only — no audio is sent to the model.
+
+## Step 7 — Validation and concise summary (NON-INTERACTIVE)
+
+After Steps 5 and 6:
 
 1. **Validate silently.** Confirm: number of picks equals `--N`, every `rank`
    is unique, every `full_name` exists in the xlsx's `ckpt` column, and (for
@@ -177,15 +216,16 @@ After writing the file:
    the error and exit; do not ask the user how to proceed.
 2. **Print a concise summary**, then exit. The summary MUST be:
    - One short paragraph (≤ 3 sentences) stating which xlsx was used, the
-     output path, and the top-line rationale for the picks.
+     output path, the top-line rationale for the picks, and whether the LLM
+     audio judge ran or was skipped (state why, e.g. "OPENAI_API_KEY not set").
    - Then one line per pick of the form
      `  #<rank>  <short_label>  —  <subtitle>`.
-   - Then one line stating the Stage-2 command to run next, e.g.
-     `Next: python3 scripts/create_visual_report.py --metrics_dirs asset/sidecar_list.txt --top_N <N> --picks <picks_path> --name <name>`.
+   - Then one line stating the next command to run, e.g.
+     `Next: python3 scripts/visualize_metrics.py --name <stem> --html_mode report --top_N <N>`.
 3. **Do NOT** ask "is this OK?", "shall I proceed?", "should I continue?",
    use AskUserQuestion, or otherwise wait for confirmation. The picks file is
-   already written; the user can simply edit `<name>_picks.json` manually
-   before re-running Stage 2 if they want different picks.
+   already written; the user can simply edit the picks JSON manually before
+   re-running the visualizer if they want different picks.
 
 ## Common pitfalls
 
