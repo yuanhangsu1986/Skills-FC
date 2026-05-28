@@ -591,6 +591,18 @@ def main():
         if args.silence_padding_sec != 5.0:
             extra_config["silence_padding_sec"] = args.silence_padding_sec
 
+    # Alias --extra_decoding_seconds → silence_padding_sec for v2-family
+    # backends (s2s_incremental, s2s_incremental_v2, s2s_session). The
+    # offline s2s / s2s_voicechat backends consume extra_decoding_seconds
+    # directly via their own input_pad_len path (see below). The v2-family
+    # backends only know about silence_padding_sec — both knobs are
+    # functionally identical (append the same number of zero samples
+    # after the input audio). Without this alias, --extra_decoding_seconds
+    # set on a v2-family backend is silently dropped.
+    if args.backend in ("s2s_incremental", "s2s_incremental_v2", "s2s_session"):
+        if args.extra_decoding_seconds and "silence_padding_sec" not in extra_config:
+            extra_config["silence_padding_sec"] = args.extra_decoding_seconds
+
     # S2S offline backend specific options
     if args.backend == "s2s":
         if args.extra_decoding_seconds:
