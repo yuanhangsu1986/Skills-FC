@@ -306,13 +306,19 @@ class S2SIncrementalBackendV2(InferenceBackend):
             if val is not None:
                 d[tts_key] = val
 
+        # tts_sliding_window is a load-time vLLM config param. Route it through
+        # model_cfg so the wrapper folds it into the EARTTS engine's IN-MEMORY
+        # hf_overrides (alongside top_p_or_k / noise_scale). We deliberately do
+        # NOT patch the converted config.json on disk -- that file must stay a
+        # faithful record of the checkpoint and a shared/cached converted dir
+        # must not leak overrides across runs.
+        if cfg.tts_sliding_window is not None:
+            d["tts_sliding_window"] = cfg.tts_sliding_window
+
         if cfg.vllm_llm_config:
             d["vllm_llm_config"] = cfg.vllm_llm_config
         if cfg.vllm_tts_config:
-            vllm_tts_cfg = dict(cfg.vllm_tts_config)
-            if cfg.tts_sliding_window is not None:
-                vllm_tts_cfg["hf_overrides"] = {"sliding_window": cfg.tts_sliding_window}
-            d["vllm_tts_config"] = vllm_tts_cfg
+            d["vllm_tts_config"] = dict(cfg.vllm_tts_config)
 
         return OmegaConf.create(d)
 
