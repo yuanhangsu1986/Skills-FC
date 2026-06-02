@@ -1,25 +1,31 @@
-# Full-Duplex-Bench v3 — OFFICIAL-SCORING variant.
+# Full-Duplex-Bench v3 — OFFICIAL variant (faithful to the public benchmark).
 #
-# INFERENCE is identical to fdb_v3 (same model, server backend, data, tool spec).
-# The ONLY difference: SCORING uses the vendored upstream evaluators from the
-# public benchmark (github.com/DanielLin94144/Full-Duplex-Bench, v3) instead of
-# the private FDBV3_CHENCHEN copy. The judge is gpt-4o (official methodology),
-# routed through the NVIDIA gateway. See
-# nemo_skills/dataset/fdb/scripts/fdb_v3_official/release_code/PROVENANCE.md.
+# Uses our S2S inference MECHANISM but makes every tool-calling surface the model
+# and scorer touch faithful to github.com/DanielLin94144/Full-Duplex-Bench v3, and
+# depends on ZERO of FDBV3_CHENCHEN:
+#   * tool spec      -> official (assets/fd3_tool_spec_official.json, config-injected)
+#   * system prompt  -> official (assets/system_prompt_official.txt, config-injected)
+#   * mock responses -> official mock_apis.py (mock_api/, via FDB_MOCK_API_IMPL)
+#   * scoring        -> official evaluators + benchmark (release_code/, gpt-4o judge
+#                       routed through the NVIDIA gateway)
+#   * data           -> officially-downloaded fdb_v3_data_released/ (fd3_data_root)
+# See nemo_skills/dataset/fdb/scripts/fdb_v3_official/PROVENANCE.md (incl. the two
+# faithfulness boundaries: chat-template wrapping is ours; API-latency injection is
+# not replicated).
 #
-# NO separate prepare: this variant reuses the EXISTING fdb_v3 prepared dataset
-# (benchmark: fdb_v3.tool_call -> reads <data_dir>/fdb_v3/tool_call/). If you've
-# already run prepare.py for fdb_v3, you're done. Only the metrics key
-# (benchmark_key) and the scoring evaluators differ.
+# NO separate prepare: generation reuses fdb_v3's prepared USER AUDIO (byte-identical
+# NTU recordings) via benchmark: fdb_v3.tool_call; the official prompt + tools are
+# injected at generation time (config > test.jsonl), so they need not be re-baked.
+# (Provenance note: the generation audio is read from the fdb_v3-prepared copy, which
+# is identical content to the official download used for scoring; re-prepare from the
+# official data only if you want that file path to be official-sourced too.)
 #
-# Run (generation reusing fdb_v3 data + official scoring):
+# Run:
 #   python nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py \
 #     --config nemo_skills/dataset/fdb/scripts/fdb_v3_official/fdb_v3_official_s2s_incremental_v2_config_fc_greedy.yaml
 #
-# To score an EXISTING fdb_v3 generation run with the official evaluators instead
-# of regenerating: set output_dir to that run's output_dir and add
-# `scoring_only: true` (the official metrics land under fdb_v3_official.tool_call
-# alongside the existing fdb_v3.tool_call metrics in the same metrics.json).
+# To score an EXISTING fdb_v3 generation run with the official evaluators instead of
+# regenerating: set output_dir to that run's output_dir and add `scoring_only: true`.
 
 cluster: s2s_eval_oci_iad_oncluster
 partition: batch_block1,batch_block3,batch_block4
@@ -75,22 +81,36 @@ scoring_partition: batch_block1,batch_block3,batch_block4
 
 server_server_type: vllm_multimodal
 
-# FD3 vendored repo: still provides the INPUT data (FD3/fdb_v3_data_released/)
-# and is the fallback for evaluator scripts. The evaluators themselves are
-# overridden below via release_code_dir to the vendored OFFICIAL release.
-fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN
+# fdb_repo_path is UNUSED by this variant (every CHENCHEN touchpoint is
+# overridden below: tool spec, system prompt, scoring evaluators, mock-API impl,
+# and the scoring input data). Pointed at the official data dir so no CHENCHEN
+# path appears in the config; run_scoring only uses it to derive defaults we
+# override, so its value is never read.
+fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb_v3_official_data
 
-# === Official-scoring overrides (the whole point of this variant) ===
-# Generation/data REUSE fdb_v3 (no separate dataset, no re-prepare): reads the
-# already-prepared <data_dir>/fdb_v3/tool_call/ and routes through fdb_v3's task.
+# === Official overrides: faithful to github.com/DanielLin94144/Full-Duplex-Bench v3 ===
+# Generation reuses fdb_v3's prepared user audio (byte-identical NTU recordings;
+# no re-prepare), and the OFFICIAL prompt + tools are injected at generation time
+# (precedence: config > test.jsonl), so the model sees the official tool-calling
+# contract rather than the CHENCHEN one.
 benchmark: fdb_v3.tool_call
-# But report under a distinct metrics.json key so official vs CHENCHEN scores
-# don't collide.
 benchmark_key: fdb_v3_official.tool_call
-# Point scoring at the vendored upstream evaluators + benchmark_data_v2.json.
-# Repo-relative; run_scoring.py resolves it against the scoring job cwd
-# (/nemo_run/code). benchmark_data_v2.json there is byte-identical to CHENCHEN's.
+
+# Official tool spec (OpenAI format, derived from lk_agent_tool.py) + official
+# system prompt (VoiceAgent.instructions). Absolute /nemo_run/code paths (read by
+# the generation task in-container), matching the server_args convention.
+tool_spec_path: /nemo_run/code/nemo_skills/dataset/fdb/scripts/fdb_v3_official/assets/fd3_tool_spec_official.json
+system_prompt_path: /nemo_run/code/nemo_skills/dataset/fdb/scripts/fdb_v3_official/assets/system_prompt_official.txt
+
+# Official scoring evaluators + benchmark (resolved against scoring cwd /nemo_run/code).
 release_code_dir: nemo_skills/dataset/fdb/scripts/fdb_v3_official/release_code
+# Scoring input audio (user-speech timing / latency): the officially-downloaded
+# fdb_v3_data_released/ (gdown of the README's Google-Drive file). No CHENCHEN.
+fd3_data_root: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb_v3_official_data/fdb_v3_data_released
+
+# Mock tool RESPONSES: official mock_apis.py via the generalized DRIRF dispatch
+# (FDB_MOCK_API_IMPL). Forwarded to the generation env by run_eval's mock_api opt-in.
+mock_api_impl: /nemo_run/code/nemo_skills/dataset/fdb/scripts/fdb_v3_official/mock_api/fd3_mock_execute.py
 
 backend_agent:
   model: "mock_api"

@@ -573,6 +573,17 @@ def main() -> None:
         help="Top-level key under which metrics are written in metrics.json.",
     )
     parser.add_argument(
+        "--fd3_data_root",
+        type=Path,
+        default=None,
+        help=(
+            "Override the directory holding the per-sample {id}/input.wav (+ "
+            "metadata.json). Defaults to <fdb_repo>/FD3/fdb_v3_data_released. The "
+            "fdb_v3_official variant points this at the officially-downloaded "
+            "fdb_v3_data_released/ so no CHENCHEN path is needed."
+        ),
+    )
+    parser.add_argument(
         "--stage",
         type=str,
         choices=["asr", "judge", "both"],
@@ -605,7 +616,7 @@ def main() -> None:
         sys.exit(f"output.jsonl not found at {output_jsonl}")
 
     release_code = args.release_code_dir.resolve() if args.release_code_dir else (args.fdb_repo / "FD3" / "release_code")
-    fd3_data_root = args.fdb_repo / "FD3" / "fdb_v3_data_released"
+    fd3_data_root = args.fd3_data_root.resolve() if args.fd3_data_root else (args.fdb_repo / "FD3" / "fdb_v3_data_released")
     benchmark_json = release_code / "benchmark_data_v2.json"
     for path, label in [(release_code, "release_code"), (fd3_data_root, "fdb_v3_data_released"), (benchmark_json, "benchmark_data_v2.json")]:
         if not path.exists():

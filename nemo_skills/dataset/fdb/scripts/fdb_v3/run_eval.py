@@ -100,6 +100,16 @@ def _maybe_opt_into_mock_api_dispatch(config: dict, dry_run: bool) -> str | None
     trig = ba.get("trigger_function_token")
     if trig:
         extras.append(f"BACKEND_AGENT_TRIGGER_FUNC_TOKEN={trig}")
+    # Mock-API implementation override (general; default unset -> DRIRF's
+    # _resolve_mock_api_executor falls back to CHENCHEN fd3_tools, so fdb_v3 /
+    # fdb_v3_chen_chen are unaffected). fdb_v3_official points this at the
+    # vendored official mock_apis adapter so tool RESPONSES are the official ones.
+    mock_impl = config.get("mock_api_impl")
+    if mock_impl:
+        extras.append(f"FDB_MOCK_API_IMPL={mock_impl}")
+    mock_func = config.get("mock_api_func")
+    if mock_func:
+        extras.append(f"FDB_MOCK_API_FUNC={mock_func}")
     # STOP_AT_LAST_TURN — forward master switch + quiet-window knob. The
     # DRIRF wrapper arms its detector on every function-head EOTC it
     # observes and uses a text-channel state machine (wait for speech, then
@@ -158,6 +168,8 @@ def build_score_command(config: dict, force: bool = False, stage: str = "both") 
     # scoring job's cwd = /nemo_run/code), mirroring SCORING_SCRIPT.
     if config.get("release_code_dir"):
         cmd_args.append(f"--release_code_dir {shlex.quote(str(config['release_code_dir']))}")
+    if config.get("fd3_data_root"):
+        cmd_args.append(f"--fd3_data_root {shlex.quote(str(config['fd3_data_root']))}")
     if config.get("use_llm_judge"):
         cmd_args.append("--use_llm_judge")
     if config.get("skip_latency"):
@@ -184,6 +196,13 @@ def run_fdb_v3_eval(config: dict) -> None:
         base_extra_args.append(f"++server.server_type={config['server_server_type']}")
     if config.get("api_key_env_var"):
         base_extra_args.append(f"++server.api_key_env_var={config['api_key_env_var']}")
+    # Forward general generation-config overrides to the task (default absent ->
+    # current fdb_v3 behavior, no regression). fdb_v3_official sets these to the
+    # vendored official tool spec + system prompt so the model sees the official
+    # tools/prompt at generation time (overriding test.jsonl).
+    for gkey in ("tool_spec_path", "system_prompt_path"):
+        if config.get(gkey):
+            base_extra_args.append(f"++{gkey}={config[gkey]}")
     if config.get("inference_overrides"):
         base_extra_args.extend(config["inference_overrides"].strip().split())
 

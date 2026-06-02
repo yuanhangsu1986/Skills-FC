@@ -27,6 +27,7 @@ attach it to generate_async() on every call.
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
 import sys
 from dataclasses import asdict, field, is_dataclass
@@ -91,6 +92,17 @@ class FDBv3GenerationConfig(GenerateSolutionsConfig):
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     server: dict = field(default_factory=dict)
     fdb_repo: str = DEFAULT_FDB_REPO
+    # General, optional overrides. Default None -> current fdb_v3 behavior (no
+    # regression for fdb_v3 / fdb_v3_chen_chen). The fdb_v3_official variant sets
+    # these in its YAML; nothing benchmark-specific is hardcoded here.
+    #   tool_spec_path     : load the OpenAI tool spec from this JSON file
+    #                        instead of FD3_TOOL_SPEC under fdb_repo.
+    #   system_prompt_path : seed cfg.system_message from this file. The base
+    #                        openai fill_prompt then applies the standard
+    #                        precedence (overrides messages[0] only when
+    #                        system_message is truthy).
+    tool_spec_path: str | None = None
+    system_prompt_path: str | None = None
 
 
 cs = hydra.core.config_store.ConfigStore.instance()
@@ -100,12 +112,30 @@ cs.store(name="base_fdb_v3_generation_config", node=FDBv3GenerationConfig)
 class FDBv3GenerationTask(GenerationTask):
     def __init__(self, cfg: FDBv3GenerationConfig):
         super().__init__(cfg)
-        raw_tools = _load_fd3_tool_spec(Path(self.cfg.fdb_repo))
+        # Tool spec: from an explicit JSON (official variant) or, by default,
+        # FD3_TOOL_SPEC under fdb_repo (current fdb_v3 behavior).
+        if self.cfg.tool_spec_path:
+            with open(self.cfg.tool_spec_path, "r", encoding="utf-8") as f:
+                raw_tools = json.load(f)
+            tool_src = self.cfg.tool_spec_path
+        else:
+            raw_tools = _load_fd3_tool_spec(Path(self.cfg.fdb_repo))
+            tool_src = self.cfg.fdb_repo
         self._tools = _to_openai_tool_format(raw_tools)
+        # System-prompt precedence (highest -> lowest): (a) cfg.system_message
+        # set inline in config; then seeding it from system_prompt_path (also
+        # config); (b) the system message baked into test.jsonl by prepare.py;
+        # (c) the base GenerateSolutionsConfig.system_message default. (b)/(c)
+        # are handled by the base openai fill_prompt, which overrides
+        # messages[0] only when system_message is truthy -- so we only seed from
+        # the file when no inline system_message was provided.
+        if not self.cfg.system_message and self.cfg.system_prompt_path:
+            self.cfg.system_message = Path(self.cfg.system_prompt_path).read_text(encoding="utf-8")
         LOG.info(
-            "FDBv3GenerationTask: loaded %d tools from %s",
+            "FDBv3GenerationTask: loaded %d tools from %s; system_message=%s",
             len(self._tools),
-            self.cfg.fdb_repo,
+            tool_src,
+            "config/file" if self.cfg.system_message else "test.jsonl-or-default",
         )
 
     async def process_single_datapoint(self, data_point, all_data):
