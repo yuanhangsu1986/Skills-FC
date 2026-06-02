@@ -67,6 +67,8 @@ VB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts/generate_from_api
 FDB_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/run_eval.py"
 FDB_V3_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py"
 FDB_V3_CHEN_CHEN_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3_chen_chen/run_eval.py"
+# fdb_v3_official reuses the shared fdb_v3 run_eval.py; only its config differs.
+FDB_V3_OFFICIAL_SCRIPT="${FDB_V3_SCRIPT}"
 BBA_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bba/scripts/run_bba_eval.py"
 BFCL_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py"
 CONV_BEHAV_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/run_eval.py"
@@ -76,6 +78,7 @@ VB_BASE="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts"
 FDB_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts"
 FDB_V3_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3"
 FDB_V3_CHEN_CHEN_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3_chen_chen"
+FDB_V3_OFFICIAL_BASE="${REPO_ROOT}/nemo_skills/dataset/fdb/scripts/fdb_v3_official"
 BBA_BASE="${REPO_ROOT}/nemo_skills/dataset/bba/scripts"
 BFCL_BASE="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts"
 CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
@@ -83,7 +86,7 @@ CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
 # ---------------------------------------------------------------------------
 # Argument defaults
 # ---------------------------------------------------------------------------
-ALL_BENCHMARKS="conv_behav fdb_v1 fdb_v1_5 fdb_v3 fdb_v3_chen_chen bba bfcl vb_mcq vb_nonmcq"
+ALL_BENCHMARKS="conv_behav fdb_v1 fdb_v1_5 fdb_v3 fdb_v3_chen_chen fdb_v3_official bba bfcl vb_mcq vb_nonmcq"
 # Aliases that expand to multiple benchmark names in --benchmarks.
 declare -A BENCHMARK_ALIASES=(
     [fdb]="fdb_v1 fdb_v1_5 fdb_v3"
@@ -96,6 +99,7 @@ CONFIG_FDB_V1=""
 CONFIG_FDB_V1_5=""
 CONFIG_FDB_V3=""
 CONFIG_FDB_V3_CHEN_CHEN=""
+CONFIG_FDB_V3_OFFICIAL=""
 CONFIG_BBA=""
 CONFIG_BFCL=""
 CONFIG_CONV_BEHAV=""
@@ -133,8 +137,8 @@ waits until a slot is free.
 
 Decoding defaults to greedy via each benchmark's *_greedy.yaml config.
 
-Benchmark names: vb_nonmcq  vb_mcq  fdb_v1  fdb_v1_5  fdb_v3  fdb_v3_chen_chen  bba  bfcl  conv_behav
-Aliases:         fdb -> fdb_v1,fdb_v1_5,fdb_v3   (fdb_v3_chen_chen is opt-in: name it explicitly)
+Benchmark names: vb_nonmcq  vb_mcq  fdb_v1  fdb_v1_5  fdb_v3  fdb_v3_chen_chen  fdb_v3_official  bba  bfcl  conv_behav
+Aliases:         fdb -> fdb_v1,fdb_v1_5,fdb_v3   (fdb_v3_chen_chen and fdb_v3_official are opt-in: name them explicitly)
 
 Options:
   --benchmarks LIST         Comma-separated subset of the benchmark names above.
@@ -146,6 +150,7 @@ Options:
   --config_fdb_v1_5   PATH Config YAML for FDB v1.5
   --config_fdb_v3     PATH Config YAML for FDB v3
   --config_fdb_v3_chen_chen PATH Config YAML for FDB v3 ChenChen (upstream end-to-end variant)
+  --config_fdb_v3_official PATH Config YAML for FDB v3 Official (faithful to public Full-Duplex-Bench v3)
   --config_bba        PATH Config YAML for BBA
   --config_bfcl       PATH Config YAML for BFCL
   --config_conv_behav PATH Config YAML for conv_behav
@@ -212,6 +217,7 @@ while [[ $# -gt 0 ]]; do
         --config_fdb_v1_5)   CONFIG_FDB_V1_5="$2";       shift 2 ;;
         --config_fdb_v3)     CONFIG_FDB_V3="$2";         shift 2 ;;
         --config_fdb_v3_chen_chen) CONFIG_FDB_V3_CHEN_CHEN="$2"; shift 2 ;;
+        --config_fdb_v3_official) CONFIG_FDB_V3_OFFICIAL="$2"; shift 2 ;;
         --config_bba)        CONFIG_BBA="$2";            shift 2 ;;
         --config_bfcl)       CONFIG_BFCL="$2";           shift 2 ;;
         --config_conv_behav) CONFIG_CONV_BEHAV="$2";     shift 2 ;;
@@ -392,6 +398,14 @@ config_for() {
             inc="${FDB_V3_CHEN_CHEN_BASE}/fdb_v3_chen_chen_config.yaml"
             off="${FDB_V3_CHEN_CHEN_BASE}/fdb_v3_chen_chen_config.yaml"
             _emit_config "$CONFIG_FDB_V3_CHEN_CHEN" "$inc" "$off"
+            ;;
+        fdb_v3_official)
+            # Faithful-to-public-benchmark variant: single incremental_v2 YAML
+            # (official tool spec/prompt/mock/scoring/data). No separate offline
+            # config -> same YAML in both incremental and offline slots.
+            inc="${FDB_V3_OFFICIAL_BASE}/fdb_v3_official_s2s_incremental_v2_config_fc_greedy.yaml"
+            off="${FDB_V3_OFFICIAL_BASE}/fdb_v3_official_s2s_incremental_v2_config_fc_greedy.yaml"
+            _emit_config "$CONFIG_FDB_V3_OFFICIAL" "$inc" "$off"
             ;;
         bba)
             inc="${BBA_BASE}/bba_config_fc_s2s_incremental_v2_greedy.yaml"
@@ -631,6 +645,12 @@ elif name == "fdb_v3":
 elif name == "fdb_v3_chen_chen":
     path = eval_results / "fdb_v3_chen_chen.tool_call" / "metrics.json"
     if path.exists() and metric_file_has(path, "fdb_v3_chen_chen.tool_call"):
+        print(path)
+elif name == "fdb_v3_official":
+    # Generation reuses benchmark fdb_v3.tool_call, so results land in the
+    # fdb_v3.tool_call/ dir, but metrics are keyed fdb_v3_official.tool_call.
+    path = eval_results / "fdb_v3.tool_call" / "metrics.json"
+    if path.exists() and metric_file_has(path, "fdb_v3_official.tool_call"):
         print(path)
 elif name == "bba":
     categories = as_items(cfg.get("categories", "all"), BBA_ALL)
@@ -1296,6 +1316,9 @@ run_benchmark() {
             ;;
         fdb_v3_chen_chen)
             "$PYTHON" "$FDB_V3_CHEN_CHEN_SCRIPT" --config "$config" "${extra[@]}"
+            ;;
+        fdb_v3_official)
+            "$PYTHON" "$FDB_V3_OFFICIAL_SCRIPT" --config "$config" "${extra[@]}"
             ;;
         bba)
             "$PYTHON" "$BBA_SCRIPT" --config "$config" "${extra[@]}"
