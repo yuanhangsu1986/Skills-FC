@@ -556,6 +556,23 @@ def main() -> None:
     )
     parser.add_argument("--force", action="store_true", help="Re-run even if metrics.json already populated")
     parser.add_argument(
+        "--release_code_dir",
+        type=Path,
+        default=None,
+        help=(
+            "Override the directory holding the FD3 evaluator scripts + "
+            "benchmark_data_v2.json. Defaults to <fdb_repo>/FD3/release_code "
+            "(the CHENCHEN copy). The fdb_v3_official variant points this at the "
+            "vendored upstream scripts under scripts/fdb_v3_official/release_code/."
+        ),
+    )
+    parser.add_argument(
+        "--benchmark_key",
+        type=str,
+        default="fdb_v3.tool_call",
+        help="Top-level key under which metrics are written in metrics.json.",
+    )
+    parser.add_argument(
         "--stage",
         type=str,
         choices=["asr", "judge", "both"],
@@ -572,7 +589,7 @@ def main() -> None:
 
     eval_results_dir = args.eval_results_dir.resolve()
     metrics_file = eval_results_dir / "metrics.json"
-    benchmark_key = "fdb_v3.tool_call"
+    benchmark_key = args.benchmark_key
 
     if metrics_file.exists() and not args.force:
         try:
@@ -587,7 +604,7 @@ def main() -> None:
     if not output_jsonl.exists():
         sys.exit(f"output.jsonl not found at {output_jsonl}")
 
-    release_code = args.fdb_repo / "FD3" / "release_code"
+    release_code = args.release_code_dir.resolve() if args.release_code_dir else (args.fdb_repo / "FD3" / "release_code")
     fd3_data_root = args.fdb_repo / "FD3" / "fdb_v3_data_released"
     benchmark_json = release_code / "benchmark_data_v2.json"
     for path, label in [(release_code, "release_code"), (fd3_data_root, "fdb_v3_data_released"), (benchmark_json, "benchmark_data_v2.json")]:

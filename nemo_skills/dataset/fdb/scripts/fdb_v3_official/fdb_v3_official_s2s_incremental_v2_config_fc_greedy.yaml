@@ -1,0 +1,121 @@
+# Full-Duplex-Bench v3 — OFFICIAL-SCORING variant.
+#
+# INFERENCE is identical to fdb_v3 (same model, server backend, data, tool spec).
+# The ONLY difference: SCORING uses the vendored upstream evaluators from the
+# public benchmark (github.com/DanielLin94144/Full-Duplex-Bench, v3) instead of
+# the private FDBV3_CHENCHEN copy. The judge is gpt-4o (official methodology),
+# routed through the NVIDIA gateway. See
+# nemo_skills/dataset/fdb/scripts/fdb_v3_official/release_code/PROVENANCE.md.
+#
+# NO separate prepare: this variant reuses the EXISTING fdb_v3 prepared dataset
+# (benchmark: fdb_v3.tool_call -> reads <data_dir>/fdb_v3/tool_call/). If you've
+# already run prepare.py for fdb_v3, you're done. Only the metrics key
+# (benchmark_key) and the scoring evaluators differ.
+#
+# Run (generation reusing fdb_v3 data + official scoring):
+#   python nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py \
+#     --config nemo_skills/dataset/fdb/scripts/fdb_v3_official/fdb_v3_official_s2s_incremental_v2_config_fc_greedy.yaml
+#
+# To score an EXISTING fdb_v3 generation run with the official evaluators instead
+# of regenerating: set output_dir to that run's output_dir and add
+# `scoring_only: true` (the official metrics land under fdb_v3_official.tool_call
+# alongside the existing fdb_v3.tool_call metrics in the same metrics.json).
+
+cluster: s2s_eval_oci_iad_oncluster
+partition: batch_block1,batch_block3,batch_block4
+cpu_partition: cpu_short
+
+model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
+
+server_type: vllm
+server_gpus: 1
+num_chunks: 8
+
+server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
+server_args: >-
+  --backend s2s_incremental_v2
+  --decode_audio
+  --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
+  --num_frames_per_inference 2
+  --engine_type vllm_llm_vllm_eartts
+  --use_perception_cache
+  --use_perception_cudagraph
+  --use_codec_cache
+  --buffer_size_frames 25
+  --codec_token_history_size 60
+  --matmul_precision medium
+  --vllm_gpu_memory_utilization 0.35
+  --vllm_max_model_len 8192
+  --extra_decoding_seconds 60
+  --dtype float32
+  --inference_guidance_scale 0.5
+  --inference_noise_scale 0.8
+  --inference_top_p_or_k 0.8
+  --inference_user_pad_boost 0.8
+  --silence_padding_sec 10
+  --max_new_tokens 4500
+  --top_p 1.0
+  --temperature 0.0
+  --repetition_penalty 1.0
+  --merge_user_channel_v2
+  --use_function_channel_for_tool_calls
+  --decode_function_channel
+  --tool_call_parser /nemo_run/code/recipes/multimodal/server/tool_calling/nemotron_v2_voicechat_toolcall_parser.py
+  --chat_template /nemo_run/code/recipes/multimodal/server/tool_calling/nano_v2_voicechat_toolcalling_chat_template.jinja
+  --no_pre_baked_system_prompt
+  --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
+  --pip_install "--cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1 langchain-core"
+
+server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
+scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+scoring_container_python_exec: python3
+
+scoring_gpus: 1
+scoring_partition: batch_block1,batch_block3,batch_block4
+
+server_server_type: vllm_multimodal
+
+# FD3 vendored repo: still provides the INPUT data (FD3/fdb_v3_data_released/)
+# and is the fallback for evaluator scripts. The evaluators themselves are
+# overridden below via release_code_dir to the vendored OFFICIAL release.
+fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/FDBV3_CHENCHEN
+
+# === Official-scoring overrides (the whole point of this variant) ===
+# Generation/data REUSE fdb_v3 (no separate dataset, no re-prepare): reads the
+# already-prepared <data_dir>/fdb_v3/tool_call/ and routes through fdb_v3's task.
+benchmark: fdb_v3.tool_call
+# But report under a distinct metrics.json key so official vs CHENCHEN scores
+# don't collide.
+benchmark_key: fdb_v3_official.tool_call
+# Point scoring at the vendored upstream evaluators + benchmark_data_v2.json.
+# Repo-relative; run_scoring.py resolves it against the scoring job cwd
+# (/nemo_run/code). benchmark_data_v2.json there is byte-identical to CHENCHEN's.
+release_code_dir: nemo_skills/dataset/fdb/scripts/fdb_v3_official/release_code
+
+backend_agent:
+  model: "mock_api"
+
+stop_at_last_turn: true
+stop_at_last_turn_quiet_window_sec: 10.0
+
+data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/fdb_v3_official_fc
+
+provider: fdb_v3_official_fc_greedy
+expname: fdb_v3_official_fc_greedy
+
+# LLM judge: gpt-4o (official benchmark's judge), routed through the NVIDIA
+# gateway by the vendored scripts' _nv_judge helper (defaults to
+# azure/openai/gpt-4o, key from NV_INFERENCE_KEY -> NVIDIA_API_KEY set by
+# run_scoring.py). Override the model via FD3_JUDGE_MODEL if needed.
+use_llm_judge: true
+skip_latency: false
+
+installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py"
+scoring_installation_command: "pip install --cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip numpy scipy scikit-learn soundfile pydub openai jinja2"
+
+inference_overrides: ""
+
+generation_only: false
+scoring_only: false
+dry_run: false

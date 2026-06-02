@@ -131,7 +131,14 @@ def build_score_command(config: dict, force: bool = False, stage: str = "both") 
     - 'judge' : FD3 evaluators (LLM judge + latency, no GPU, can be long)
     - 'both'  : single-job behavior (default, back-compat)
     """
-    eval_results_dir = f"{config['output_dir']}/eval-results/{BENCHMARK}"
+    benchmark = config.get("benchmark", BENCHMARK)
+    # metrics.json top-level key. Defaults to the (generation) benchmark, but can
+    # differ so a variant reuses fdb_v3's data/generation yet reports under its
+    # own key — e.g. fdb_v3_official scores fdb_v3.tool_call output but writes
+    # metrics under fdb_v3_official.tool_call.
+    benchmark_key = config.get("benchmark_key", benchmark)
+    scoring_script = config.get("scoring_script", SCORING_SCRIPT)
+    eval_results_dir = f"{config['output_dir']}/eval-results/{benchmark}"
     fdb_repo = config["fdb_repo_path"]
     python_exec = (
         config.get("scoring_container_python_exec")
@@ -139,12 +146,18 @@ def build_score_command(config: dict, force: bool = False, stage: str = "both") 
         or "python"
     )
     cmd_args = [
-        f"{python_exec} {SCORING_SCRIPT}",
+        f"{python_exec} {scoring_script}",
         f"--eval_results_dir {shlex.quote(str(eval_results_dir))}",
         f"--fdb_repo {shlex.quote(str(fdb_repo))}",
         f"--provider {shlex.quote(config.get('provider', 'fdb_v3'))}",
+        f"--benchmark_key {shlex.quote(str(benchmark_key))}",
         f"--stage {stage}",
     ]
+    # fdb_v3_official points scoring at the vendored upstream evaluators instead
+    # of <fdb_repo>/FD3/release_code. Repo-relative path (resolved against the
+    # scoring job's cwd = /nemo_run/code), mirroring SCORING_SCRIPT.
+    if config.get("release_code_dir"):
+        cmd_args.append(f"--release_code_dir {shlex.quote(str(config['release_code_dir']))}")
     if config.get("use_llm_judge"):
         cmd_args.append("--use_llm_judge")
     if config.get("skip_latency"):
@@ -160,8 +173,9 @@ def run_fdb_v3_eval(config: dict) -> None:
     generation_only = config.get("generation_only", False)
     scoring_only = config.get("scoring_only", False)
     dry_run = config.get("dry_run", False)
+    benchmark = config.get("benchmark", BENCHMARK)
 
-    print(f"FDB v3: benchmark={BENCHMARK}, output_dir={config['output_dir']}")
+    print(f"FDB v3: benchmark={benchmark}, output_dir={config['output_dir']}")
 
     base_extra_args = ["++eval_type=null"]
     if config.get("max_samples"):
@@ -175,7 +189,7 @@ def run_fdb_v3_eval(config: dict) -> None:
 
     extra_args_str = " ".join(base_extra_args)
     expname = config.get("expname", "fdb_v3_tool_call")
-    eval_results_path = f"{config['output_dir']}/eval-results/{BENCHMARK}"
+    eval_results_path = f"{config['output_dir']}/eval-results/{benchmark}"
     output_jsonl = Path(eval_results_path) / "output.jsonl"
     output_jsonl_done = Path(eval_results_path) / "output.jsonl.done"
     generation_submitted = False
@@ -205,7 +219,7 @@ def run_fdb_v3_eval(config: dict) -> None:
                 cluster=config.get("cluster_name") or config["cluster"],
                 config_dir=patched_config_dir,
                 output_dir=config["output_dir"],
-                benchmarks=BENCHMARK,
+                benchmarks=benchmark,
                 model=config["model"],
                 server_type=config.get("server_type", "vllm"),
                 server_gpus=server_gpus,
