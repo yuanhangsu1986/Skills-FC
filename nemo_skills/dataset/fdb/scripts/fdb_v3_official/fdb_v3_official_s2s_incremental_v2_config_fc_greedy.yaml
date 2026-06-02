@@ -68,7 +68,6 @@ server_args: >-
   --decode_function_channel
   --tool_call_parser /nemo_run/code/recipes/multimodal/server/tool_calling/nemotron_v2_voicechat_toolcall_parser.py
   --chat_template /nemo_run/code/recipes/multimodal/server/tool_calling/nano_v2_voicechat_toolcalling_chat_template.jinja
-  --no_pre_baked_system_prompt
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DRIRF
   --pip_install "--cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1 langchain-core"
 
@@ -99,6 +98,11 @@ benchmark_key: fdb_v3_official.tool_call
 # Official tool spec (OpenAI format, derived from lk_agent_tool.py) + official
 # system prompt (VoiceAgent.instructions). Absolute /nemo_run/code paths (read by
 # the generation task in-container), matching the server_args convention.
+# IMPORTANT: server_args must NOT include --no_pre_baked_system_prompt here.
+# That flag makes the server drop the client system prompt (unified_server.py:660)
+# and render only the tools, which would silently discard the official VoiceAgent
+# instructions. The in-tree fdb_v3 config keeps that flag on purpose (its prompt is
+# tool-only); the official variant must keep it OFF so the official prompt renders.
 tool_spec_path: /nemo_run/code/nemo_skills/dataset/fdb/scripts/fdb_v3_official/assets/fd3_tool_spec_official.json
 system_prompt_path: /nemo_run/code/nemo_skills/dataset/fdb/scripts/fdb_v3_official/assets/system_prompt_official.txt
 
