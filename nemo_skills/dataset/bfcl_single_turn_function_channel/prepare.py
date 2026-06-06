@@ -71,6 +71,66 @@ def _normalise_tool_name(name: str) -> str:
     return re.sub(r"\.", "_", name)
 
 
+_BFCL_TO_OPENAI_TYPE = {
+    "integer": "integer",
+    "number": "number",
+    "float": "number",
+    "string": "string",
+    "boolean": "boolean",
+    "bool": "boolean",
+    "array": "array",
+    "list": "array",
+    "dict": "object",
+    "object": "object",
+    "tuple": "array",
+    "any": "string",
+    "byte": "integer",
+    "short": "integer",
+    "long": "integer",
+    "double": "number",
+    "char": "string",
+}
+
+
+def _cast_properties_to_openai(properties: dict) -> dict:
+    """Recursively convert BFCL-native property types to OpenAI JSON Schema types.
+    Mirrors vtrinh AU-Harness request_resp_handler._cast_to_openai_type().
+    """
+    for key, val in properties.items():
+        var_type = val.get("type", "string")
+        if var_type == "float":
+            val["format"] = "float"
+            val["description"] = val.get("description", "") + " This is a float type value."
+        val["type"] = _BFCL_TO_OPENAI_TYPE.get(var_type, "string")
+        if val["type"] in ("array", "object"):
+            if "properties" in val:
+                val["properties"] = _cast_properties_to_openai(val["properties"])
+            elif "items" in val:
+                item_type = val["items"].get("type", "string")
+                val["items"]["type"] = _BFCL_TO_OPENAI_TYPE.get(item_type, "string")
+    return properties
+
+
+def _convert_to_openai_tools(tools: list) -> list:
+    """Convert raw BFCL tool definitions to OpenAI JSON Schema format.
+    Mirrors vtrinh AU-Harness request_resp_handler.convert_to_tool().
+    Applied only to openai_tools in prepare.py — does NOT touch the tools
+    list used for required_fields, so scorer type strings stay as-is.
+    """
+    import copy
+    result = []
+    for t in tools:
+        item = copy.deepcopy(t)
+        item["name"] = _normalise_tool_name(item["name"])
+        item["parameters"]["type"] = "object"
+        if "properties" in item["parameters"]:
+            item["parameters"]["properties"] = _cast_properties_to_openai(
+                item["parameters"]["properties"]
+            )
+        result.append({"type": "function", "function": item})
+    return result
+
+
 def _build_system_prompt(tools: list) -> str:
     normalised = [{**t, "name": _normalise_tool_name(t["name"])} for t in tools]
     return TOOLS_USER_PROMPT + TOOLS_SYSTEM_PROMPT_PREFIX + json.dumps(normalised, indent=4)
@@ -164,10 +224,7 @@ def prepare_category(
             expected_call = _parse_reference(ref_raw, tools)
             required_fields = _build_required_fields(tools)
             system_prompt = _build_system_prompt(tools)
-            openai_tools = [
-                {"type": "function", "function": {**t, "name": _normalise_tool_name(t["name"])}}
-                for t in tools
-            ]
+            openai_tools = _convert_to_openai_tools(tools)
 
             entry = {
                 "id": sample_id,

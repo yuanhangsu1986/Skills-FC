@@ -43,6 +43,29 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
+def _is_openai_schema(tools: list) -> bool:
+    """Return True if tools are already in OpenAI JSON Schema format.
+    Detects this by checking whether the first tool's parameters.type == 'object'
+    (the converted form); raw BFCL data uses 'dict' here.
+    """
+    if not tools:
+        return True
+    first = tools[0]
+    func = first.get("function", first)
+    return func.get("parameters", {}).get("type") == "object"
+
+
+def _convert_to_openai_tools(tools: list) -> list:
+    """Convert raw BFCL tool definitions to OpenAI JSON Schema format.
+    Mirrors prepare.py._convert_to_openai_tools() — used as a fallback for
+    input.jsonl files prepared before this conversion was added to prepare.py.
+    """
+    from nemo_skills.dataset.bfcl_single_turn_function_channel.prepare import (
+        _convert_to_openai_tools as _prepare_convert,
+    )
+    return _prepare_convert(tools)
+
+
 def _tool_calls_to_generation(tool_calls: list) -> str:
     """Convert OpenAI-format tool_calls to <TOOLCALL>...</TOOLCALL> generation string."""
     calls = []
@@ -117,6 +140,8 @@ def _process_sample(server_url: str, sample: dict, timeout: int, max_tokens: int
     audio_path = sample["audio_path"]
     system_prompt = sample["system_prompt"]
     tools = sample.get("tools", [])
+    if not _is_openai_schema(tools):
+        tools = _convert_to_openai_tools(tools)
 
     try:
         with open(audio_path, "rb") as f:
