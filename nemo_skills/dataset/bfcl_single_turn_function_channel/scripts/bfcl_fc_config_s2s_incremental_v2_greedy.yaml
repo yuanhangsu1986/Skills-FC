@@ -18,7 +18,7 @@ server_gpus: 1
 server_args: >-
   --backend s2s_incremental_v2
   --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
-  --num_frames_per_inference 1
+  --num_frames_per_inference 3
   --engine_type vllm_llm_vllm_eartts
   --use_perception_cache
   --use_perception_cudagraph
@@ -64,6 +64,7 @@ poll_interval: 30       # seconds between server health checks
 max_poll_attempts: 40   # give server up to 20 min to start
 request_timeout: 300    # per-request HTTP timeout in seconds
 max_tokens: 4096        # Match vtrinh AU-Harness DEFAULT_MAX_COMPLETION_TOKENS=4096.
+num_chunks: 2           # Split each subtest into 2 parallel GPU jobs (~100 samples each).
 
 # Opts the DRIRF wrapper into the multi-turn function-call code path so
 # the inference loop doesn't stop at the first EOTC token. No-op on

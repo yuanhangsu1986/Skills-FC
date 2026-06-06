@@ -101,14 +101,30 @@ def _compare_tool_call(
         return False, [f"No required-field metadata for '{tool_name}'"]
 
     errors = []
-    for param, param_type in req:
+    req_param_names = {p for p, _ in req}
+
+    # Check required params + non-required params that appear in both model output and reference.
+    # Mirrors vtrinh's simple_function_checker which validates every param the model provides.
+    non_req_to_check = [
+        (p, "any")
+        for p in tool_params
+        if p not in req_param_names and p in ref_params
+    ]
+    all_params_to_check = list(req) + non_req_to_check
+
+    for param, param_type in all_params_to_check:
         python_type = PYTHON_TYPE_MAPPING.get(param_type, str)
-        if param not in tool_params or param not in ref_params:
+        is_required = param in req_param_names
+
+        if is_required and (param not in tool_params or param not in ref_params):
             return False, [f"Missing required parameter '{param}'"]
+        if param not in tool_params or param not in ref_params:
+            continue
 
         tv = _standardize(tool_params[param])
         rv = _standardize(ref_params[param])
 
+        # Optional param (ref value is "" or None): no specific value expected, skip check.
         if rv in ("", None):
             continue
 

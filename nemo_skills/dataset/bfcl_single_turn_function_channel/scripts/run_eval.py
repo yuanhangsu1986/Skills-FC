@@ -50,7 +50,7 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def build_infer_command(config: dict, category: str) -> str:
+def build_infer_command(config: dict, category: str, chunk_id: int = 0) -> str:
     """Build a shell command that starts serve_unified in the background on the
     same node, then runs the inference client, then cleans up.
 
@@ -85,6 +85,7 @@ def build_infer_command(config: dict, category: str) -> str:
 
     max_workers = config.get("max_workers", 2)
     max_tokens = config.get("max_tokens", 256)
+    num_chunks = config.get("num_chunks", 1)
 
     infer_cmd = (
         f"{python_exec} nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_bfcl_fc_inference.py"
@@ -96,6 +97,8 @@ def build_infer_command(config: dict, category: str) -> str:
         f" --request_timeout {request_timeout}"
         f" --max_workers {max_workers}"
         f" --max_tokens {max_tokens}"
+        f" --num_chunks {num_chunks}"
+        + (f" --chunk_id {chunk_id}" if num_chunks > 1 else "")
     )
 
     # MULTI_TURN_FUNCTION_CALLS_ALLOWED: opts the DRIRF wrapper into the
@@ -142,32 +145,82 @@ def build_score_command(config: dict, category: str, force: bool = False) -> str
     return cmd
 
 
-def run_inference_stage(config: dict, category: str, expname: str, dry_run: bool) -> bool:
-    """Submit the serve+inference job. Returns True if submitted."""
+def run_inference_stage(config: dict, category: str, expname: str, dry_run: bool) -> str | None:
+    """Submit the serve+inference job(s). Returns final expname to depend on, or None if skipped."""
     output_jsonl = Path(f"{config['output_dir']}/eval-results/{category}/output.jsonl")
+    num_chunks = config.get("num_chunks", 1)
 
     if output_jsonl.exists() and not config.get("scoring_force", False):
         print(f"\n--- Stage 1: Skipping inference (found {output_jsonl}) ---")
-        return False
+        return None
 
     print("\n--- Stage 1: Running inference (serve + infer) ---")
     log_dir = str(Path(config["output_dir"]) / "eval-results" / category / "summarized-results")
     Path(log_dir).mkdir(parents=True, exist_ok=True)
+
+    if num_chunks <= 1:
+        run_cmd(
+            ctx=wrap_arguments(""),
+            cluster=config["cluster"],
+            command=build_infer_command(config, category),
+            container=config.get("server_container"),
+            num_gpus=config.get("server_gpus", 1),
+            partition=config.get("partition"),
+            expname=expname,
+            installation_command=config.get("installation_command"),
+            log_dir=log_dir,
+            reuse_code=False,
+            dry_run=dry_run,
+            exclusive=config.get("exclusive"),
+        )
+        return expname
+
+    # Multi-chunk: submit one GPU job per chunk, all independent
+    chunk_expnames = []
+    for chunk_id in range(num_chunks):
+        chunk_expname = f"{expname}_chunk{chunk_id}"
+        run_cmd(
+            ctx=wrap_arguments(""),
+            cluster=config["cluster"],
+            command=build_infer_command(config, category, chunk_id=chunk_id),
+            container=config.get("server_container"),
+            num_gpus=config.get("server_gpus", 1),
+            partition=config.get("partition"),
+            expname=chunk_expname,
+            installation_command=config.get("installation_command"),
+            log_dir=log_dir,
+            reuse_code=False,
+            dry_run=dry_run,
+            exclusive=config.get("exclusive"),
+        )
+        chunk_expnames.append(chunk_expname)
+
+    # Merge job: concatenate chunks into output.jsonl, depends on all chunks
+    output_dir = config["output_dir"]
+    python_exec = config.get("server_container_python_exec", "python")
+    merge_cmd = (
+        f"{python_exec} -c \""
+        f"import json, pathlib; "
+        f"out = pathlib.Path('{output_dir}/eval-results/{category}/output.jsonl'); "
+        f"chunks = sorted(out.parent.glob('output_chunk_*.jsonl')); "
+        f"out.write_text(''.join(c.read_text() for c in chunks)); "
+        f"print(f'Merged {{len(chunks)}} chunks -> {{out}}')\""
+    )
+    merge_expname = f"{expname}_merge"
     run_cmd(
         ctx=wrap_arguments(""),
         cluster=config["cluster"],
-        command=build_infer_command(config, category),
+        command=merge_cmd,
         container=config.get("server_container"),
-        num_gpus=config.get("server_gpus", 1),
-        partition=config.get("partition"),
-        expname=expname,
-        installation_command=config.get("installation_command"),
+        num_gpus=0,
+        partition=config.get("cpu_partition") or config.get("partition"),
+        run_after=chunk_expnames,
+        expname=merge_expname,
         log_dir=log_dir,
         reuse_code=False,
         dry_run=dry_run,
-        exclusive=config.get("exclusive"),
     )
-    return True
+    return merge_expname
 
 
 def run_scoring_stage(config: dict, category: str, expname: str, run_after, dry_run: bool):
@@ -217,13 +270,13 @@ def run_bfcl_eval(config: dict):
 
         expname = f"{config.get('expname', 'bfcl_fc')}_{category}"
 
-        infer_submitted = False
+        final_infer_expname = None
         if not scoring_only:
-            infer_submitted = run_inference_stage(config, category, expname, dry_run)
+            final_infer_expname = run_inference_stage(config, category, expname, dry_run)
             if inference_only:
                 continue
 
-        score_run_after = [expname] if infer_submitted else None
+        score_run_after = [final_infer_expname] if final_infer_expname else None
         run_scoring_stage(config, category, expname, score_run_after, dry_run)
 
     print(f"\n{'=' * 60}")

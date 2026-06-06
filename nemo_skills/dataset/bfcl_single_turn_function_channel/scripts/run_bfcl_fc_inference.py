@@ -191,6 +191,8 @@ def main():
     parser.add_argument("--request_timeout", type=int, default=300, help="Per-request HTTP timeout (s)")
     parser.add_argument("--max_workers", type=int, default=2, help="Concurrent requests (should match server batch_size)")
     parser.add_argument("--max_tokens", type=int, default=512, help="Max tokens per request; caps generation to prevent runaway inference on GPU(s)")
+    parser.add_argument("--num_chunks", type=int, default=1, help="Split input into N chunks for parallel SLURM jobs")
+    parser.add_argument("--chunk_id", type=int, default=0, help="Which chunk to process (0-indexed)")
     args = parser.parse_args()
 
     if not _poll_server(args.server_url, args.poll_interval, args.max_poll_attempts):
@@ -201,7 +203,18 @@ def main():
     output_path = Path(args.output_jsonl)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    samples = [json.loads(line) for line in input_path.read_text().splitlines() if line.strip()]
+    all_samples = [json.loads(line) for line in input_path.read_text().splitlines() if line.strip()]
+
+    # Chunk selection: evenly split across num_chunks, assign this job's slice
+    if args.num_chunks > 1:
+        chunk_size = (len(all_samples) + args.num_chunks - 1) // args.num_chunks
+        start = args.chunk_id * chunk_size
+        samples = all_samples[start: start + chunk_size]
+        # Write to output_chunk_{chunk_id}.jsonl instead of output.jsonl
+        output_path = output_path.parent / f"output_chunk_{args.chunk_id}.jsonl"
+        print(f"[inference] Chunk {args.chunk_id}/{args.num_chunks}: samples {start}-{start+len(samples)-1} ({len(samples)} total)")
+    else:
+        samples = all_samples
     print(f"[inference] Processing {len(samples)} samples from {input_path}")
 
     # Submit all requests upfront; the executor caps concurrency at max_workers.
@@ -224,6 +237,12 @@ def main():
                     print(f"[inference] {i + 1}/{len(samples)} done")
 
     print(f"[inference] Wrote {len(samples)} entries to {output_path} ({n_failed} failures)")
+    # Write done marker for chunk jobs so merge/scoring can detect completion
+    if args.num_chunks > 1:
+        done_path = output_path.with_suffix(".jsonl.done") if output_path.suffix != ".done" else output_path.parent / (output_path.name + ".done")
+        done_path = output_path.parent / (output_path.name + ".done")
+        done_path.write_text("ok\n")
+        print(f"[inference] Wrote done marker: {done_path}")
     if n_failed > 0:
         failure_rate = n_failed / len(samples)
         if failure_rate > 0.1:
