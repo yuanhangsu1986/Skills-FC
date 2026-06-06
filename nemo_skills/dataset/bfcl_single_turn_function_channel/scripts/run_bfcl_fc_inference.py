@@ -59,11 +59,14 @@ def _convert_to_openai_tools(tools: list) -> list:
     """Convert raw BFCL tool definitions to OpenAI JSON Schema format.
     Mirrors prepare.py._convert_to_openai_tools() — used as a fallback for
     input.jsonl files prepared before this conversion was added to prepare.py.
+    input.jsonl stores tools wrapped as {"type": "function", "function": {...}};
+    _prepare_convert expects unwrapped dicts, so we unwrap first.
     """
     from nemo_skills.dataset.bfcl_single_turn_function_channel.prepare import (
         _convert_to_openai_tools as _prepare_convert,
     )
-    return _prepare_convert(tools)
+    unwrapped = [t.get("function", t) for t in tools]
+    return _prepare_convert(unwrapped)
 
 
 def _tool_calls_to_generation(tool_calls: list) -> str:

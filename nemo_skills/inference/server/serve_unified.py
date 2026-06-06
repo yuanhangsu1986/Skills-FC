@@ -156,6 +156,8 @@ def main():
     parser.add_argument("--max_new_tokens", type=int, default=512, help="Max tokens to generate")
     parser.add_argument("--temperature", type=float, default=1.0, help="Generation temperature")
     parser.add_argument("--top_p", type=float, default=1.0, help="Top-p sampling")
+    parser.add_argument("--presence_penalty", type=float, default=0.0, help="Presence penalty for LLM sampling")
+    parser.add_argument("--vllm_llm_dtype", default="bfloat16", help="dtype for vLLM LLM engine (default bfloat16; separate from --dtype which controls TTS/audio)")
 
     # Model configuration
     parser.add_argument("--device", default="cuda", help="Device to use")
@@ -770,7 +772,7 @@ def main():
                 "model_path": model_path,
                 "max_model_len": args.vllm_max_model_len,
                 "gpu_memory_utilization": args.vllm_gpu_memory_utilization,
-                "dtype": "bfloat16",
+                "dtype": args.vllm_llm_dtype,
                 "engine_path": None,
                 "pretrained_llm": llm_path,
             }
@@ -798,6 +800,7 @@ def main():
         extra_config["chat_template"] = args.chat_template
     if args.no_pre_baked_system_prompt:
         extra_config["no_pre_baked_system_prompt"] = True
+    extra_config["presence_penalty"] = args.presence_penalty
 
     # Print configuration
     print("=" * 60)

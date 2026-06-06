@@ -164,6 +164,7 @@ class S2SIncrementalV2Config(BackendConfig):
     repetition_penalty: float = 1.0
     top_p: float = 1.0
     temperature: float = 1.0
+    presence_penalty: float = 0.0
 
     inference_pad_boost: Optional[float] = None
     inference_bos_boost: Optional[float] = None
@@ -279,6 +280,7 @@ class S2SIncrementalBackendV2(InferenceBackend):
             "top_p": cfg.top_p,
             "repetition_penalty": cfg.repetition_penalty,
             "temperature": cfg.temperature,
+            "presence_penalty": cfg.presence_penalty,
             "tts_system_prompt": cfg.tts_system_prompt,
             "compute_dtype": cfg.dtype,
             "device": cfg.device,
