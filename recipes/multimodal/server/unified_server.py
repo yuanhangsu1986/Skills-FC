@@ -1029,8 +1029,7 @@ def main():
         extra_config["tts_checkpoint_path"] = args.tts_checkpoint_path
     if args.speaker_reference:
         extra_config["speaker_reference"] = args.speaker_reference
-    if args.num_frames_per_inference != 1:
-        extra_config["num_frames_per_inference"] = args.num_frames_per_inference
+    extra_config["num_frames_per_inference"] = args.num_frames_per_inference
     if args.no_decode_audio:
         extra_config["decode_audio"] = False
     elif args.decode_audio:

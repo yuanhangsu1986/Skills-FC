@@ -776,15 +776,16 @@ def main():
                 "engine_path": None,
                 "pretrained_llm": llm_path,
             }
-            extra_config["vllm_tts_config"] = {
-                "model_path": model_path,
-                "max_model_len": args.vllm_max_model_len,
-                "gpu_memory_utilization": args.vllm_gpu_memory_utilization,
-                "dtype": "float32",
-                "engine_path": None,
-                "pretrained_llm": None,
-                "skip_tokenizer_init": True,
-            }
+            if not args.no_decode_audio:
+                extra_config["vllm_tts_config"] = {
+                    "model_path": model_path,
+                    "max_model_len": args.vllm_max_model_len,
+                    "gpu_memory_utilization": args.vllm_gpu_memory_utilization,
+                    "dtype": "float32",
+                    "engine_path": None,
+                    "pretrained_llm": None,
+                    "skip_tokenizer_init": True,
+                }
 
     # S2S Session backend options
     if args.backend == "s2s_session":
