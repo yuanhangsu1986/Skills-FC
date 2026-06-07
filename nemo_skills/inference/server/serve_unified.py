@@ -413,6 +413,19 @@ def main():
         help="GPU memory utilization for vLLM engines (s2s_incremental_v2)",
     )
     parser.add_argument(
+        "--vllm_enforce_eager",
+        action="store_true",
+        default=False,
+        help="Disable CUDA graph capture in vLLM (enforce_eager=True). Fixes tensor-stride "
+             "errors with non-bfloat16 dtypes (e.g. float32) at the cost of ~10%% throughput.",
+    )
+    parser.add_argument(
+        "--vllm_llm_attention_backend",
+        default=None,
+        help="Override vLLM attention backend for the LLM engine (e.g. TRITON_ATTN, TORCH_SDPA). "
+             "Useful when the default FlexAttention has issues (e.g. with float32 dtype).",
+    )
+    parser.add_argument(
         "--vllm_max_model_len",
         type=int,
         default=8192,
@@ -773,6 +786,8 @@ def main():
                 "max_model_len": args.vllm_max_model_len,
                 "gpu_memory_utilization": args.vllm_gpu_memory_utilization,
                 "dtype": args.vllm_llm_dtype,
+                "enforce_eager": args.vllm_enforce_eager,
+                "attention_backend": args.vllm_llm_attention_backend,
                 "engine_path": None,
                 "pretrained_llm": llm_path,
             }

@@ -26,7 +26,7 @@ server_args: >-
   --buffer_size_frames 21
   --codec_token_history_size 60
   --matmul_precision medium
-  --vllm_gpu_memory_utilization 0.35
+  --vllm_gpu_memory_utilization 0.65
   --vllm_max_model_len 8192
   --inference_pad_boost 0
   --inference_bos_boost 0
@@ -37,8 +37,8 @@ server_args: >-
   --silence_padding_sec 60
   --dtype float32
   --vllm_llm_dtype float32
-  --vllm_enforce_eager
-  --vllm_gpu_memory_utilization 0.65
+  --vllm_llm_attention_backend TRITON_ATTN
+  --disable_rnnt_decoder_cuda_graphs
   --inference_guidance_scale 0.5
   --inference_noise_scale 0.8
   --inference_top_p_or_k 0.8
@@ -66,7 +66,7 @@ poll_interval: 30       # seconds between server health checks
 max_poll_attempts: 40   # give server up to 20 min to start
 request_timeout: 300    # per-request HTTP timeout in seconds
 max_tokens: 4096        # Match vtrinh AU-Harness DEFAULT_MAX_COMPLETION_TOKENS=4096.
-num_chunks: 2           # Split each subtest into 2 parallel GPU jobs (~100 samples each).
+num_chunks: 8
 
 # Opts the DRIRF wrapper into the multi-turn function-call code path so
 # the inference loop doesn't stop at the first EOTC token. No-op on
@@ -77,19 +77,15 @@ multi_turn_function_calls_allowed: true
 
 # Paths — run prepare.py once to populate data_dir
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bfcl_fc_data
-output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/bfcl_fc
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/bfcl_fc_parallel_multiple_test
 
 categories:
-  - simple
-  - parallel
-  - multiple
   - parallel_multiple
-  - irrelevance
 
 installation_command: "mkdir -p /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models && cp /nemo_run/code/asset/nemotron_h.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/nemotron_h.py && ln -sf $(which python3) /usr/local/bin/python"
 scoring_installation_command: ""
 
-expname: bfcl_fc_greedy
+expname: bfcl_fc_greedy_parallel_multiple_test
 # max_samples: 50
 
 inference_only: false
