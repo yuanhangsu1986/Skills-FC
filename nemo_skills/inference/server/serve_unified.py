@@ -157,6 +157,34 @@ def main():
     parser.add_argument("--temperature", type=float, default=1.0, help="Generation temperature")
     parser.add_argument("--top_p", type=float, default=1.0, help="Top-p sampling")
     parser.add_argument("--presence_penalty", type=float, default=0.0, help="Presence penalty for LLM sampling")
+    parser.add_argument("--use_vllm", action="store_true", default=False,
+                        help="(s2s_voicechat) Route inference through offline_inference_vllm() "
+                             "instead of the default eager-mode offline_inference(). Requires "
+                             "DSFTS_VLLM codebase at --code_path and a patched vLLM build "
+                             "(same triton sqsh as DRIRF). Reduces per-step cost from O(t) to "
+                             "O(1) by caching KV + Mamba state across steps.")
+    parser.add_argument("--vllm_hf_model_type", default=None,
+                        help="(s2s_voicechat + use_vllm) Override model_type injected into the "
+                             "HF config before vLLM loads it. Required when the checkpoint "
+                             "config.json lacks model_type (e.g. full S2S training configs). "
+                             "Default: 'nemotron_h' when use_vllm is set.")
+    parser.add_argument("--vllm_hf_architectures", default=None,
+                        help="(s2s_voicechat + use_vllm) Comma-separated list of architecture "
+                             "class names to inject into the HF config alongside model_type. "
+                             "Default: 'NemotronHForCausalLM' when use_vllm is set.")
+    parser.add_argument("--early_stop_on_eog", action="store_true", default=False,
+                        help="(s2s_voicechat) EOG = End Of Generation. Terminate the autoregressive "
+                             "loop once every batch item has finished in ALL active output channels: "
+                             "(1) text channel — EOS token; "
+                             "(2) function channel — EOTC (FC_EOTC_TOKEN, default <SPECIAL_21>), "
+                             "skipped if function head is disabled; "
+                             "(3) TTS/audio channel — speech_eos_id on the first RVQ codebook, "
+                             "skipped if decode_audio=False. "
+                             "All three must fire before the loop breaks, so no channel is truncated "
+                             "prematurely. "
+                             "Opt-in only — correct for FC evals (BFCL) where generation ends cleanly; "
+                             "do NOT enable for datasets where the model produces further output after "
+                             "those tokens (e.g. multi-turn FDB, long-form speech).")
     parser.add_argument("--vllm_llm_dtype", default="bfloat16", help="dtype for vLLM LLM engine (default bfloat16; separate from --dtype which controls TTS/audio)")
 
     # Model configuration
@@ -662,6 +690,24 @@ def main():
         # Force turn-taking — landed on model.stt.model.force_turn_taking by the backend.
         if args.force_turn_taking:
             extra_config["force_turn_taking"] = True
+        # Early-stop on EOG — opt-in flag for BFCL/FC evals.
+        if args.early_stop_on_eog:
+            extra_config["early_stop_on_eog"] = True
+        # vLLM inference path — opt-in.
+        if args.use_vllm:
+            extra_config["use_vllm"] = True
+            # vllm_cfg.hf_overrides: model_type and architectures are injected into
+            # the HF config before vLLM validates it (patched AutoConfig path).
+            # Build/extend the dict so other vllm_cfg keys are preserved.
+            vllm_cfg = extra_config.get("vllm_cfg") or {}
+            hf_ov = dict(vllm_cfg.get("hf_overrides") or {})
+            if args.vllm_hf_model_type:
+                hf_ov["model_type"] = args.vllm_hf_model_type
+            if args.vllm_hf_architectures:
+                hf_ov["architectures"] = [a.strip() for a in args.vllm_hf_architectures.split(",")]
+            if hf_ov:
+                vllm_cfg["hf_overrides"] = hf_ov
+                extra_config["vllm_cfg"] = vllm_cfg
         # System prompt — used as a default when a request doesn't carry its own.
         if args.system_prompt:
             extra_config["system_prompt"] = args.system_prompt

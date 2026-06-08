@@ -62,6 +62,20 @@ class S2SVoiceChatInferConfig(BackendConfig):
     temperature: float = 0.0
     top_p: float = 1.0
     repetition_penalty: float = 1.0
+    presence_penalty: float = 0.0
+
+    # Stop autoregressive loop as soon as every batch item emits EOS in the text channel.
+    # Opt-in only — safe for BFCL (model finishes quickly after TOOLCALL) but could
+    # truncate outputs prematurely on other datasets (e.g. FDB, long-form speech).
+    early_stop_on_eog: bool = False
+
+    # Route inference through NemotronVoiceChat.offline_inference_vllm() instead of
+    # the default eager-mode offline_inference().  Requires DSFTS_VLLM codebase at
+    # code_path and a patched vLLM build (same container as DRIRF).
+    # vllm_cfg: dict forwarded to OfflineVLLMEngine (model_path, max_model_len,
+    #   gpu_memory_utilization, dtype, hf_overrides, enforce_eager).
+    use_vllm: bool = False
+    vllm_cfg: Optional[dict] = None
 
     # Turn-taking — landed on model.stt.model.force_turn_taking before model construction,
     # then read by DuplexSTTModel internals (duplex_stt_model.py:3566).
@@ -113,6 +127,10 @@ class S2SVoiceChatInferConfig(BackendConfig):
             "inference_bos_boost",
             "inference_eos_boost",
             "repetition_penalty",
+            "presence_penalty",
+            "early_stop_on_eog",
+            "use_vllm",
+            "vllm_cfg",
             "force_turn_taking",
             "decode_audio",
             "output_dir",
@@ -175,9 +193,43 @@ class S2SVoiceChatInferBackend(InferenceBackend):
         return OmegaConf.load(config_path)
 
     def _apply_overrides(self, cfg: Any) -> Any:
-        # Use the --model path as pretrained_s2s_model (like infer_nano9b_s2s.sh does).
+        # Merge model.stt.model config from checkpoint's config.json first, so DuplexSTTModel
+        # gets all required keys (pretrained_llm, pretrained_weights, etc.) that the inference
+        # YAML leaves empty.  Then override pretrained_s2s_model with the actual model path
+        # (the checkpoint's stored path may be a stale training-time location).
         if self.config.model_path:
+            ckpt_config_json = os.path.join(self.config.model_path, "config.json")
+            if os.path.isfile(ckpt_config_json):
+                try:
+                    import json
+                    with open(ckpt_config_json) as _f:
+                        ckpt_cfg = json.load(_f)
+                    stt_model_cfg = (
+                        ckpt_cfg.get("model", {}).get("stt", {}).get("model", {})
+                    )
+                    for _k, _v in stt_model_cfg.items():
+                        OmegaConf.update(cfg, f"model.stt.model.{_k}", _v, force_add=True)
+                    print(f"[S2SVoiceChat] Merged {len(stt_model_cfg)} keys from checkpoint config.json into model.stt.model")
+                except Exception as e:
+                    print(f"[S2SVoiceChat] Warning: could not merge config from {ckpt_config_json}: {e}")
+            # Always override pretrained_s2s_model with the actual model path
             OmegaConf.update(cfg, "model.stt.model.pretrained_s2s_model", self.config.model_path, force_add=True)
+
+        # Propagate decode_audio into model config so NemotronVoiceChat.__init__
+        # can skip building and loading the TTS module when not needed.
+        OmegaConf.update(cfg, "model.decode_audio", bool(self.vc_config.decode_audio), force_add=True)
+        # Propagate early_stop_on_eog flag — opt-in, default False.
+        OmegaConf.update(cfg, "model.early_stop_on_eog", bool(self.vc_config.early_stop_on_eog), force_add=True)
+        # Tell NemotronVoiceChat.__init__ to drop the PyTorch LLM after loading
+        # so vLLM can claim that GPU memory without OOM.
+        OmegaConf.update(cfg, "model.use_vllm", bool(self.vc_config.use_vllm), force_add=True)
+        # Propagate vLLM inference config so NemotronVoiceChat._get_vllm_engine() can read it.
+        if self.vc_config.use_vllm:
+            vllm_cfg = dict(self.vc_config.vllm_cfg or {})
+            # Default model_path to the checkpoint path so _get_vllm_engine() finds it.
+            if "model_path" not in vllm_cfg:
+                vllm_cfg["model_path"] = self.config.model_path
+            OmegaConf.update(cfg, "model.vllm_cfg", vllm_cfg, force_add=True)
 
         # TTS override semantics (match Kevin's inference recipe):
         # - `pretrained_model`: checkpoint file (.ckpt/.nemo)
@@ -488,17 +540,34 @@ class S2SVoiceChatInferBackend(InferenceBackend):
             input_pad_len = int(float(self.vc_config.extra_decoding_seconds) * int(self.vc_config.source_sample_rate))
 
             with torch.no_grad():
-                outputs = self._model.offline_inference(
-                    input_signal=batch,
-                    input_signal_lens=lengths,
-                    prompt_tokens=prompt_tokens,
-                    prompt_token_lens=prompt_lens,
-                    input_pad_len=input_pad_len,
-                    decode_audio=bool(self.vc_config.decode_audio),
-                    temperature=float(self.vc_config.temperature),
-                    top_p=float(self.vc_config.top_p),
-                    repetition_penalty=float(self.vc_config.repetition_penalty),
-                )
+                if self.vc_config.use_vllm:
+                    # O(T) path: vLLM manages KV + Mamba state internally.
+                    # TTS not supported on this path; decode_audio is ignored.
+                    outputs = self._model.offline_inference_vllm(
+                        input_signal=batch,
+                        input_signal_lens=lengths,
+                        prompt_tokens=prompt_tokens,
+                        prompt_token_lens=prompt_lens,
+                        input_pad_len=input_pad_len,
+                        temperature=float(self.vc_config.temperature),
+                        top_p=float(self.vc_config.top_p),
+                        repetition_penalty=float(self.vc_config.repetition_penalty),
+                        presence_penalty=float(self.vc_config.presence_penalty),
+                    )
+                else:
+                    # O(T²) eager-mode path (default, no code_path change required).
+                    outputs = self._model.offline_inference(
+                        input_signal=batch,
+                        input_signal_lens=lengths,
+                        prompt_tokens=prompt_tokens,
+                        prompt_token_lens=prompt_lens,
+                        input_pad_len=input_pad_len,
+                        decode_audio=bool(self.vc_config.decode_audio),
+                        temperature=float(self.vc_config.temperature),
+                        top_p=float(self.vc_config.top_p),
+                        repetition_penalty=float(self.vc_config.repetition_penalty),
+                        presence_penalty=float(self.vc_config.presence_penalty),
+                    )
 
             elapsed_ms = (time.time() - start_time) * 1000.0
 

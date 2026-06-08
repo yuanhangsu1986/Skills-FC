@@ -34,6 +34,7 @@ Usage:
 """
 
 import argparse
+import shlex
 from pathlib import Path
 
 import yaml
@@ -111,7 +112,23 @@ def build_infer_command(config: dict, category: str, chunk_id: int = 0) -> str:
     # loop just runs to total_frames after it. Config-toggleable; default
     # true since BFCL is a tool-calling benchmark.
     multi_turn_fc = bool(config.get("multi_turn_function_calls_allowed", True))
-    env_prefix = f"export MULTI_TURN_FUNCTION_CALLS_ALLOWED=true && " if multi_turn_fc else ""
+    env_exports = []
+    if multi_turn_fc:
+        env_exports.append("export MULTI_TURN_FUNCTION_CALLS_ALLOWED=true")
+    # FC special token overrides — only exported when explicitly set in the YAML;
+    # otherwise the model code falls back to its built-in defaults (<SPECIAL_20/21/22>).
+    for yaml_key, env_var in (
+        ("fc_sotc_token",     "FC_SOTC_TOKEN"),
+        ("fc_eotc_token",     "FC_EOTC_TOKEN"),
+        ("fc_eotr_token",     "FC_EOTR_TOKEN"),
+        ("tts_speech_eos_id", "TTS_SPEECH_EOS_ID"),
+        ("tts_speech_bos_id", "TTS_SPEECH_BOS_ID"),
+        ("tts_speech_pad_id", "TTS_SPEECH_PAD_ID"),
+    ):
+        val = config.get(yaml_key)
+        if val:
+            env_exports.append(f"export {env_var}={shlex.quote(str(val))}")
+    env_prefix = " && ".join(env_exports) + " && " if env_exports else ""
 
     # Wrap server+client in a compound command { } so that any installation_command
     # prepended by install_packages_wrap (via "&&") runs synchronously before either

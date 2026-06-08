@@ -1,0 +1,74 @@
+# BFCL single-turn function-channel evaluation
+# DSFTS (s2s_voicechat) offline backend - greedy decoding (temperature=0).
+# FC (function calling) checkpoint variant.
+#
+# Run:
+#   python nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py \
+#     --config nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/bfcl_fc_config_s2s_voicechat_greedy_parallel_multiple_test.yaml
+
+# Cluster settings
+cluster: s2s_eval_oci_iad_oncluster
+partition: batch_block1,batch_block3,batch_block4
+cpu_partition: cpu_short
+
+model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
+
+server_gpus: 1
+
+server_args: >-
+  --backend s2s_voicechat
+  --config_path /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Feb_21_2026/config/inference/infer_nano_s2s_bfcl_ckpt_stt.yaml
+  --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DSFTS
+  --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
+  --extra_decoding_seconds 30
+  --dtype float32
+  --temperature 0.0
+  --top_p 1.0
+  --repetition_penalty 1.0
+  --presence_penalty 0.0
+  --decode_function_channel
+  --tool_call_parser /nemo_run/code/recipes/multimodal/server/tool_calling/nemotron_v2_voicechat_toolcall_parser.py
+  --chat_template /nemo_run/code/recipes/multimodal/server/tool_calling/nano_v2_voicechat_toolcalling_chat_template.jinja
+  --use_function_channel_for_tool_calls
+  --early_stop_on_eog
+  --no_pre_baked_system_prompt
+  --no_decode_audio
+  --save_artifacts
+  --output_dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/bfcl_fc_artifacts
+  --batch_size 1
+  --pip_install "--cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1"
+
+server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
+server_container_python_exec: python3
+
+poll_interval: 30       # seconds between server health checks
+max_poll_attempts: 40   # give server up to 20 min to start
+request_timeout: 300    # per-request HTTP timeout in seconds
+max_tokens: 4096
+num_chunks: 8
+
+# Paths — run prepare.py once to populate data_dir
+data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/bfcl_fc_data
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/bfcl_fc_dsfts_parallel_multiple_test
+
+# Function-channel special token strings for the model under evaluation.
+# Exported as FC_SOTC_TOKEN / FC_EOTC_TOKEN / FC_EOTR_TOKEN env vars before
+# the inference job starts (see run_eval.py).  Omit to use model code defaults
+# (<SPECIAL_20>, <SPECIAL_21>, <SPECIAL_22>).
+fc_sotc_token: "<SPECIAL_20>"
+fc_eotc_token: "<SPECIAL_21>"
+fc_eotr_token: "<SPECIAL_22>"
+
+categories:
+  - parallel_multiple
+
+installation_command: "python3 /nemo_run/code/asset/fix_pkgutil_py312_triton25.05_s2svllm26.02.12.py && ln -sf $(which python3) /usr/local/bin/python"
+scoring_installation_command: ""
+
+expname: bfcl_fc_greedy_dsfts_parallel_multiple_test
+# max_samples: 50
+
+inference_only: false
+scoring_only: false
+scoring_force: false
+dry_run: false
