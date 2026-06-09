@@ -23,7 +23,7 @@ class ArenaMetrics(BaseMetrics):
 
     def _get_judge_score(self, judgment):
         # adapted from https://github.com/lm-sys/arena-hard-auto/blob/main/gen_judgment.py
-        pattern = re.compile("\[\[([AB<>=]+)\]\]")
+        pattern = re.compile(r"\[\[([AB<>=]+)\]\]")
         matches = pattern.findall(judgment)
         matches = [m for m in matches if m != ""]
         if len(set(matches)) == 0:

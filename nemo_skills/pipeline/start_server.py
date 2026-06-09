@@ -76,7 +76,7 @@ def create_job_tunnel(
     if service_node is None:
         ## NOTE(sanyamk): Assumes last one corresponds to the service node.
         service_node_cmd: RunResult = job.executor.tunnel.run(
-            f"scontrol show job {app_id} | grep -m1 -o -E '\s+NodeList\=.*' | xargs | cut -d= -f2 | xargs scontrol show hostnames | tail -n1"
+            f"scontrol show job {app_id} | grep -m1 -o -E '\\s+NodeList\\=.*' | xargs | cut -d= -f2 | xargs scontrol show hostnames | tail -n1"
         )
         if service_node_cmd.return_code != 0:
             LOG.exception(f"Failed to get node list. {service_node_cmd.stderr}")

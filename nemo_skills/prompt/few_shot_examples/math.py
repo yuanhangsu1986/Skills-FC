@@ -565,7 +565,7 @@ domain
 {code_end}{code_output_begin}
 Union(Interval.open(-oo, 1), Interval.open(1, 3), Interval.open(3, oo))
 {code_output_end}
-So the domain is: $\\boxed{ (-\infty, 1) \cup (1, 3) \cup (3, \infty) }$.
+So the domain is: $\\boxed{ (-\\infty, 1) \\cup (1, 3) \\cup (3, \\infty) }$.
 """.strip(),
     },
     {
