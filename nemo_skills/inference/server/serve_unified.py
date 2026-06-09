@@ -163,20 +163,6 @@ def main():
                              "DSFTS_VLLM codebase at --code_path and a patched vLLM build "
                              "(same triton sqsh as DRIRF). Reduces per-step cost from O(t) to "
                              "O(1) by caching KV + Mamba state across steps.")
-    parser.add_argument("--vllm_hf_model_type", default=None,
-                        help="(s2s_voicechat + use_vllm) Override model_type injected into the "
-                             "HF config before vLLM loads it. Required when the checkpoint "
-                             "config.json lacks model_type (e.g. full S2S training configs). "
-                             "Default: 'nemotron_h' when use_vllm is set.")
-    parser.add_argument("--vllm_hf_architectures", default=None,
-                        help="(s2s_voicechat + use_vllm) Comma-separated list of architecture "
-                             "class names to inject into the HF config alongside model_type. "
-                             "Default: 'NemotronHForCausalLM' when use_vllm is set.")
-    parser.add_argument("--vllm_hf_model_id", default=None,
-                        help="(s2s_voicechat + use_vllm) HuggingFace model ID of the base LLM "
-                             "(e.g. 'nvidia/NVIDIA-Nemotron-Nano-9B-v2'). Required for NeMo "
-                             "checkpoints so OfflineVLLMEngine can fetch the HF config and "
-                             "tokenizer during on-the-fly conversion.")
     parser.add_argument("--early_stop_on_eog", action="store_true", default=False,
                         help="(s2s_voicechat) EOG = End Of Generation. Terminate the autoregressive "
                              "loop once every batch item has finished in ALL active output channels: "
@@ -701,19 +687,7 @@ def main():
         # vLLM inference path — opt-in.
         if args.use_vllm:
             extra_config["use_vllm"] = True
-            # vllm_cfg.hf_overrides: model_type and architectures are injected into
-            # the HF config before vLLM validates it (patched AutoConfig path).
-            # Build/extend the dict so other vllm_cfg keys are preserved.
             vllm_cfg = extra_config.get("vllm_cfg") or {}
-            hf_ov = dict(vllm_cfg.get("hf_overrides") or {})
-            if args.vllm_hf_model_type:
-                hf_ov["model_type"] = args.vllm_hf_model_type
-            if args.vllm_hf_architectures:
-                hf_ov["architectures"] = [a.strip() for a in args.vllm_hf_architectures.split(",")]
-            if args.vllm_hf_model_id:
-                hf_ov["hf_model_id"] = args.vllm_hf_model_id
-            if hf_ov:
-                vllm_cfg["hf_overrides"] = hf_ov
             if args.vllm_gpu_memory_utilization is not None:
                 vllm_cfg["gpu_memory_utilization"] = args.vllm_gpu_memory_utilization
             if args.vllm_max_model_len is not None:
