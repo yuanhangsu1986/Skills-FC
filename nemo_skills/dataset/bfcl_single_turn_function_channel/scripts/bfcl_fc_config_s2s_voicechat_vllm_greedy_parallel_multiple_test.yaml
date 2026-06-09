@@ -29,6 +29,8 @@ server_args: >-
   --use_vllm
   --vllm_hf_model_type nemotron_h
   --vllm_hf_architectures NemotronHForCausalLM
+  --vllm_hf_model_id nvidia/NVIDIA-Nemotron-Nano-9B-v2
+  --vllm_gpu_memory_utilization 0.65
   --decode_function_channel
   --tool_call_parser /nemo_run/code/recipes/multimodal/server/tool_calling/nemotron_v2_voicechat_toolcall_parser.py
   --chat_template /nemo_run/code/recipes/multimodal/server/tool_calling/nano_v2_voicechat_toolcalling_chat_template.jinja

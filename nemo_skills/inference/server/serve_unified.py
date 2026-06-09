@@ -172,6 +172,11 @@ def main():
                         help="(s2s_voicechat + use_vllm) Comma-separated list of architecture "
                              "class names to inject into the HF config alongside model_type. "
                              "Default: 'NemotronHForCausalLM' when use_vllm is set.")
+    parser.add_argument("--vllm_hf_model_id", default=None,
+                        help="(s2s_voicechat + use_vllm) HuggingFace model ID of the base LLM "
+                             "(e.g. 'nvidia/NVIDIA-Nemotron-Nano-9B-v2'). Required for NeMo "
+                             "checkpoints so OfflineVLLMEngine can fetch the HF config and "
+                             "tokenizer during on-the-fly conversion.")
     parser.add_argument("--early_stop_on_eog", action="store_true", default=False,
                         help="(s2s_voicechat) EOG = End Of Generation. Terminate the autoregressive "
                              "loop once every batch item has finished in ALL active output channels: "
@@ -705,8 +710,19 @@ def main():
                 hf_ov["model_type"] = args.vllm_hf_model_type
             if args.vllm_hf_architectures:
                 hf_ov["architectures"] = [a.strip() for a in args.vllm_hf_architectures.split(",")]
+            if args.vllm_hf_model_id:
+                hf_ov["hf_model_id"] = args.vllm_hf_model_id
             if hf_ov:
                 vllm_cfg["hf_overrides"] = hf_ov
+            if args.vllm_gpu_memory_utilization is not None:
+                vllm_cfg["gpu_memory_utilization"] = args.vllm_gpu_memory_utilization
+            if args.vllm_max_model_len is not None:
+                vllm_cfg["max_model_len"] = args.vllm_max_model_len
+            if args.vllm_llm_dtype is not None:
+                vllm_cfg["dtype"] = args.vllm_llm_dtype
+            if args.vllm_enforce_eager:
+                vllm_cfg["enforce_eager"] = args.vllm_enforce_eager
+            if vllm_cfg:
                 extra_config["vllm_cfg"] = vllm_cfg
         # System prompt — used as a default when a request doesn't carry its own.
         if args.system_prompt:
@@ -729,6 +745,12 @@ def main():
             extra_config["trim_leading_silence_padding_sec"] = args.trim_leading_silence_padding_sec
         if args.merge_user_channel:
             extra_config["merge_user_channel"] = True
+        if args.inference_guidance_scale is not None:
+            extra_config["inference_guidance_scale"] = args.inference_guidance_scale
+        if args.inference_noise_scale is not None:
+            extra_config["inference_noise_scale"] = args.inference_noise_scale
+        if args.inference_top_p_or_k is not None:
+            extra_config["inference_top_p_or_k"] = args.inference_top_p_or_k
 
     # S2S Incremental/Session backend options (shared config)
     if args.backend in ("s2s_incremental", "s2s_session"):
