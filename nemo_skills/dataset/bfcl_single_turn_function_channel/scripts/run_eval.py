@@ -165,10 +165,11 @@ def build_score_command(config: dict, category: str, force: bool = False) -> str
 def run_inference_stage(config: dict, category: str, expname: str, dry_run: bool) -> str | None:
     """Submit the serve+inference job(s). Returns final expname to depend on, or None if skipped."""
     output_jsonl = Path(f"{config['output_dir']}/eval-results/{category}/output.jsonl")
+    output_done = output_jsonl.parent / (output_jsonl.name + ".done")
     num_chunks = config.get("num_chunks", 1)
 
-    if output_jsonl.exists() and not config.get("scoring_force", False):
-        print(f"\n--- Stage 1: Skipping inference (found {output_jsonl}) ---")
+    if output_jsonl.exists() and output_done.exists() and not config.get("scoring_force", False):
+        print(f"\n--- Stage 1: Skipping inference (found {output_jsonl} + .done marker) ---")
         return None
 
     print("\n--- Stage 1: Running inference (serve + infer) ---")
@@ -212,15 +213,18 @@ def run_inference_stage(config: dict, category: str, expname: str, dry_run: bool
         )
         chunk_expnames.append(chunk_expname)
 
-    # Merge job: concatenate chunks into output.jsonl, depends on all chunks
+    # Merge job: validate all chunk done markers, concatenate into output.jsonl, write output.jsonl.done
     output_dir = config["output_dir"]
     python_exec = config.get("server_container_python_exec", "python")
     merge_cmd = (
         f"{python_exec} -c \""
-        f"import json, pathlib; "
+        f"import pathlib, sys; "
         f"out = pathlib.Path('{output_dir}/eval-results/{category}/output.jsonl'); "
         f"chunks = sorted(out.parent.glob('output_chunk_*.jsonl')); "
+        f"missing = [c for c in chunks if not (c.parent / (c.name + '.done')).exists()]; "
+        f"missing and (print(f'ERROR: {{len(missing)}} chunk(s) missing done marker: {{[str(m) for m in missing]}}', file=sys.stderr), sys.exit(1)); "
         f"out.write_text(''.join(c.read_text() for c in chunks)); "
+        f"(out.parent / (out.name + '.done')).write_text('ok\\\\n'); "
         f"print(f'Merged {{len(chunks)}} chunks -> {{out}}')\""
     )
     merge_expname = f"{expname}_merge"

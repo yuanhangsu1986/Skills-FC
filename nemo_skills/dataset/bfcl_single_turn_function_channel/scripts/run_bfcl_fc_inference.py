@@ -237,12 +237,10 @@ def main():
                     print(f"[inference] {i + 1}/{len(samples)} done")
 
     print(f"[inference] Wrote {len(samples)} entries to {output_path} ({n_failed} failures)")
-    # Write done marker for chunk jobs so merge/scoring can detect completion
-    if args.num_chunks > 1:
-        done_path = output_path.with_suffix(".jsonl.done") if output_path.suffix != ".done" else output_path.parent / (output_path.name + ".done")
-        done_path = output_path.parent / (output_path.name + ".done")
-        done_path.write_text("ok\n")
-        print(f"[inference] Wrote done marker: {done_path}")
+    # Write done marker so merge/scoring can detect successful completion
+    done_path = output_path.parent / (output_path.name + ".done")
+    done_path.write_text("ok\n")
+    print(f"[inference] Wrote done marker: {done_path}")
     if n_failed > 0:
         failure_rate = n_failed / len(samples)
         if failure_rate > 0.1:

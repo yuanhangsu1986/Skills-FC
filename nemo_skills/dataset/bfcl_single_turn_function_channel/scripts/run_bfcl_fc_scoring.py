@@ -167,6 +167,11 @@ def score(
         print(f"Error: {output_path} not found.", file=sys.stderr)
         return 1
 
+    done_marker = output_path.parent / (output_path.name + ".done")
+    if not done_marker.exists():
+        print(f"Error: {done_marker} not found — inference did not complete successfully. Re-run inference.", file=sys.stderr)
+        return 1
+
     with open(output_path) as f:
         entries = [json.loads(line) for line in f if line.strip()]
 
