@@ -54,10 +54,10 @@ server_args: >-
   --vllm_max_model_len 8192
   --extra_decoding_seconds 60
   --dtype float32
-  --inference_guidance_scale 0.5
-  --inference_noise_scale 0.8
-  --inference_top_p_or_k 0.8
-  --inference_user_pad_boost 0.8
+  --inference_guidance_scale 0.2
+  --inference_noise_scale 0.001
+  --inference_top_p_or_k 0.95
+  --inference_user_pad_boost 0.0
   --silence_padding_sec 10
   --max_new_tokens 4500
   --top_p 1.0
