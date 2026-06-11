@@ -36,6 +36,7 @@ server_args: >-
   --inference_user_eos_boost 0
   --silence_padding_sec 60
   --dtype float32
+  --disable_rnnt_decoder_cuda_graphs
   --inference_guidance_scale 0.5
   --inference_noise_scale 0.8
   --inference_top_p_or_k 0.8
