@@ -37,9 +37,9 @@ server_args: >-
   --silence_padding_sec 60
   --dtype float32
   --disable_rnnt_decoder_cuda_graphs
-  --inference_guidance_scale 0.5
-  --inference_noise_scale 0.8
-  --inference_top_p_or_k 0.8
+  --inference_guidance_scale 0.2
+  --inference_noise_scale 0.001
+  --inference_top_p_or_k 0.95
   --top_p 1.0
   --repetition_penalty 1.0
   --temperature 0.0
