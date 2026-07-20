@@ -215,9 +215,10 @@ def get_env_variables(cluster_config):
         "HF_TOKEN",
         "NGC_API_KEY",
     }
-    default_factories = {
-        "HF_TOKEN": lambda: str(token) if (token := get_token()) else "",
-    }
+    default_factories = {}
+    #default_factories = {
+    #    "HF_TOKEN": lambda: str(token) if (token := get_token()) else "",
+    #}
     # Add optional env variables defined in cluster config
     cfg_optional_env_vars = cluster_config.get("env_vars", [])
     for env_var in cfg_optional_env_vars:
@@ -238,6 +239,9 @@ def get_env_variables(cluster_config):
             # request variable from environment later
             optional_env_vars_to_add.add(env_var.strip())
     # iterate over rest optional env vars to add, add from environment or default factory
+    # wire the HF_HOME to env var so that launcher can handle HF operations properly
+    if "HF_HOME" in env_vars and "HF_HOME" not in os.environ:
+        os.environ["HF_HOME"] = env_vars["HF_HOME"]
     for env_var_name in optional_env_vars_to_add:
         if env_var_name in os.environ:
             env_vars[env_var_name] = os.environ[env_var_name]
