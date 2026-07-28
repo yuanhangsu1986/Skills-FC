@@ -56,6 +56,7 @@ START=1
 DRY_RUN=""
 MAX_JOBS=""
 RESUME=""
+USE_RNNT_TT=""   # "true"/"false"; empty = inherit backend default (RNNT on)
 
 # Snapshot original args BEFORE the while loop below consumes them via `shift`,
 # so the nohup re-exec in the auto-detach block can forward them verbatim.
@@ -70,6 +71,9 @@ while [ $# -gt 0 ]; do
     --repo)         REPO="$2"; shift 2 ;;
     --start)        START="$2"; shift 2 ;;
     --max_jobs)     MAX_JOBS="$2"; shift 2 ;;
+    # Forwarded verbatim to run_all_benchmarks.sh. Omit to inherit the backend
+    # default (RNNT turn-taking on).
+    --use_rnnt_turn_taking) USE_RNNT_TT="$2"; shift 2 ;;
     --resume)       RESUME="--resume"; shift ;;
     --dry_run)      DRY_RUN="--dry_run"; shift ;;
     -h|--help)      sed -n '1,50p' "$0"; exit 0 ;;
@@ -140,6 +144,7 @@ tail -n "+$START" "$LIST" | while IFS= read -r ckpt; do
         --force_turn_taking false \
         --model "$ckpt" \
         --output_dir "$OUTPUT_ROOT/$name" \
+        ${USE_RNNT_TT:+--use_rnnt_turn_taking $USE_RNNT_TT} \
         ${MAX_JOBS:+--max_jobs $MAX_JOBS} \
         $RESUME \
         $DRY_RUN \

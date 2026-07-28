@@ -122,6 +122,20 @@ def apply_safetensors_patch(hack_path: Optional[str]):
         print(f"[serve_unified] Warning: Failed to apply safetensors patch: {e}")
 
 
+def _resolve_turn_taking_source(args) -> str:
+    """Collapse the turn-taking CLI flags into a single source string.
+
+    Precedence: explicit --turn_taking_source, then --no_use_rnnt_turn_taking,
+    then the default ("rnnt"). --use_rnnt_turn_taking is accepted for symmetry
+    and readability in configs, but it only restates the default.
+    """
+    if args.turn_taking_source is not None:
+        return args.turn_taking_source
+    if args.no_use_rnnt_turn_taking:
+        return "asr_head"
+    return "rnnt"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Unified NeMo Inference Server CLI wrapper",
@@ -414,6 +428,58 @@ def main():
         default=25,
         help="Pad window for forced turn-taking (s2s_incremental_v2)",
     )
+    # --- RNNT turn-taking -------------------------------------------------
+    # The RNNT joint's per-frame blank/non-blank decision is used as a speech
+    # detector to trigger agent BOS (end of user turn) and EOS (barge-in).
+    # On by default; --no_use_rnnt_turn_taking falls back to the legacy
+    # ASR-text-channel heuristic.
+    # Paired store_true flags rather than BooleanOptionalAction: the latter
+    # generates "--no-use_rnnt_turn_taking" (hyphen), which breaks the
+    # underscore convention used everywhere else here (cf. --no_decode_audio).
+    parser.add_argument(
+        "--use_rnnt_turn_taking",
+        action="store_true",
+        help="Use the RNNT blank/non-blank signal for turn-taking (this is the default)",
+    )
+    parser.add_argument(
+        "--no_use_rnnt_turn_taking",
+        action="store_true",
+        help="Disable RNNT turn-taking; revert to the legacy ASR-text-channel heuristic",
+    )
+    parser.add_argument(
+        "--turn_taking_source",
+        type=str,
+        default=None,
+        choices=["rnnt", "asr_head", "both"],
+        help="Explicit turn-taking source. Overrides --use_rnnt_turn_taking. "
+             "'both' runs the ASR-head heuristic and RNNT together.",
+    )
+    parser.add_argument(
+        "--rnnt_eou_frames",
+        type=int,
+        default=15,
+        help="Consecutive blank (silence) frames after confirmed speech before "
+             "injecting agent BOS. 80ms/frame, so 15 = 1.2s (default: 15)",
+    )
+    parser.add_argument(
+        "--rnnt_bou_frames",
+        type=int,
+        default=4,
+        help="Consecutive non-blank (speech) frames while the agent is talking "
+             "before injecting agent EOS (barge-in). Default: 4 = 320ms",
+    )
+    parser.add_argument(
+        "--rnnt_min_speech_frames",
+        type=int,
+        default=3,
+        help="Speech frames needed to confirm the user is really talking (default: 3)",
+    )
+    parser.add_argument(
+        "--rnnt_max_symbols",
+        type=int,
+        default=10,
+        help="Max RNNT symbols emitted per frame in the label loop (default: 10)",
+    )
     parser.add_argument(
         "--matmul_precision",
         type=str,
@@ -681,6 +747,14 @@ def main():
         # Force turn-taking — landed on model.stt.model.force_turn_taking by the backend.
         if args.force_turn_taking:
             extra_config["force_turn_taking"] = True
+        # RNNT turn-taking. Explicit --turn_taking_source wins; otherwise derive
+        # it from --use_rnnt_turn_taking / --no_use_rnnt_turn_taking. Setting
+        # "asr_head" reproduces the pre-RNNT behaviour exactly.
+        extra_config["turn_taking_source"] = _resolve_turn_taking_source(args)
+        extra_config["rnnt_eou_frames"] = args.rnnt_eou_frames
+        extra_config["rnnt_bou_frames"] = args.rnnt_bou_frames
+        extra_config["rnnt_min_speech_frames"] = args.rnnt_min_speech_frames
+        extra_config["rnnt_max_symbols"] = args.rnnt_max_symbols
         # Early-stop on EOG — opt-in flag for BFCL/FC evals.
         if args.early_stop_on_eog:
             extra_config["early_stop_on_eog"] = True
@@ -781,6 +855,13 @@ def main():
         extra_config["force_turn_taking"] = args.force_turn_taking
         extra_config["force_turn_taking_threshold"] = args.force_turn_taking_threshold
         extra_config["force_turn_taking_pad_window"] = args.force_turn_taking_pad_window
+        # Explicit --turn_taking_source wins; otherwise derive it from the
+        # boolean flag. "asr_head" preserves the pre-RNNT behaviour exactly.
+        extra_config["turn_taking_source"] = _resolve_turn_taking_source(args)
+        extra_config["rnnt_eou_frames"] = args.rnnt_eou_frames
+        extra_config["rnnt_bou_frames"] = args.rnnt_bou_frames
+        extra_config["rnnt_min_speech_frames"] = args.rnnt_min_speech_frames
+        extra_config["rnnt_max_symbols"] = args.rnnt_max_symbols
         extra_config["matmul_precision"] = args.matmul_precision
         if args.disable_rnnt_decoder_cuda_graphs:
             extra_config["disable_rnnt_decoder_cuda_graphs"] = True
