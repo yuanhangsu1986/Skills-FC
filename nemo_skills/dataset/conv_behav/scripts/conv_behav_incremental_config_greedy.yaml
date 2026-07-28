@@ -56,7 +56,7 @@ force_turn_taking_pad_window: 25
 # drirf_offline uses the wrapper-backed native Lightning validation adapter.
 # drirf_incremental and nemo_eval use the DRIRF s2s_incremental_v2/serve_unified
 # knobs below.
-speaker_reference: /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
+speaker_reference: /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Mg_a_00759.wav
 drirf_offline_engine_type: native
 num_frames_per_inference: 3
 buffer_size_frames: 21
@@ -117,7 +117,7 @@ scoring_gpus: 1
 # runtime because eval_conversation_behavior.py lives in the DSFTS tree.
 inference_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
 inference_container_python_exec: python3
-scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+scoring_container: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/containers/nemo_duplex_november_eartts.sqsh
 scoring_container_python_exec: python3
 
 # ---------------------------------------------------------------------------

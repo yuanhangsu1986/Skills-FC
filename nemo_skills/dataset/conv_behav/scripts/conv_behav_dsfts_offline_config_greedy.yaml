@@ -77,7 +77,7 @@ scoring_gpus: 1
 # ---------------------------------------------------------------------------
 # Containers
 # ---------------------------------------------------------------------------
-inference_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+inference_container: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/containers/nemo_duplex_november_eartts.sqsh
 inference_container_python_exec: python3
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@ model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_
 server_gpus: 1
 
 server_args: >-
-  --backend s2s_voicechat
+  --backend s2s
   --config_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/Skills-FC/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/infer_nano_eartts_Voicebench_Jan22_2026.yaml
   --speaker_reference /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Mg_a_00759.wav
   --tts_ckpt_path /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Duplex_EARTTS/eartts_rvq_cont_task_nanov2_tts_pretraining_wordlist_duplex_data_new_branch_4nodes_duplex_eartts_2_delay_4rd_stage_fp32_wd_1500_et_eos_dp_eos_dup_step_10004.ckpt
@@ -58,11 +58,7 @@ data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_offline_greedy/bfcl_fc
 
 categories:
-  - simple
-  - parallel
   - multiple
-  - parallel_multiple
-  - irrelevance
 
 installation_command: "ln -sf $(which python3) /usr/local/bin/python"
 scoring_installation_command: ""

@@ -19,7 +19,7 @@ server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
 server_args: >-
   --backend s2s_incremental_v2
   --decode_audio
-  --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
+  --speaker_reference /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Mg_a_00759.wav
   --num_frames_per_inference 3
   --engine_type vllm_llm_vllm_eartts
   --use_perception_cache

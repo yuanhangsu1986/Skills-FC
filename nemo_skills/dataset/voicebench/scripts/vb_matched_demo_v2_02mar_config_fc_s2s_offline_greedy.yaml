@@ -25,9 +25,9 @@ num_chunks: 12
 server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
 server_args: >-
   --backend s2s
-  --config_path /lustre/fsw/portfolios/llmservice/users/kevinhu/projects/duplex-stt/config/inference/infer_nano_eartts_Voicebench_Jan22_2026.yaml
-  --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
-  --tts_ckpt_path /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Duplex_EARTTS/eartts_rvq_cont_task_nanov2_tts_pretraining_wordlist_duplex_data_new_branch_4nodes_duplex_eartts_2_delay_4rd_stage_fp32_wd_1500_et_eos_dp_eos_dup_step_10004.ckpt
+  --config_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/Skills-FC/nemo_skills/dataset/voicebench/scripts/infer_nano_eartts_Voicebench_Jan22_2026.yaml
+  --speaker_reference /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Mg_a_00759.wav
+  --tts_ckpt_path /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Duplex_EARTTS/eartts_rvq_cont_task_nanov2_tts_pretraining_wordlist_duplex_data_new_branch_4nodes_duplex_eartts_2_delay_4rd_stage_fp32_wd_1500_et_eos_dp_eos_dup_step_10004.ckpt
   --extra_decoding_seconds 20
   --dtype float32
   --temperature 0.0
@@ -36,11 +36,11 @@ server_args: >-
   --force_turn_taking
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DSFTS
 
-server_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+server_container: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/containers/nemo_duplex_november_eartts.sqsh
 server_server_type: vllm_multimodal
 
 # Paths
-data_dir: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/voicebench_data_dir
+data_dir: /lustre/fsw/portfolios/llmservice/users/vmendelev/experiments/voicebench_test/data_dir
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_offline_greedy/vb
 voicebench_repo_path: /lustre/fsw/portfolios/llmservice/users/vmendelev/code/VoiceBench
 

@@ -10,11 +10,11 @@
 #      python nemo_skills/dataset/fdb/scripts/fdb_v3/run_eval.py \
 #        --config nemo_skills/dataset/fdb/scripts/fdb_v3/fdb_v3_s2s_incremental_v2_config_fc_greedy.yaml
 
-cluster: s2s_eval_oci_iad_oncluster
+cluster: s2s_eval_oci_iad_oncluster_gpt4o
 partition: batch_block1,batch_block3,batch_block4
 cpu_partition: cpu_short
 
-model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
+model: /lustre/fsw/portfolios/llmservice/users/yuanhangs/models/e165_v2-step19608-tts-eartts-no_bw_reb_56k_12ksteps_fake_rnnt
 
 server_type: vllm
 server_gpus: 1
@@ -24,7 +24,7 @@ server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
 server_args: >-
   --backend s2s_incremental_v2
   --decode_audio
-  --speaker_reference /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Mg_a_00759.wav
+  --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
   --num_frames_per_inference 2
   --engine_type vllm_llm_vllm_eartts
   --use_perception_cache
@@ -56,7 +56,7 @@ server_args: >-
   --pip_install "--cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1 langchain-core"
 
 server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
-scoring_container: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/containers/nemo_duplex_november_eartts.sqsh
+scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
 scoring_container_python_exec: python3
 
 # Scoring runs Parakeet ASR on the generated output audio (and input audio for
@@ -102,11 +102,11 @@ stop_at_last_turn: true
 stop_at_last_turn_quiet_window_sec: 10.0
 
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
-output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/fdb_v3_fc
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/e165_v2-step19608-tts-eartts-no_bw_reb_56k_12ksteps_fake_rnnt/fdb_v3_scoring_matrix/exp03_intree_official_gpt4o
 
 # Single subtest; per-domain / per-difficulty breakdown comes from FD3 evaluators.
 provider: fdb_v3_fc_greedy
-expname: fdb_v3_fc_greedy
+expname: exp03_intree_official_gpt4o
 
 # LLM judge: openai/openai/gpt-5.2 via NVIDIA inference API (uses NV_INFERENCE_KEY from cluster env).
 use_llm_judge: true
@@ -118,5 +118,4 @@ scoring_installation_command: "pip install --cache-dir /lustre/fsw/portfolios/ll
 inference_overrides: ""
 
 generation_only: false
-scoring_only: false
 dry_run: false

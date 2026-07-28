@@ -22,9 +22,9 @@ server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
 server_args: >-
   --backend s2s_voicechat
   --decode_audio
-  --config_path /lustre/fsw/portfolios/llmservice/users/kevinhu/projects/duplex-stt/config/inference/infer_nano_eartts_Fullduplexbench_Jan22_2026.yaml
-  --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
-  --tts_ckpt_path /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Duplex_EARTTS/eartts_rvq_cont_task_nanov2_tts_pretraining_wordlist_duplex_data_new_branch_4nodes_duplex_eartts_2_delay_4rd_stage_fp32_wd_1500_et_eos_dp_eos_dup_step_10004.ckpt
+  --config_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/Skills-FC/nemo_skills/dataset/fdb/scripts/infer_nano_eartts_Fullduplexbench_Jan22_2026.yaml
+  --speaker_reference /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Mg_a_00759.wav
+  --tts_ckpt_path /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Duplex_EARTTS/eartts_rvq_cont_task_nanov2_tts_pretraining_wordlist_duplex_data_new_branch_4nodes_duplex_eartts_2_delay_4rd_stage_fp32_wd_1500_et_eos_dp_eos_dup_step_10004.ckpt
   --extra_decoding_seconds 0
   --ignore_system_prompt
   --inference_pad_boost -0.5
@@ -37,8 +37,8 @@ server_args: >-
   --force_turn_taking
   --code_path /lustre/fsw/portfolios/llmservice/users/yuanhangs/codes/NeMo/NeMo_Voice_Chat_DSFTS
 
-server_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
-scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
+server_container: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/containers/nemo_duplex_november_eartts.sqsh
+scoring_container: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/containers/nemo_duplex_november_eartts.sqsh
 scoring_container_python_exec: python3
 
 server_server_type: vllm_multimodal
@@ -47,7 +47,7 @@ fdb_version: v1.5
 
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
 output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_offline_greedy/fdb_v1_5_fc
-fdb_repo_path: /lustre/fsw/portfolios/convai/users/mmkrtchyan/projects/speechLM/s2s/Full-Duplex-Bench
+fdb_repo_path: /lustre/fsw/portfolios/llmservice/users/kevinhu/Full-Duplex-Bench-NV
 fdb_data_path: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb_raw
 # Local snakers4/silero-vad checkout (must contain hubconf.py). Used to pre-populate TORCH_HOME
 # so v1.5 timing analysis (get_timing.py) skips the GitHub download.

@@ -1,0 +1,315 @@
+model:
+  scoring_asr: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/models/asr/stt_en_fastconformer_transducer_large.nemo
+  stt:
+    model:
+      pretrained_llm: nvidia/NVIDIA-Nemotron-Nano-9B-v2-Base
+      pretrained_asr: /lustre/fsw/portfolios/llmservice/users/kdhawan/models/cache-aware/oci-N-8_G-8_cacheaware-600M_granary-gsc_PC_multilookahead.nemo
+      scoring_asr: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/models/asr/stt_en_fastconformer_transducer_large.nemo
+
+      freeze_params:
+        - "^audio_codec\\..+$"  # Keep audio codec frozen as it only provides supervision for training.
+      prevent_freeze_params: []
+
+      pretrained_weights: true
+      audio_loss_weight: 0
+      text_loss_weight: 1
+
+      text_to_text_loss_weight: 0.2   # audio data loss weight is: 1 - this value
+      predict_user_text: true
+      incremental_loading: true
+
+      duplex_user_channel_weight: 1.0
+      text_embedding_weight: 1.0
+      audio_save_path: ${exp_manager.explicit_log_dir}/pred_audios
+      
+      # Qwen does not have BOS. The PAD was the same as EOS.
+      override_tokens:
+        bos_token: '<|im_start|>'
+        eos_token: '<|im_end|>'
+        pad_token: '<|endoftext|>'
+
+      mask_sequence_padding: true  # set the mask based on the target_token_lens to disconsider sequence padding in loss
+      token_loss_weight:
+        bos: 10.0
+        eos: 1.0
+        pad: 0.2
+        text: 1.0
+
+      perception:
+        target: nemo.collections.speechlm2.modules.perception.AudioPerceptionModule
+
+        preprocessor:
+          normalize: 'NA'
+
+        encoder:
+          self_attention_model:
+          att_context_size: [70,0]
+          conv_context_size: causal
+          conv_norm_type: layer_norm
+
+        modality_adapter:
+          _target_: nemo.collections.speechlm2.modules.perception.IdentityConnector
+          d_model: 1024
+    data:
+      source_sample_rate: 16000
+      target_sample_rate: 22050
+
+    exp_manager:
+      explicit_log_dir: " "
+
+  inference_speaker_reference: "/lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/S2S-full-duplex/inference_references/Emma_S3_A1_SC7_singleturntarget_21_channel_1_audio_in.wav"
+  audio_save_path: ${exp_manager.explicit_log_dir}/pred_audios
+
+  speech_generation:
+    model:
+      pretrained_lm_name: "nvidia/NVIDIA-Nemotron-Nano-9B-v2"
+      pretrained_ae_dir: null
+      pretrained_tts_model: null
+
+      # Regexp (re.compile) patterns matching parameters to be frozen.
+      freeze_params:
+        - "^audio_codec\\..+$" # Keep audio codec frozen as it only provides supervision for training.
+        - "^embed_tokens\\..+$" # Keep embed_tokens frozen as done in eartts
+
+      prevent_freeze_params: []  # Use to make specific submodules trainable; overrides freeze_params
+
+      audio_save_path: ${exp_manager.explicit_log_dir}/pred_audios
+
+      # inference params
+      inference_guidance_scale: 0.5
+      inference_noise_scale: 0.8
+      inference_top_p_or_k: 0.8
+      inference_guidance_enabled: true
+      inference_force_speech_silence_on_eos: true
+
+      # extra model parameters
+      subword_mask_exactly_as_eartts: false
+      context_hidden_mask_exactly_as_eartts: false
+
+      optimizer:
+        _target_: torch.optim.AdamW
+        lr: 4e-05 #3e-4 --> 1e-5 try it
+        betas: [0.9, 0.98]
+        weight_decay: 0
+        foreach: true # set to false if having issues with tensor-parallelism
+
+      lr_scheduler:
+        _target_: nemo.core.optim.lr_scheduler.InverseSquareRootAnnealing
+        warmup_steps: 2500 #2500
+        min_lr: 1e-6
+        max_steps: ${trainer.max_steps}
+
+      codec_config:
+        latent_size: 512
+        n_fft: 16
+        hop_length: 4
+        base_hidden_size: 384
+        channel_mult:
+          - 1
+          - 2
+          - 4
+        rates:
+          - 7
+          - 7
+          - 9
+        num_blocks: 3
+        kernel_size: 7
+        groups: 1
+        codebook_size: 1024
+        num_quantizers: 31
+        wav_to_token_ratio: 1764
+
+      tts_config:
+        # extra configs added
+        use_gated_fusion_for_text_audio: true
+        disable_eos_prediction: true # disable eos prediction
+        use_bos_eos_emb: true
+        use_subword_flag_emb: true
+        num_delay_speech_tokens: 2
+
+        # EAR-TTS configs
+        backbone_type: gemma3_text
+        backbone_model_class: null
+        backbone_config_class: null
+        backbone_config:
+          hidden_size: 1152
+          intermediate_size: 4608
+          num_hidden_layers: 28
+          num_attention_heads: 16
+          num_key_value_heads: 16
+          head_dim: 72
+          attention_dropout: 0.1
+          sliding_window: 1500
+          use_cache: false
+        latent_size: 512
+        codebook_size: 1024
+        num_quantizers: 31
+        context_hidden_size: null
+        cas_config:
+          pretrained_tokenizer_name: nvidia/NVIDIA-Nemotron-Nano-9B-v2
+          backbone_type: t5gemma
+          backbone_model_class: null
+          backbone_config_class: null
+          backbone_config:
+            is_encoder_decoder: false
+            encoder:
+              hidden_size: 1152
+              intermediate_size: 4608
+              num_hidden_layers: 1
+              num_attention_heads: 16
+              num_key_value_heads: 16
+              head_dim: 72
+              use_cache: false
+              attention_dropout: 0.1
+        mog_head_config:
+          intermediate_size: 4608
+          num_layers: 3
+          low_rank: 64
+          num_predictions: 1024
+          min_log_std: -4.0
+          eps: 1e-06
+        p_uncond: 0.1
+        label_smoothing: 0.01
+        max_training_rate: 0.8
+        quantizer_dropout: 0.5
+        random_target_masking: false
+        exponent: 3.0
+    data:
+      audio_prompt_duration: 3.0
+      frame_length: 0.08
+      source_sample_rate: 22050
+      target_sample_rate: 22050
+    exp_manager:
+      explicit_log_dir: " "
+
+  optimizer:
+    _target_: torch.optim.AdamW
+    lr: 3e-4 #3e-4
+    betas: [0.9, 0.98]
+    weight_decay: 0
+    foreach: true # set to false if having issues with tensor-parallelism
+
+  lr_scheduler:
+    _target_: nemo.core.optim.lr_scheduler.InverseSquareRootAnnealing
+    warmup_steps: 2500 #2500
+    min_lr: 1e-6
+    max_steps: ${trainer.max_steps}
+
+trainer:
+  devices: -1
+  accelerator: gpu
+  num_nodes: 1
+  precision: 16
+  logger: False # logger provided by exp_manager
+  enable_checkpointing: False
+  use_distributed_sampler: False
+  max_steps: 100000
+  val_check_interval: 1000
+  limit_train_batches: ${trainer.val_check_interval}  # an "epoch"
+  limit_val_batches: 2
+  log_every_n_steps: 20
+  num_sanity_val_steps: 0
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 1
+  strategy:
+      #_target_: lightning.pytorch.strategies.ModelParallelStrategy
+      #tensor_parallel_size: 1
+      #data_parallel_size: 8
+    _target_: lightning.pytorch.strategies.DDPStrategy
+    gradient_as_bucket_view: true
+    find_unused_parameters: true
+
+data:
+  frame_length: 0.08
+  source_sample_rate: 16000
+  target_sample_rate: 22050
+  input_roles: ["user", "User"]
+  output_roles: ["agent", "Assistant", "assistant","Agent"]
+
+  train_ds:
+    sample_rate: ${data.target_sample_rate}
+    multi_config: true
+    shuffle: true
+    sampler_fusion: randomized_round_robin
+    sampler_weights:
+      real_conv_data: 0.05
+    real_conv_data:
+      input_cfg: /lustre/fsw/portfolios/llmservice/users/cchen1/code/edr/configs/data/blackwell_fisher.yaml
+      buffer_size: 1000
+      shuffle_buffer_size: 1000
+      num_workers: 1
+      pin_memory: true
+      max_duration: 142.39029
+      batch_duration: 250
+      quadratic_duration: 20
+      num_buckets: 31
+      duration_bins: [1,6,11,16,21,26,31,36,41,46,51,56,61,66,71,76,81,86,91,96,101,106,111,116,121,126,131,136,141,146]
+      use_bucketing: true
+      seed: 'trng'
+    seed: 42
+    shard_seed: "trng"
+    num_workers: 1
+
+    batch_duration: 250
+    max_duration: 142.39029
+    bucket_duration_bins: [1,6,11,16,21,26,31,36,41,46,51,56,61,66,71,76,81,86,91,96,101,106,111,116,121,126,131,136,141,146]
+    use_bucketing: true
+    bucket_buffer_size: 1000
+
+  validation_ds:
+    datasets:
+      # mmsu:
+      #   shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/mmsu
+      # advbench:
+      #   shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/advbench
+      # alpacaeval:
+      #   shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/alpacaeval
+      alpacaeval_full:
+        shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/alpacaeval_full
+      # bbh:
+      #   shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/bbh
+      commoneval:
+        shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/commoneval
+      # ifeval:
+      #   shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/ifeval
+      openbookqa:
+        shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/openbookqa
+      # sdqa:
+      #   shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/sdqa
+      # wildvoice:
+      #   shar_path: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/benchmarks/voicebench/wildvoice
+    sample_rate: ${data.target_sample_rate}
+    batch_size: 4
+    seed: 42
+    shard_seed: "randomized"
+    num_workers: 1
+
+exp_manager:
+   exp_dir: null
+   explicit_log_dir: /lustre/fsw/portfolios/convai/users/ecasanova/S2S-Duplex-new-codebase/
+   name: duplex_s2s_decoder_v2_all_synthetic_data_char_emb_llm_latent_modality_adptor_emb
+   create_tensorboard_logger: false
+   create_checkpoint_callback: true
+   use_datetime_version: true
+   max_time_per_run: 00:03:50:00
+
+   resume_from_checkpoint: null # The path to a checkpoint file to continue the training, restores the whole state including the epoch, step, LR schedulers, apex, etc.
+   # you need to set these two to True to continue the training
+   resume_if_exists: true
+   resume_ignore_no_checkpoint: true
+
+   # You may use this section to create a W&B logger
+   create_wandb_logger: false
+   wandb_logger_kwargs:
+     name: development-run
+     project: salm_s2s_speech_decoder_v2_char_tokens
+     resume: true
+
+   checkpoint_callback_params:
+     filename: "{step}"
+     monitor: val_asr_bleu
+     mode: max
+     every_n_train_steps: null
+     every_n_epochs: 1
+     save_top_k: 1
+     always_save_nemo: false

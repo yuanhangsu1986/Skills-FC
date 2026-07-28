@@ -27,11 +27,11 @@
 # To score an EXISTING fdb_v3 generation run with the official evaluators instead of
 # regenerating: set output_dir to that run's output_dir and add `scoring_only: true`.
 
-cluster: s2s_eval_oci_iad_oncluster
+cluster: s2s_eval_oci_iad_oncluster_gpt4o
 partition: batch_block1,batch_block3,batch_block4
 cpu_partition: cpu_short
 
-model: /lustre/fsw/portfolios/llmservice/users/vtrinh/projects/function_calling_share/pretrained_s2s_rnnt_ckpt/Apr_02_2026/e70/e70-step28008-tts-eartts-34014_asr_cand3_0.6b-PK_ep0_01988_300
+model: /lustre/fsw/portfolios/llmservice/users/yuanhangs/models/e165_v2-step19608-tts-eartts-no_bw_reb_56k_12ksteps_fake_rnnt
 
 server_type: vllm
 server_gpus: 1
@@ -41,7 +41,7 @@ server_entrypoint: "-m nemo_skills.inference.server.serve_unified"
 server_args: >-
   --backend s2s_incremental_v2
   --decode_audio
-  --speaker_reference /lustre/fsw/portfolios/nemotron/projects/nemotron_speech_chat/users/ecasanova/Checkpoints/Mg_a_00759.wav
+  --speaker_reference /lustre/fsw/portfolios/convai/users/ecasanova/Checkpoints/Mg_a_00759.wav
   --num_frames_per_inference 2
   --engine_type vllm_llm_vllm_eartts
   --use_perception_cache
@@ -54,10 +54,10 @@ server_args: >-
   --vllm_max_model_len 8192
   --extra_decoding_seconds 60
   --dtype float32
-  --inference_guidance_scale 0.2
-  --inference_noise_scale 0.001
-  --inference_top_p_or_k 0.95
-  --inference_user_pad_boost 0.0
+  --inference_guidance_scale 0.5
+  --inference_noise_scale 0.8
+  --inference_top_p_or_k 0.8
+  --inference_user_pad_boost 0.8
   --silence_padding_sec 10
   --max_new_tokens 4500
   --top_p 1.0
@@ -72,7 +72,7 @@ server_args: >-
   --pip_install "--cache-dir /lustre/fsw/portfolios/llmservice/users/yuanhangs/cache/pip hf-xet==1.1.9 huggingface-hub==0.34.4 nvidia-modelopt==0.33.1 nvidia-modelopt-core==0.33.1 tokenizers==0.22.0 transformers==4.56.0 lhotse==1.32.2 nv-one-logger-core==2.1.0 nv-one-logger-pytorch-lightning-integration==2.1.0 nv-one-logger-training-telemetry==2.1.0 kaldialign==0.9.1 langchain-core"
 
 server_container: /lustre/fsw/portfolios/llmservice/users/erastorgueva/code/containers/triton25.05_s2svllm26.02.12.sqsh
-scoring_container: /lustre/fsw/portfolios/llmservice/projects/llmservice_nemo_mlops/full-duplex/containers/nemo_duplex_november_eartts.sqsh
+scoring_container: /lustre/fsw/portfolios/convai/users/ecasanova/docker_images/nemo_duplex_november_eartts.sqsh
 scoring_container_python_exec: python3
 
 scoring_gpus: 1
@@ -123,10 +123,10 @@ stop_at_last_turn: true
 stop_at_last_turn_quiet_window_sec: 10.0
 
 data_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/data/fdb
-output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat_greedy/fdb_v3_official_fc
+output_dir: /lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/voice_chat/sampling+greedy/greedy/e165_v2-step19608-tts-eartts-no_bw_reb_56k_12ksteps_fake_rnnt/fdb_v3_scoring_matrix/exp05_official_official_gpt4o
 
 provider: fdb_v3_official_fc_greedy
-expname: fdb_v3_official_fc_greedy
+expname: exp05_official_official_gpt4o
 
 # LLM judge: gpt-4o (official benchmark's judge), routed through the NVIDIA
 # gateway by the vendored scripts' _nv_judge helper (defaults to
