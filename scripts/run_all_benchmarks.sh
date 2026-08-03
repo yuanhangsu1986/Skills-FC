@@ -106,6 +106,8 @@ CONFIG_CONV_BEHAV=""
 
 MODEL_OVERRIDE=""
 OUTPUT_DIR_OVERRIDE=""
+PROCESSED_CKPT_DIR=""
+MEGATRON_CONVERSION_JOB_ID=""
 DECODING_MODE="incremental"   # incremental | offline | customized
 HTML_NAME="scorecard"
 MAX_JOBS_OVERRIDE=""
@@ -167,6 +169,11 @@ Options:
                             scripts append the git commit hash. If unset, each
                             benchmark uses its own output_dir from its YAML.
   --model             PATH  Override the model checkpoint for every benchmark.
+  --processed_ckpt_dir PATH Exact destination for a converted Megatron checkpoint.
+                            If unset, the preferred destination is
+                            <model>/nemo_skills_converted. When that location
+                            cannot be selected automatically, an interactive
+                            prompt offers it or <output_dir>/nemo_skills_converted.
   --decoding_mode     MODE  incremental (default) | offline | customized.
                             incremental: use each benchmark's *_incremental_v2_greedy YAML
                                          (DRIRF codebase, triton sqsh).
@@ -238,6 +245,7 @@ while [[ $# -gt 0 ]]; do
         --html_name)         HTML_NAME="$2";               shift 2 ;;
         --output_dir)        OUTPUT_DIR_OVERRIDE="$2";    shift 2 ;;
         --model)             MODEL_OVERRIDE="$2";         shift 2 ;;
+        --processed_ckpt_dir) PROCESSED_CKPT_DIR="$2";    shift 2 ;;
         --decoding_mode)     DECODING_MODE="$2";         shift 2 ;;
         --max_jobs)          MAX_JOBS_OVERRIDE="$2";     shift 2 ;;
         --poll_interval)     POLL_INTERVAL="$2";          shift 2 ;;
@@ -1002,6 +1010,10 @@ is_megatron_dcp() {
 prepare_megatron_model() {
     [[ -n "$MODEL_OVERRIDE" ]] || return 0
     [[ -f "$MODEL_OVERRIDE/export_manifest.json" ]] && return 0
+    if [[ "$MODEL_OVERRIDE" == /* && ! -e "$MODEL_OVERRIDE" ]]; then
+        echo "ERROR: --model does not exist: $MODEL_OVERRIDE" >&2
+        exit 1
+    fi
     is_megatron_dcp "$MODEL_OVERRIDE" || return 0
     if [[ "$DECODING_MODE" == "offline" ]]; then
         echo "ERROR: Megatron Duplex checkpoints currently require incremental (DRIRF hybrid-vLLM) decoding." >&2
@@ -1009,32 +1021,150 @@ prepare_megatron_model() {
     fi
 
     local source_model="$MODEL_OVERRIDE"
-    local export_root export_key export_dir conversion_python checkpoint_version
-    export_root="${NEMO_SKILLS_MEGATRON_EXPORT_ROOT:-/lustre/fsw/portfolios/llmservice/users/${USER}/workspace/megatron_duplex_exports}"
-    if [[ -f "$source_model/latest_checkpointed_iteration.txt" ]]; then
-        checkpoint_version=$(<"$source_model/latest_checkpointed_iteration.txt")
-    else
-        checkpoint_version=$(basename "${source_model%/}")
-    fi
-    export_key=$(printf '%s|%s' "$(readlink -f "$source_model")" "$checkpoint_version" | sha256sum | cut -c1-16)
-    export_dir="${export_root}/$(basename "${source_model%/}")_${export_key}"
-    conversion_python="${NEMO_SKILLS_MEGATRON_CONVERSION_PYTHON:-$PYTHON}"
-
+    local export_dir preferred_dir default_dir model_writable=false
+    local manager="${REPO_ROOT}/scripts/megatron/duplex_checkpoint_manager.py"
+    local conversion_script="${REPO_ROOT}/scripts/megatron/duplex_convert_slurm.sh"
     echo "Detected Megatron Duplex Torch-DCP checkpoint: $source_model"
-    if [[ -f "$export_dir/export_manifest.json" ]]; then
-        echo "Using cached hybrid export: $export_dir"
+
+    preferred_dir="${source_model%/}/nemo_skills_converted"
+    if "$PYTHON" "$manager" probe-writable --directory "$source_model" --quiet; then
+        model_writable=true
+    fi
+
+    if [[ -n "$PROCESSED_CKPT_DIR" ]]; then
+        export_dir="$PROCESSED_CKPT_DIR"
+    elif [[ "$model_writable" == "true" && ! -e "$preferred_dir" ]]; then
+        export_dir="$preferred_dir"
     else
-        echo "Converting to cached hybrid export: $export_dir"
-        if ! "$conversion_python" -c 'import torch, safetensors' >/dev/null 2>&1; then
-            echo "ERROR: Megatron conversion requires a Python environment with torch and safetensors." >&2
-            echo "Set NEMO_SKILLS_MEGATRON_CONVERSION_PYTHON=/path/to/training/python and retry." >&2
+        if [[ "$model_writable" == "true" ]]; then
+            default_dir="$preferred_dir"
+        elif [[ -n "$OUTPUT_DIR_OVERRIDE" ]]; then
+            default_dir="${OUTPUT_DIR_OVERRIDE%/}/nemo_skills_converted"
+        else
+            default_dir=""
+        fi
+
+        if [[ ! -t 0 ]]; then
+            echo "ERROR: The converted-checkpoint destination requires a choice, but stdin is not interactive." >&2
+            [[ -e "$preferred_dir" ]] \
+                && echo "       The preferred destination already exists: $preferred_dir" >&2
+            [[ "$model_writable" != "true" ]] \
+                && echo "       The model directory is not writable: $source_model" >&2
+            echo "       Pass --processed_ckpt_dir PATH and retry." >&2
             exit 1
         fi
-        mkdir -p "$export_root"
-        "$conversion_python" "${REPO_ROOT}/scripts/megatron/duplex_export_hybrid_checkpoint.py" \
-            --checkpoint "$source_model" \
-            --output-dir "$export_dir" \
-            --overwrite
+
+        echo ""
+        echo "Choose the converted-checkpoint directory:"
+        if [[ -n "$default_dir" ]]; then
+            echo "  Enter  Use default: $default_dir"
+        else
+            echo "  Enter  No default is available (choose 2 or 3)"
+        fi
+        echo "  2      Enter another path"
+        echo "  3      Exit"
+        local selection custom_dir
+        read -r -p "Selection: " selection
+        case "$selection" in
+            "")
+                if [[ -z "$default_dir" ]]; then
+                    echo "ERROR: No default destination is available; pass --processed_ckpt_dir PATH." >&2
+                    exit 1
+                fi
+                export_dir="$default_dir"
+                ;;
+            2)
+                read -r -p "Converted-checkpoint directory: " custom_dir
+                if [[ -z "$custom_dir" ]]; then
+                    echo "ERROR: Converted-checkpoint directory cannot be empty." >&2
+                    exit 1
+                fi
+                export_dir="$custom_dir"
+                ;;
+            3)
+                echo "Exiting without submitting conversion or evaluation jobs."
+                exit 0
+                ;;
+            *)
+                echo "ERROR: Invalid selection: $selection" >&2
+                exit 1
+                ;;
+        esac
+    fi
+
+    if [[ -e "$export_dir" && ! -d "$export_dir" ]]; then
+        echo "ERROR: Converted-checkpoint destination exists and is not a directory: $export_dir" >&2
+        exit 1
+    fi
+    mkdir -p "$export_dir"
+    export_dir=$(readlink -f "$export_dir")
+    PROCESSED_CKPT_DIR="$export_dir"
+
+    if "$PYTHON" "$manager" validate-export \
+        --checkpoint "$source_model" --export-dir "$export_dir" --quiet; then
+        echo "Using valid converted checkpoint: $export_dir"
+        MODEL_OVERRIDE="$export_dir"
+        return 0
+    fi
+
+    local first_benchmark base_config cluster cluster_config account partition container
+    first_benchmark=${BENCHMARKS%% *}
+    base_config=$(config_for "$first_benchmark")
+    cluster=$(grep -m1 '^cluster:' "$base_config" | sed 's/^cluster:[[:space:]]*//')
+    cluster_config="${REPO_ROOT}/cluster_configs/${cluster}.yaml"
+    if [[ ! -f "$cluster_config" ]]; then
+        echo "ERROR: Cannot resolve conversion Slurm settings; cluster config not found: $cluster_config" >&2
+        exit 1
+    fi
+    account=$("$PYTHON" -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1])).get("account", ""))' "$cluster_config")
+    partition=$("$PYTHON" -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1])).get("partition", ""))' "$cluster_config")
+    container="${NEMO_SKILLS_MEGATRON_CONVERSION_CONTAINER:-/lustre/fsw/portfolios/llmservice/users/nsrihari/full_duplex/avlm/containers/megatron_voicechat_0626.sqsh}"
+    mkdir -p "$export_dir/conversion_logs"
+
+    local -a sbatch_args=(
+        --parsable
+        --job-name "megatron-duplex-convert-${COMMIT}"
+        --nodes 1
+        --gpus-per-node 1
+        --ntasks-per-node 1
+        --mem "${NEMO_SKILLS_MEGATRON_CONVERSION_MEMORY:-220G}"
+        --time "${NEMO_SKILLS_MEGATRON_CONVERSION_TIME:-02:00:00}"
+        --output "$export_dir/conversion_logs/%x_%j.log"
+    )
+    [[ -n "$account" ]] && sbatch_args+=(--account "$account")
+    [[ -n "$partition" ]] && sbatch_args+=(--partition "$partition")
+    sbatch_args+=(
+        "$conversion_script"
+        --checkpoint "$source_model"
+        --output-dir "$export_dir"
+        --repo-root "$REPO_ROOT"
+        --container-image "$container"
+    )
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "DRY RUN — would submit Megatron conversion job:"
+        printf '  sbatch'
+        printf ' %q' "${sbatch_args[@]}"
+        printf '\n'
+        echo "DRY RUN — evaluation jobs would use dependency: afterok:<conversion-job-id>"
+    else
+        if ! command -v sbatch >/dev/null 2>&1; then
+            echo "ERROR: sbatch is required to convert a Megatron checkpoint." >&2
+            exit 1
+        fi
+        MEGATRON_CONVERSION_JOB_ID=$(env -u SBATCH_DEPENDENCY sbatch "${sbatch_args[@]}")
+        MEGATRON_CONVERSION_JOB_ID=${MEGATRON_CONVERSION_JOB_ID%%;*}
+        if [[ ! "$MEGATRON_CONVERSION_JOB_ID" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: Could not parse conversion job ID: $MEGATRON_CONVERSION_JOB_ID" >&2
+            exit 1
+        fi
+        if [[ -n "${SBATCH_DEPENDENCY:-}" ]]; then
+            export SBATCH_DEPENDENCY="afterok:${MEGATRON_CONVERSION_JOB_ID},${SBATCH_DEPENDENCY}"
+        else
+            export SBATCH_DEPENDENCY="afterok:${MEGATRON_CONVERSION_JOB_ID}"
+        fi
+        echo "Conversion job submitted: $MEGATRON_CONVERSION_JOB_ID"
+        echo "Evaluation dependency: $SBATCH_DEPENDENCY"
     fi
     MODEL_OVERRIDE="$export_dir"
 }
@@ -1482,6 +1612,8 @@ echo " S2S FC Benchmark Runner"
 echo "======================================================================"
 echo " Benchmarks   : $BENCHMARKS"
 [[ -n "$OUTPUT_DIR_OVERRIDE" ]] && echo " Output dir   : $OUTPUT_DIR_OVERRIDE/{name}_{commit}"
+[[ -n "$PROCESSED_CKPT_DIR" ]] && echo " Processed ckpt: $PROCESSED_CKPT_DIR"
+[[ -n "$MEGATRON_CONVERSION_JOB_ID" ]] && echo " Conversion job: $MEGATRON_CONVERSION_JOB_ID (afterok)"
 if [[ "$HAS_DECODING_OVERRIDES" == "true" ]]; then
     echo " Decoding overrides:"
     echo "   force_turn_taking  : $CUSTOM_FORCE_TURN_TAKING"

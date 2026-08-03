@@ -127,6 +127,13 @@ def _copy_template_assets(source: Path, destination: Path) -> None:
         raise FileNotFoundError(source)
     destination.mkdir(parents=True, exist_ok=True)
     for entry in source.iterdir():
+        if entry.name in {
+            ".conversion.lock",
+            ".conversion_lock",
+            ".conversion_done",
+            "conversion_logs",
+        }:
+            continue
         if entry.name.startswith("model") and entry.name.endswith(WEIGHT_SUFFIXES):
             continue
         if entry.name.endswith(WEIGHT_SUFFIXES) or entry.name.endswith(".index.json"):

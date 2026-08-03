@@ -5,6 +5,8 @@ torch = pytest.importorskip("torch")
 from scripts.megatron.duplex_checkpoint_mapping import (
     expected_custom_outputs,
     frontend_target_key,
+    is_frontend_key,
+    is_llm_key,
     llm_target_tensors,
     split_grouped_qkv,
 )
@@ -23,6 +25,15 @@ def test_frontend_mapping_uses_voicechat_namespaces():
         frontend_target_key("model.heads.function.linear.weight")
         == "stt_model.function_head.weight"
     )
+
+
+def test_transformer_engine_extra_state_is_not_exported():
+    llm_extra_state = (
+        "model.backbone.mamba_model.mamba_model.decoder.layers.0.mixer.in_proj._extra_state"
+    )
+    frontend_extra_state = "model.audio_encoder.encoder.layers.0.self_attention._extra_state"
+    assert is_llm_key(llm_extra_state) is False
+    assert is_frontend_key(frontend_extra_state) is False
 
 
 def test_split_grouped_qkv_preserves_group_order():

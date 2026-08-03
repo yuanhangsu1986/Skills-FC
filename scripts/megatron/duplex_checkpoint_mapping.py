@@ -25,6 +25,8 @@ def strip_model_prefix(key: str) -> str:
 def is_llm_key(key: str) -> bool:
     """Return whether a flattened DCP key belongs in the vLLM artifact."""
 
+    if key.endswith("._extra_state"):
+        return False
     return key.startswith(MCORE_LLM_PREFIX) or key in {
         "model.heads.function.linear.weight",
         "model.heads.asr.linear.weight",
@@ -35,6 +37,8 @@ def is_llm_key(key: str) -> bool:
 def is_frontend_key(key: str) -> bool:
     """Return whether a flattened DCP key belongs in the native artifact."""
 
+    if key.endswith("._extra_state"):
+        return False
     return key.startswith(
         (
             "model.audio_encoder.",
