@@ -1158,13 +1158,9 @@ prepare_megatron_model() {
             echo "ERROR: Could not parse conversion job ID: $MEGATRON_CONVERSION_JOB_ID" >&2
             exit 1
         fi
-        if [[ -n "${SBATCH_DEPENDENCY:-}" ]]; then
-            export SBATCH_DEPENDENCY="afterok:${MEGATRON_CONVERSION_JOB_ID},${SBATCH_DEPENDENCY}"
-        else
-            export SBATCH_DEPENDENCY="afterok:${MEGATRON_CONVERSION_JOB_ID}"
-        fi
+        export NEMO_SKILLS_SLURM_AFTEROK_JOB_ID="$MEGATRON_CONVERSION_JOB_ID"
         echo "Conversion job submitted: $MEGATRON_CONVERSION_JOB_ID"
-        echo "Evaluation dependency: $SBATCH_DEPENDENCY"
+        echo "Evaluation dependency: afterok:$MEGATRON_CONVERSION_JOB_ID (explicit NeMo Run dependency)"
     fi
     MODEL_OVERRIDE="$export_dir"
 }

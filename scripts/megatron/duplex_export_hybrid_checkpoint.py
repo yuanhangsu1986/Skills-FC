@@ -9,6 +9,7 @@ Run it in an environment containing PyTorch, safetensors, and PyYAML.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import logging
@@ -162,6 +163,7 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
 def _prepare_configs(
     voicechat_template: Path,
     hf_template: Path,
+    tts_checkpoint: Path,
     output_dir: Path,
     *,
     hidden_size: int,
@@ -173,11 +175,31 @@ def _prepare_configs(
     frontend_config_path = output_dir / "config.json"
     if not frontend_config_path.is_file():
         raise FileNotFoundError(f"VoiceChat template has no config.json: {voicechat_template}")
-    frontend_config = _read_json(frontend_config_path)
-    stt_config = frontend_config.setdefault("model", {}).setdefault("stt", {}).setdefault("model", {})
+    voicechat_config = _read_json(frontend_config_path)
+    source_stt_config = voicechat_config.get("model")
+    if not isinstance(source_stt_config, dict) or not source_stt_config.get("pretrained_llm"):
+        raise ValueError(f"VoiceChat template has no model.pretrained_llm: {voicechat_template}")
+
+    tts_config_path = tts_checkpoint / "config.json"
+    if not tts_config_path.is_file():
+        raise FileNotFoundError(f"TTS checkpoint has no config.json: {tts_checkpoint}")
+    frontend_config = copy.deepcopy(_read_json(tts_config_path))
+    stt_wrapper = frontend_config.get("model", {}).get("stt")
+    if not isinstance(stt_wrapper, dict) or not isinstance(stt_wrapper.get("model"), dict):
+        raise ValueError(f"TTS config has no model.stt.model wrapper: {tts_config_path}")
+
+    # The training checkpoint stores the DuplexSTT config directly under
+    # model, while DRIRF's NemotronVoiceChat runtime expects it nested under
+    # model.stt.model. Start with the known-working EAR-TTS runtime defaults
+    # (which include fields absent from older VoiceChat configs), then let all
+    # checkpoint-specific VoiceChat settings take precedence.
+    stt_config = copy.deepcopy(stt_wrapper["model"])
+    stt_config.update(copy.deepcopy(source_stt_config))
     stt_config["predict_user_text"] = has_asr_head
     stt_config["use_function_head"] = has_function_head
     stt_config["pretrained_rnnt_asr"] = None
+    stt_config["pretrained_weights"] = False
+    stt_wrapper["model"] = stt_config
     frontend_config.pop("_rnnt_merge_info", None)
     _write_json(frontend_config_path, frontend_config)
 
@@ -252,6 +274,7 @@ def export(args: argparse.Namespace) -> None:
     vllm_config = _prepare_configs(
         args.voicechat_template,
         args.hf_llm_template,
+        args.tts_checkpoint,
         output_dir,
         hidden_size=hidden_size,
         custom_input_dtype=args.custom_input_dtype,

@@ -9,7 +9,7 @@ from scripts.megatron.duplex_checkpoint_manager import (
     resolve_iteration_dir,
     validate_export,
 )
-from scripts.megatron.duplex_export_hybrid_checkpoint import _copy_template_assets
+from scripts.megatron.duplex_export_hybrid_checkpoint import _copy_template_assets, _prepare_configs
 
 
 def _source_checkpoint(root: Path, iteration: int = 2400) -> tuple[Path, Path]:
@@ -27,7 +27,21 @@ def _valid_export(root: Path, checkpoint: Path, iteration_dir: Path) -> Path:
     tts_dir = root / "tts"
     vllm_dir.mkdir(parents=True)
     tts_dir.mkdir()
-    (export_dir / "config.json").write_text("{}\n")
+    (export_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "model": {
+                    "stt": {
+                        "model": {
+                            "pretrained_llm": "nvidia/test-model",
+                            "pretrained_weights": False,
+                            "perception": {},
+                        }
+                    }
+                }
+            }
+        )
+    )
     (vllm_dir / "config.json").write_text("{}\n")
     (tts_dir / "config.json").write_text("{}\n")
     save_file(
@@ -100,6 +114,28 @@ def test_validate_export_rejects_missing_artifact(tmp_path):
     assert "missing or empty artifact" in " ".join(report["errors"])
 
 
+def test_validate_export_rejects_flat_voicechat_config(tmp_path):
+    checkpoint, iteration_dir = _source_checkpoint(tmp_path)
+    export_dir = _valid_export(tmp_path, checkpoint, iteration_dir)
+    (export_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "model": {
+                    "pretrained_llm": "nvidia/test-model",
+                    "perception": {},
+                    "stt": {"model": {"use_function_head": True}},
+                }
+            }
+        )
+    )
+
+    report = validate_export(export_dir, checkpoint)
+
+    assert report["ok"] is False
+    assert "model.stt.model.pretrained_llm is missing" in report["errors"]
+    assert "model.stt.model.perception is missing" in report["errors"]
+
+
 def test_template_copy_excludes_conversion_bookkeeping(tmp_path):
     source = tmp_path / "template"
     destination = tmp_path / "export"
@@ -115,3 +151,60 @@ def test_template_copy_excludes_conversion_bookkeeping(tmp_path):
     assert not (destination / ".conversion_lock").exists()
     assert not (destination / ".conversion_done").exists()
     assert not (destination / "conversion_logs").exists()
+
+
+def test_prepare_configs_builds_drirf_wrapper_schema(tmp_path):
+    voicechat = tmp_path / "voicechat"
+    hf_template = tmp_path / "hf"
+    tts = tmp_path / "tts"
+    output = tmp_path / "output"
+    voicechat.mkdir()
+    hf_template.mkdir()
+    tts.mkdir()
+    (voicechat / "config.json").write_text(
+        json.dumps(
+            {
+                "model": {
+                    "pretrained_llm": "nvidia/NVIDIA-Nemotron-Nano-9B-v2",
+                    "pretrained_weights": True,
+                    "perception": {"modality_adapter": {"d_model": 1024}},
+                }
+            }
+        )
+    )
+    (hf_template / "config.json").write_text(json.dumps({"hidden_size": 4096}))
+    (tts / "config.json").write_text(
+        json.dumps(
+            {
+                "model": {
+                    "stt": {
+                        "data": {"source_sample_rate": 16000},
+                        "model": {"incremental_loading": True, "pretrained_llm": "old/model"},
+                    },
+                    "speech_generation": {"model": {}},
+                },
+                "data": {"target_sample_rate": 22050},
+            }
+        )
+    )
+
+    _prepare_configs(
+        voicechat,
+        hf_template,
+        tts,
+        output,
+        hidden_size=4096,
+        custom_input_dtype="bfloat16",
+        has_asr_head=False,
+        has_function_head=True,
+    )
+
+    config = json.loads((output / "config.json").read_text())
+    stt = config["model"]["stt"]["model"]
+    assert stt["pretrained_llm"] == "nvidia/NVIDIA-Nemotron-Nano-9B-v2"
+    assert stt["pretrained_weights"] is False
+    assert stt["predict_user_text"] is False
+    assert stt["use_function_head"] is True
+    assert stt["perception"]["modality_adapter"]["d_model"] == 1024
+    assert stt["incremental_loading"] is True
+    assert config["model"]["speech_generation"] == {"model": {}}

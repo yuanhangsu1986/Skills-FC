@@ -88,6 +88,20 @@ def validate_export(export_dir: Path, checkpoint: Path) -> dict[str, Any]:
         if not path.is_file() or path.stat().st_size == 0:
             errors.append(f"missing or empty artifact: {path}")
 
+    frontend_config_path = export_dir / "config.json"
+    if frontend_config_path.is_file():
+        try:
+            frontend_config = json.loads(frontend_config_path.read_text())
+            stt_config = frontend_config["model"]["stt"]["model"]
+            if not stt_config.get("pretrained_llm"):
+                errors.append("config model.stt.model.pretrained_llm is missing")
+            if not isinstance(stt_config.get("perception"), dict):
+                errors.append("config model.stt.model.perception is missing")
+            if stt_config.get("pretrained_weights") is not False:
+                errors.append("config model.stt.model.pretrained_weights must be false")
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            errors.append(f"config has no DRIRF model.stt.model structure: {exc}")
+
     tts_checkpoint = manifest.get("tts_checkpoint")
     if not tts_checkpoint or not (Path(tts_checkpoint) / "config.json").is_file():
         errors.append("manifest tts_checkpoint is missing or has no config.json")

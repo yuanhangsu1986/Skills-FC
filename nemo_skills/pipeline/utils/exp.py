@@ -51,6 +51,27 @@ from nemo_skills.utils import get_logger_name, remove_handlers
 
 LOG = logging.getLogger(get_logger_name(__file__))
 
+_EXTERNAL_SLURM_AFTEROK_ENV = "NEMO_SKILLS_SLURM_AFTEROK_JOB_ID"
+
+
+def _add_external_slurm_afterok_dependency(dependencies):
+    """Append an independently submitted Slurm job to NeMo Run dependencies."""
+
+    job_id = os.environ.get(_EXTERNAL_SLURM_AFTEROK_ENV, "")
+    if not job_id:
+        return dependencies, False
+    if not job_id.isdigit():
+        raise ValueError(f"{_EXTERNAL_SLURM_AFTEROK_ENV} must be a numeric Slurm job ID, got {job_id!r}")
+
+    merged = list(dependencies or [])
+    # SlurmExecutor.parse_deps extracts path[1] as the Slurm job ID. A
+    # synthetic TorchX-style handle therefore lets a separately submitted
+    # conversion job use NeMo Run's explicit --dependency generation.
+    handle = f"slurm://nemo-skills-external/{job_id}/master/0"
+    if handle not in merged:
+        merged.append(handle)
+    return merged, True
+
 
 # keeping a global variable for first submitted experiment (per cluster) and reusing it by default
 # we are using ssh tunnel as a proxy for cluster identity, since even if other parameters are different
@@ -357,7 +378,8 @@ def get_executor(
     if not cluster_config.get("disable_gpus_per_node", False) and gpus_per_node is not None:
         srun_args.append(f"--gpus-per-node={gpus_per_node}")
 
-    dependency_type = cluster_config.get("dependency_type", "afterany")
+    dependencies, has_external_afterok = _add_external_slurm_afterok_dependency(dependencies)
+    dependency_type = "afterok" if has_external_afterok else cluster_config.get("dependency_type", "afterany")
     job_details_class = CustomJobDetailsRay if with_ray else CustomJobDetails
 
     # Build executor parameters as a dictionary to avoid duplicate parameters
