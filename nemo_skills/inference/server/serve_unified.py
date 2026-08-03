@@ -59,6 +59,7 @@ Environment Variables:
 
 import argparse
 import inspect
+import json
 import os
 import shutil
 import sys
@@ -134,6 +135,36 @@ def _resolve_turn_taking_source(args) -> str:
     if args.no_use_rnnt_turn_taking:
         return "asr_head"
     return "rnnt"
+
+
+def _load_megatron_duplex_export(model_path: str) -> Optional[dict]:
+    """Return a validated Megatron export manifest, or ``None`` for normal checkpoints.
+
+    This marker is the isolation boundary for Megatron-specific behavior. A
+    conventional NeMo/VoiceChat checkpoint never enters this path and retains
+    the pre-existing server configuration exactly.
+    """
+
+    manifest_path = os.path.join(model_path, "export_manifest.json")
+    if not os.path.isfile(manifest_path):
+        return None
+    with open(manifest_path) as stream:
+        manifest = json.load(stream)
+    if manifest.get("artifact_type") != "megatron_duplex_hybrid":
+        return None
+    frontend = os.path.join(model_path, "model.safetensors")
+    engine_path = os.path.join(model_path, manifest.get("vllm_llm", {}).get("directory", "vllm_llm"))
+    if not os.path.isfile(frontend):
+        raise FileNotFoundError(f"Megatron Duplex export is missing {frontend}")
+    if not os.path.isfile(os.path.join(engine_path, "config.json")):
+        raise FileNotFoundError(f"Megatron Duplex vLLM engine is missing config.json: {engine_path}")
+    if not os.path.isfile(os.path.join(engine_path, "model.safetensors")):
+        raise FileNotFoundError(f"Megatron Duplex vLLM engine is missing model.safetensors: {engine_path}")
+    tts_checkpoint = manifest.get("tts_checkpoint")
+    if not tts_checkpoint or not os.path.isfile(os.path.join(tts_checkpoint, "config.json")):
+        raise FileNotFoundError(f"Megatron Duplex export has an invalid TTS checkpoint: {tts_checkpoint}")
+    manifest["_engine_path"] = engine_path
+    return manifest
 
 
 def main():
@@ -635,6 +666,7 @@ def main():
 
     # Parse known args, allowing extra args to be passed through
     args, extra_args = parser.parse_known_args()
+    megatron_export = _load_megatron_duplex_export(args.model)
 
     # Run pre-server pip install if requested
     if args.pip_install:
@@ -825,6 +857,8 @@ def main():
 
     # S2S Incremental V2 backend options
     if args.backend == "s2s_incremental_v2":
+        if megatron_export is not None and "vllm_llm" not in args.engine_type:
+            parser.error("Megatron Duplex exports require --engine_type vllm_llm or vllm_llm_vllm_eartts")
         if args.llm_checkpoint_path:
             extra_config["llm_checkpoint_path"] = args.llm_checkpoint_path
         if args.tts_checkpoint_path:
@@ -902,8 +936,18 @@ def main():
             extra_config["decode_function_channel"] = True
         # Build vLLM configs when using a vLLM engine
         if "vllm" in args.engine_type:
-            model_path = args.model
-            llm_path = args.llm_checkpoint_path or args.model
+            if megatron_export is not None:
+                model_path = megatron_export["tts_checkpoint"]
+                llm_path = args.model
+                engine_path = megatron_export["_engine_path"]
+                # Feed the existing backend its already-supported split paths.
+                extra_config["llm_checkpoint_path"] = llm_path
+                extra_config["tts_checkpoint_path"] = model_path
+            else:
+                # Original behavior for all conventional checkpoints.
+                model_path = args.model
+                llm_path = args.llm_checkpoint_path or args.model
+                engine_path = None
             extra_config["vllm_llm_config"] = {
                 "model_path": model_path,
                 "max_model_len": args.vllm_max_model_len,
@@ -911,7 +955,7 @@ def main():
                 "dtype": args.vllm_llm_dtype,
                 "enforce_eager": args.vllm_enforce_eager,
                 "attention_backend": args.vllm_llm_attention_backend,
-                "engine_path": None,
+                "engine_path": engine_path,
                 "pretrained_llm": llm_path,
             }
             if not args.no_decode_audio:
@@ -947,6 +991,10 @@ def main():
     print("=" * 60)
     print(f"  Backend: {args.backend}")
     print(f"  Model: {args.model}")
+    if megatron_export is not None:
+        print("  Megatron Duplex export: enabled")
+        print(f"  vLLM LLM engine: {megatron_export['_engine_path']}")
+        print(f"  EAR-TTS checkpoint: {megatron_export['tts_checkpoint']}")
     if args.codec_model:
         print(f"  Codec Model: {args.codec_model}")
     print(f"  Port: {args.port}")

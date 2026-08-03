@@ -973,6 +973,72 @@ check_model() {
     echo " Decoding mode: $DECODING_MODE"
 }
 
+is_megatron_dcp() {
+    local path="$1" latest iter_dir metadata
+    [[ -d "$path" ]] || return 1
+    if [[ -f "$path/.metadata" ]]; then
+        metadata="$path/.metadata"
+    else
+        latest="$path/latest_checkpointed_iteration.txt"
+        [[ -f "$latest" ]] || return 1
+        local iteration
+        iteration=$(<"$latest")
+        if [[ "$iteration" == "release" ]]; then
+            iter_dir="$path/release"
+        elif [[ "$iteration" =~ ^[0-9]+$ ]]; then
+            printf -v iter_dir '%s/iter_%07d' "$path" "$iteration"
+        else
+            return 1
+        fi
+        metadata="$iter_dir/.metadata"
+    fi
+    [[ -f "$metadata" ]] || return 1
+    # Do not capture unrelated Megatron language-model checkpoints. The
+    # automatic converter is exclusively for the Duplex audio+Mamba wrapper.
+    grep -aq 'model.audio_encoder.' "$metadata" \
+        && grep -aq 'model.backbone.mamba_model.mamba_model.' "$metadata"
+}
+
+prepare_megatron_model() {
+    [[ -n "$MODEL_OVERRIDE" ]] || return 0
+    [[ -f "$MODEL_OVERRIDE/export_manifest.json" ]] && return 0
+    is_megatron_dcp "$MODEL_OVERRIDE" || return 0
+    if [[ "$DECODING_MODE" == "offline" ]]; then
+        echo "ERROR: Megatron Duplex checkpoints currently require incremental (DRIRF hybrid-vLLM) decoding." >&2
+        exit 1
+    fi
+
+    local source_model="$MODEL_OVERRIDE"
+    local export_root export_key export_dir conversion_python checkpoint_version
+    export_root="${NEMO_SKILLS_MEGATRON_EXPORT_ROOT:-/lustre/fsw/portfolios/llmservice/users/${USER}/workspace/megatron_duplex_exports}"
+    if [[ -f "$source_model/latest_checkpointed_iteration.txt" ]]; then
+        checkpoint_version=$(<"$source_model/latest_checkpointed_iteration.txt")
+    else
+        checkpoint_version=$(basename "${source_model%/}")
+    fi
+    export_key=$(printf '%s|%s' "$(readlink -f "$source_model")" "$checkpoint_version" | sha256sum | cut -c1-16)
+    export_dir="${export_root}/$(basename "${source_model%/}")_${export_key}"
+    conversion_python="${NEMO_SKILLS_MEGATRON_CONVERSION_PYTHON:-$PYTHON}"
+
+    echo "Detected Megatron Duplex Torch-DCP checkpoint: $source_model"
+    if [[ -f "$export_dir/export_manifest.json" ]]; then
+        echo "Using cached hybrid export: $export_dir"
+    else
+        echo "Converting to cached hybrid export: $export_dir"
+        if ! "$conversion_python" -c 'import torch, safetensors' >/dev/null 2>&1; then
+            echo "ERROR: Megatron conversion requires a Python environment with torch and safetensors." >&2
+            echo "Set NEMO_SKILLS_MEGATRON_CONVERSION_PYTHON=/path/to/training/python and retry." >&2
+            exit 1
+        fi
+        mkdir -p "$export_root"
+        "$conversion_python" "${REPO_ROOT}/scripts/megatron/duplex_export_hybrid_checkpoint.py" \
+            --checkpoint "$source_model" \
+            --output-dir "$export_dir" \
+            --overwrite
+    fi
+    MODEL_OVERRIDE="$export_dir"
+}
+
 # ---------------------------------------------------------------------------
 # Config patching (single unified path)
 # ---------------------------------------------------------------------------
@@ -1406,6 +1472,7 @@ run_benchmark() {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+prepare_megatron_model
 check_model
 validate_customized_configs
 
