@@ -34,7 +34,7 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
-from scripts.megatron.duplex_export import load_megatron_duplex_export
+from nemo_skills.conversion.megatron_duplex import load_megatron_duplex_export
 
 
 def _json_safe(value: Any):

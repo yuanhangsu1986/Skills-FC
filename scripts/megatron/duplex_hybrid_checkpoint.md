@@ -29,7 +29,7 @@ CONVERTED_ROOT=/lustre/fsw/portfolios/llmservice/users/nsrihari/full_duplex/avlm
 VOICECHAT_TEMPLATE=/lustre/fsw/portfolios/llmservice/users/vtrinh/projects/s2s_Jan_21_2026/result/PreT_PT0.95_SFT0.0_QA0.05_TEXT0.0_tloss0.0_MCQ0.0_ASR0.00_sysp0.0_se0.0_sm0.0_id0.0_its10.0_its20.0_wc0.0_fc0.0_fcv3_0.0_asr_dtc0_dst0_lt1.0_bos10.0_eos10.0_pad0.5_fcp0.3_fcs6.0_fce6.0_fcr3.0_fcc64.0/checkpoints/step-99015_hf
 EXPORT=/lustre/fsw/portfolios/llmservice/users/yuanhangs/workspace/megatron_duplex_exports/voicechat_nano_v2_stage2_pt99k_iter2400
 
-python scripts/megatron/duplex_export_hybrid_checkpoint.py \
+python -m nemo_skills.conversion.megatron_duplex.export \
   --checkpoint "$CKPT" \
   --iteration 2400 \
   --voicechat-template "$VOICECHAT_TEMPLATE" \
@@ -48,7 +48,7 @@ output directory.
 Validate structure and hashes:
 
 ```bash
-python scripts/megatron/duplex_verify_hybrid_checkpoint.py validate-export \
+python -m nemo_skills.conversion.megatron_duplex.verify validate-export \
   --export-dir "$EXPORT" \
   --verify-hashes
 ```
@@ -74,7 +74,7 @@ For named tensor dumps produced by native and hybrid instrumentation:
 
 ```bash
 cd /nemo_run/code
-python scripts/megatron/duplex_verify_hybrid_checkpoint.py compare-tensors \
+python -m nemo_skills.conversion.megatron_duplex.verify compare-tensors \
   --native /tmp/megatron_native_tensors.pt \
   --hybrid /tmp/drirf_hybrid_tensors.pt \
   --atol 0.02 --rtol 0.02 --min-cosine 0.999
@@ -83,7 +83,7 @@ python scripts/megatron/duplex_verify_hybrid_checkpoint.py compare-tensors \
 For end-to-end JSONL outputs, compare deterministic text and function channels:
 
 ```bash
-python scripts/megatron/duplex_verify_hybrid_checkpoint.py compare-jsonl \
+python -m nemo_skills.conversion.megatron_duplex.verify compare-jsonl \
   --native /tmp/native_output.jsonl \
   --hybrid /tmp/hybrid_output.jsonl \
   --fields pred_text function_channel_text

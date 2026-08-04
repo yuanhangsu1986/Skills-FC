@@ -1,4 +1,4 @@
-"""Shared format helpers for converted Megatron Duplex checkpoints."""
+"""Artifact-format helpers for converted Megatron Duplex checkpoints."""
 
 from __future__ import annotations
 

@@ -72,7 +72,7 @@ FDB_V3_OFFICIAL_SCRIPT="${FDB_V3_SCRIPT}"
 BBA_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bba/scripts/run_bba_eval.py"
 BFCL_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py"
 CONV_BEHAV_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/run_eval.py"
-MEGATRON_CHECKPOINT_MANAGER="${REPO_ROOT}/scripts/megatron/duplex_checkpoint_manager.py"
+MEGATRON_CHECKPOINT_MANAGER_MODULE="nemo_skills.conversion.megatron_duplex.checkpoint"
 
 # Config base directories — used by config_for() to derive default YAML paths.
 VB_BASE="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts"
@@ -988,11 +988,16 @@ check_model() {
 }
 
 is_megatron_dcp() {
-    "$PYTHON" "$MEGATRON_CHECKPOINT_MANAGER" probe-source --checkpoint "$1" --quiet
+    run_megatron_checkpoint_manager probe-source --checkpoint "$1" --quiet
 }
 
 is_megatron_export() {
-    "$PYTHON" "$MEGATRON_CHECKPOINT_MANAGER" probe-export --export-dir "$1" --quiet
+    run_megatron_checkpoint_manager probe-export --export-dir "$1" --quiet
+}
+
+run_megatron_checkpoint_manager() {
+    PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" \
+        "$PYTHON" -m "$MEGATRON_CHECKPOINT_MANAGER_MODULE" "$@"
 }
 
 detect_megatron_model() {
@@ -1037,7 +1042,7 @@ prepare_megatron_model() {
     echo "Detected Megatron Duplex Torch-DCP checkpoint: $source_model"
 
     preferred_dir="${source_model%/}/nemo_skills_converted"
-    if "$PYTHON" "$MEGATRON_CHECKPOINT_MANAGER" probe-writable --directory "$source_model" --quiet; then
+    if run_megatron_checkpoint_manager probe-writable --directory "$source_model" --quiet; then
         model_writable=true
     fi
 
@@ -1110,7 +1115,7 @@ prepare_megatron_model() {
     export_dir=$(readlink -f "$export_dir")
     PROCESSED_CKPT_DIR="$export_dir"
 
-    if "$PYTHON" "$MEGATRON_CHECKPOINT_MANAGER" validate-export \
+    if run_megatron_checkpoint_manager validate-export \
         --checkpoint "$source_model" --export-dir "$export_dir" --quiet; then
         echo "Using valid converted checkpoint: $export_dir"
         MODEL_OVERRIDE="$export_dir"

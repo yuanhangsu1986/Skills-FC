@@ -55,9 +55,7 @@ if [[ "$INSIDE_CONTAINER" != "true" ]]; then
         --inside-container
 fi
 
-MANAGER="$REPO_ROOT/scripts/megatron/duplex_checkpoint_manager.py"
-EXPORTER="$REPO_ROOT/scripts/megatron/duplex_export_hybrid_checkpoint.py"
-VERIFIER="$REPO_ROOT/scripts/megatron/duplex_verify_hybrid_checkpoint.py"
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 LOCK_DIR="$OUTPUT_DIR/conversion_logs"
 LOCK_FILE="$LOCK_DIR/.conversion.lock"
 
@@ -68,7 +66,7 @@ if ! flock -w 7200 9; then
     exit 1
 fi
 
-if "$PYTHON_BIN" "$MANAGER" validate-export \
+if "$PYTHON_BIN" -m nemo_skills.conversion.megatron_duplex.checkpoint validate-export \
     --checkpoint "$CHECKPOINT" --export-dir "$OUTPUT_DIR" --quiet; then
     echo "Valid converted checkpoint already exists; skipping conversion: $OUTPUT_DIR"
     exit 0
@@ -77,12 +75,12 @@ fi
 echo "Converting Megatron Duplex checkpoint"
 echo "  source: $CHECKPOINT"
 echo "  output: $OUTPUT_DIR"
-"$PYTHON_BIN" "$EXPORTER" \
+"$PYTHON_BIN" -m nemo_skills.conversion.megatron_duplex.export \
     --checkpoint "$CHECKPOINT" \
     --output-dir "$OUTPUT_DIR" \
     --overwrite
 
-"$PYTHON_BIN" "$VERIFIER" validate-export --export-dir "$OUTPUT_DIR"
-"$PYTHON_BIN" "$MANAGER" validate-export \
+"$PYTHON_BIN" -m nemo_skills.conversion.megatron_duplex.verify validate-export --export-dir "$OUTPUT_DIR"
+"$PYTHON_BIN" -m nemo_skills.conversion.megatron_duplex.checkpoint validate-export \
     --checkpoint "$CHECKPOINT" --export-dir "$OUTPUT_DIR"
 echo "Megatron Duplex conversion completed successfully: $OUTPUT_DIR"

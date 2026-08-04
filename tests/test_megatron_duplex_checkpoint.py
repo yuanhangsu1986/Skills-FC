@@ -4,14 +4,14 @@ from pathlib import Path
 import numpy as np
 from safetensors.numpy import save_file
 
-from scripts.megatron.duplex_checkpoint_manager import (
+from nemo_skills.conversion.megatron_duplex.checkpoint import (
     is_megatron_duplex_checkpoint,
     is_megatron_duplex_export,
     probe_directory_writable,
     resolve_iteration_dir,
     validate_export,
 )
-from scripts.megatron.duplex_export_hybrid_checkpoint import _copy_template_assets, _prepare_configs
+from nemo_skills.conversion.megatron_duplex.export import _copy_template_assets, _prepare_configs
 
 
 def _source_checkpoint(root: Path, iteration: int = 2400) -> tuple[Path, Path]:

@@ -2,7 +2,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from scripts.megatron.duplex_checkpoint_mapping import (
+from nemo_skills.conversion.megatron_duplex.mapping import (
     expected_custom_outputs,
     frontend_target_key,
     is_frontend_key,

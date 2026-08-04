@@ -64,7 +64,7 @@ import shutil
 import sys
 from typing import Optional
 
-from scripts.megatron.duplex_export import (
+from nemo_skills.conversion.megatron_duplex import (
     load_megatron_duplex_export as _load_megatron_duplex_export,
 )
 

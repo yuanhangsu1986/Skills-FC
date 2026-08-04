@@ -10,10 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-try:
-    from scripts.megatron.duplex_export import ARTIFACT_TYPE, read_export_manifest
-except ModuleNotFoundError:  # Direct execution: sibling module is on sys.path.
-    from duplex_export import ARTIFACT_TYPE, read_export_manifest
+from nemo_skills.conversion.megatron_duplex.artifact import ARTIFACT_TYPE, read_export_manifest
 
 
 def resolve_iteration_dir(checkpoint: Path) -> Path:

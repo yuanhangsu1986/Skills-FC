@@ -14,22 +14,17 @@ import hashlib
 import json
 import logging
 import shutil
-import sys
 from pathlib import Path
 from typing import Any, Callable
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from scripts.megatron.duplex_checkpoint_mapping import (
+from nemo_skills.conversion.megatron_duplex.artifact import ARTIFACT_TYPE
+from nemo_skills.conversion.megatron_duplex.mapping import (
     expected_custom_outputs,
     frontend_target_key,
     is_frontend_key,
     is_llm_key,
     llm_target_tensors,
 )
-from scripts.megatron.duplex_export import ARTIFACT_TYPE
 
 LOG = logging.getLogger("duplex_export")
 WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth", ".ckpt", ".distcp")
