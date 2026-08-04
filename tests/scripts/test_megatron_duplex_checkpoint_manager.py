@@ -5,6 +5,8 @@ import numpy as np
 from safetensors.numpy import save_file
 
 from scripts.megatron.duplex_checkpoint_manager import (
+    is_megatron_duplex_checkpoint,
+    is_megatron_duplex_export,
     probe_directory_writable,
     resolve_iteration_dir,
     validate_export,
@@ -77,6 +79,21 @@ def test_resolve_iteration_and_probe_writable(tmp_path):
     assert resolve_iteration_dir(iteration_dir) == iteration_dir.resolve()
     assert probe_directory_writable(checkpoint) == (True, None)
     assert not list(checkpoint.glob(".nemo_skills_write_test.*"))
+
+
+def test_probe_megatron_source_and_export_markers(tmp_path):
+    checkpoint, iteration_dir = _source_checkpoint(tmp_path)
+    (iteration_dir / ".metadata").write_bytes(
+        b"model.audio_encoder.weight\nmodel.backbone.mamba_model.mamba_model.weight\n"
+    )
+    assert is_megatron_duplex_checkpoint(checkpoint) is True
+
+    export_dir = tmp_path / "marked_export"
+    export_dir.mkdir()
+    (export_dir / "export_manifest.json").write_text(
+        json.dumps({"artifact_type": "megatron_duplex_hybrid"})
+    )
+    assert is_megatron_duplex_export(export_dir) is True
 
 
 def test_validate_export_matches_exact_source_iteration(tmp_path):

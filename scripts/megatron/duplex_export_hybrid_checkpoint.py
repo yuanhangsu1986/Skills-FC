@@ -29,6 +29,7 @@ from scripts.megatron.duplex_checkpoint_mapping import (
     is_llm_key,
     llm_target_tensors,
 )
+from scripts.megatron.duplex_export import ARTIFACT_TYPE
 
 LOG = logging.getLogger("duplex_export")
 WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth", ".ckpt", ".distcp")
@@ -313,7 +314,7 @@ def export(args: argparse.Namespace) -> None:
     _save_safetensors(vllm_path, vllm_tensors, save_file)
 
     manifest = {
-        "artifact_type": "megatron_duplex_hybrid",
+        "artifact_type": ARTIFACT_TYPE,
         "format_version": 1,
         "source_checkpoint": str(args.checkpoint.resolve()),
         "source_iteration_dir": str(iter_dir),

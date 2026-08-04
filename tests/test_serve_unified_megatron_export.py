@@ -1,7 +1,11 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
+from nemo_skills.dataset.conv_behav.scripts.conv_behav_drirf_incremental_infer import (
+    _resolve_checkpoint_paths,
+)
 from nemo_skills.inference.server.serve_unified import _load_megatron_duplex_export
 
 
@@ -37,6 +41,16 @@ def test_megatron_manifest_resolves_split_artifacts(tmp_path):
     manifest = _load_megatron_duplex_export(str(tmp_path))
     assert manifest is not None
     assert manifest["_engine_path"] == str(engine)
+
+    paths = _resolve_checkpoint_paths(
+        SimpleNamespace(
+            model_path=str(tmp_path),
+            llm_checkpoint_path=None,
+            tts_checkpoint_path=None,
+            engine_type="vllm_llm_vllm_eartts",
+        )
+    )
+    assert paths == (str(tts), str(tmp_path), str(tts), str(engine))
 
 
 def test_megatron_manifest_fails_closed_when_incomplete(tmp_path):

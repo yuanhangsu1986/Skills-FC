@@ -59,11 +59,14 @@ Environment Variables:
 
 import argparse
 import inspect
-import json
 import os
 import shutil
 import sys
 from typing import Optional
+
+from scripts.megatron.duplex_export import (
+    load_megatron_duplex_export as _load_megatron_duplex_export,
+)
 
 
 def setup_pythonpath(code_path: Optional[str] = None):
@@ -135,36 +138,6 @@ def _resolve_turn_taking_source(args) -> str:
     if args.no_use_rnnt_turn_taking:
         return "asr_head"
     return "rnnt"
-
-
-def _load_megatron_duplex_export(model_path: str) -> Optional[dict]:
-    """Return a validated Megatron export manifest, or ``None`` for normal checkpoints.
-
-    This marker is the isolation boundary for Megatron-specific behavior. A
-    conventional NeMo/VoiceChat checkpoint never enters this path and retains
-    the pre-existing server configuration exactly.
-    """
-
-    manifest_path = os.path.join(model_path, "export_manifest.json")
-    if not os.path.isfile(manifest_path):
-        return None
-    with open(manifest_path) as stream:
-        manifest = json.load(stream)
-    if manifest.get("artifact_type") != "megatron_duplex_hybrid":
-        return None
-    frontend = os.path.join(model_path, "model.safetensors")
-    engine_path = os.path.join(model_path, manifest.get("vllm_llm", {}).get("directory", "vllm_llm"))
-    if not os.path.isfile(frontend):
-        raise FileNotFoundError(f"Megatron Duplex export is missing {frontend}")
-    if not os.path.isfile(os.path.join(engine_path, "config.json")):
-        raise FileNotFoundError(f"Megatron Duplex vLLM engine is missing config.json: {engine_path}")
-    if not os.path.isfile(os.path.join(engine_path, "model.safetensors")):
-        raise FileNotFoundError(f"Megatron Duplex vLLM engine is missing model.safetensors: {engine_path}")
-    tts_checkpoint = manifest.get("tts_checkpoint")
-    if not tts_checkpoint or not os.path.isfile(os.path.join(tts_checkpoint, "config.json")):
-        raise FileNotFoundError(f"Megatron Duplex export has an invalid TTS checkpoint: {tts_checkpoint}")
-    manifest["_engine_path"] = engine_path
-    return manifest
 
 
 def main():

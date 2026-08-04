@@ -34,6 +34,8 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
+from scripts.megatron.duplex_export import load_megatron_duplex_export
+
 
 def _json_safe(value: Any):
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -109,26 +111,52 @@ def _pred_turns(pred_text: str | None):
     return [{"role": "agent", "start_time": None, "duration": None, "text": cleaned}]
 
 
+def _resolve_checkpoint_paths(args):
+    """Resolve conventional or split Megatron checkpoint paths for DRIRF."""
+
+    megatron_export = load_megatron_duplex_export(args.model_path)
+    model_path = args.model_path
+    llm_checkpoint_path = args.llm_checkpoint_path or args.model_path
+    tts_checkpoint_path = args.tts_checkpoint_path
+    llm_engine_path = None
+    if megatron_export is not None:
+        if "vllm_llm" not in args.engine_type:
+            raise ValueError(
+                "Megatron Duplex exports require engine_type vllm_llm or vllm_llm_vllm_eartts"
+            )
+        model_path = megatron_export["tts_checkpoint"]
+        llm_checkpoint_path = args.model_path
+        tts_checkpoint_path = model_path
+        llm_engine_path = megatron_export["_engine_path"]
+    return model_path, llm_checkpoint_path, tts_checkpoint_path, llm_engine_path
+
+
 def _build_backend(args):
     from recipes.multimodal.server.backends.s2s_incremental_backend_v2 import (
         S2SIncrementalBackendV2,
         S2SIncrementalV2Config,
     )
 
+    model_path, llm_checkpoint_path, tts_checkpoint_path, llm_engine_path = _resolve_checkpoint_paths(args)
+    if llm_engine_path is not None:
+        print("[conv_behav_drirf_incremental] Megatron Duplex export enabled")
+        print(f"  frontend: {llm_checkpoint_path}")
+        print(f"  vLLM LLM engine: {llm_engine_path}")
+        print(f"  EAR-TTS checkpoint: {model_path}")
+
     vllm_llm_config = None
     vllm_tts_config = None
     if "vllm" in args.engine_type:
-        llm_path = args.llm_checkpoint_path or args.model_path
         vllm_llm_config = {
-            "model_path": args.model_path,
+            "model_path": model_path,
             "max_model_len": args.vllm_max_model_len,
             "gpu_memory_utilization": args.vllm_gpu_memory_utilization,
             "dtype": "bfloat16",
-            "engine_path": None,
-            "pretrained_llm": llm_path,
+            "engine_path": llm_engine_path,
+            "pretrained_llm": llm_checkpoint_path,
         }
         vllm_tts_config = {
-            "model_path": args.model_path,
+            "model_path": model_path,
             "max_model_len": args.vllm_max_model_len,
             "gpu_memory_utilization": args.vllm_gpu_memory_utilization,
             "dtype": "float32",
@@ -138,9 +166,9 @@ def _build_backend(args):
         }
 
     cfg = S2SIncrementalV2Config(
-        model_path=args.model_path,
-        llm_checkpoint_path=args.llm_checkpoint_path or args.model_path,
-        tts_checkpoint_path=args.tts_checkpoint_path,
+        model_path=model_path,
+        llm_checkpoint_path=llm_checkpoint_path,
+        tts_checkpoint_path=tts_checkpoint_path,
         speaker_reference=args.speaker_reference,
         num_frames_per_inference=args.num_frames_per_inference,
         buffer_size_frames=args.buffer_size_frames,

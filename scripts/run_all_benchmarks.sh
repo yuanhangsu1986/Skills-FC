@@ -13,7 +13,7 @@
 #   bash scripts/run_all_benchmarks.sh [options]
 #
 # Examples:
-#   # Run everything with defaults (greedy, incremental)
+#   # Run the default suite with greedy, incremental decoding
 #   bash scripts/run_all_benchmarks.sh
 #
 #   # Run offline-decoding configs for all benchmarks
@@ -72,6 +72,7 @@ FDB_V3_OFFICIAL_SCRIPT="${FDB_V3_SCRIPT}"
 BBA_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bba/scripts/run_bba_eval.py"
 BFCL_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/bfcl_single_turn_function_channel/scripts/run_eval.py"
 CONV_BEHAV_SCRIPT="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts/run_eval.py"
+MEGATRON_CHECKPOINT_MANAGER="${REPO_ROOT}/scripts/megatron/duplex_checkpoint_manager.py"
 
 # Config base directories — used by config_for() to derive default YAML paths.
 VB_BASE="${REPO_ROOT}/nemo_skills/dataset/voicebench/scripts"
@@ -86,7 +87,11 @@ CB_BASE="${REPO_ROOT}/nemo_skills/dataset/conv_behav/scripts"
 # ---------------------------------------------------------------------------
 # Argument defaults
 # ---------------------------------------------------------------------------
-ALL_BENCHMARKS="conv_behav fdb_v1 fdb_v1_5 fdb_v3 fdb_v3_chen_chen fdb_v3_official bba bfcl vb_mcq vb_nonmcq"
+KNOWN_BENCHMARKS="conv_behav fdb_v1 fdb_v1_5 fdb_v3 fdb_v3_chen_chen fdb_v3_official bba bfcl vb_mcq vb_nonmcq"
+# ChenChen remains explicitly selectable for conventional checkpoints, but is
+# not part of the default suite. Its custom native inference stack cannot load
+# the split hybrid-vLLM Megatron export.
+DEFAULT_BENCHMARKS="conv_behav fdb_v1 fdb_v1_5 fdb_v3 fdb_v3_official bba bfcl vb_mcq vb_nonmcq"
 # Aliases that expand to multiple benchmark names in --benchmarks.
 declare -A BENCHMARK_ALIASES=(
     [fdb]="fdb_v1 fdb_v1_5 fdb_v3"
@@ -108,6 +113,7 @@ MODEL_OVERRIDE=""
 OUTPUT_DIR_OVERRIDE=""
 PROCESSED_CKPT_DIR=""
 MEGATRON_CONVERSION_JOB_ID=""
+MEGATRON_MODEL_ACTIVE=false
 DECODING_MODE="incremental"   # incremental | offline | customized
 HTML_NAME="scorecard"
 MAX_JOBS_OVERRIDE=""
@@ -146,11 +152,11 @@ waits until a slot is free.
 Decoding defaults to greedy via each benchmark's *_greedy.yaml config.
 
 Benchmark names: vb_nonmcq  vb_mcq  fdb_v1  fdb_v1_5  fdb_v3  fdb_v3_chen_chen  fdb_v3_official  bba  bfcl  conv_behav
-Aliases:         fdb -> fdb_v1,fdb_v1_5,fdb_v3   (fdb_v3_chen_chen and fdb_v3_official are opt-in: name them explicitly)
+Aliases:         fdb -> fdb_v1,fdb_v1_5,fdb_v3   (fdb_v3_chen_chen is opt-in: name it explicitly)
 
 Options:
   --benchmarks LIST         Comma-separated subset of the benchmark names above.
-                            Default: all in the order listed above.
+                            Default: all except fdb_v3_chen_chen, in the order listed above.
                             "fdb" expands to all three FDB versions.
   --config_vb_nonmcq  PATH Config YAML for VoiceBench non-MCQ (overrides default greedy YAML)
   --config_vb_mcq     PATH Config YAML for VoiceBench MCQ
@@ -345,7 +351,7 @@ fi
 if [[ -n "$SELECTED_BENCHMARKS" ]]; then
     BENCHMARKS="${SELECTED_BENCHMARKS//,/ }"
 else
-    BENCHMARKS="$ALL_BENCHMARKS"
+    BENCHMARKS="$DEFAULT_BENCHMARKS"
 fi
 
 # Expand aliases (e.g. "fdb" -> "fdb_v1 fdb_v1_5 fdb_v3"), then de-duplicate
@@ -370,16 +376,16 @@ BENCHMARKS="${deduped# }"
 
 # Validate each name
 for b in $BENCHMARKS; do
-    if [[ ! " $ALL_BENCHMARKS " =~ " $b " ]]; then
-        echo "Unknown benchmark: '$b'. Valid names: $ALL_BENCHMARKS" >&2
+    if [[ ! " $KNOWN_BENCHMARKS " =~ " $b " ]]; then
+        echo "Unknown benchmark: '$b'. Valid names: $KNOWN_BENCHMARKS" >&2
         echo "Aliases: ${!BENCHMARK_ALIASES[*]}" >&2
         exit 1
     fi
 done
 
-# Reorder to size order (ALL_BENCHMARKS is already ordered smallest → largest).
+# Reorder to size order (KNOWN_BENCHMARKS is ordered smallest → largest).
 ordered=""
-for b in $ALL_BENCHMARKS; do
+for b in $KNOWN_BENCHMARKS; do
     if [[ " $BENCHMARKS " =~ " $b " ]]; then
         ordered="$ordered $b"
     fi
@@ -982,52 +988,56 @@ check_model() {
 }
 
 is_megatron_dcp() {
-    local path="$1" latest iter_dir metadata
-    [[ -d "$path" ]] || return 1
-    if [[ -f "$path/.metadata" ]]; then
-        metadata="$path/.metadata"
-    else
-        latest="$path/latest_checkpointed_iteration.txt"
-        [[ -f "$latest" ]] || return 1
-        local iteration
-        iteration=$(<"$latest")
-        if [[ "$iteration" == "release" ]]; then
-            iter_dir="$path/release"
-        elif [[ "$iteration" =~ ^[0-9]+$ ]]; then
-            printf -v iter_dir '%s/iter_%07d' "$path" "$iteration"
-        else
-            return 1
-        fi
-        metadata="$iter_dir/.metadata"
+    "$PYTHON" "$MEGATRON_CHECKPOINT_MANAGER" probe-source --checkpoint "$1" --quiet
+}
+
+is_megatron_export() {
+    "$PYTHON" "$MEGATRON_CHECKPOINT_MANAGER" probe-export --export-dir "$1" --quiet
+}
+
+detect_megatron_model() {
+    [[ -n "$MODEL_OVERRIDE" ]] || return 0
+    if is_megatron_export "$MODEL_OVERRIDE" || is_megatron_dcp "$MODEL_OVERRIDE"; then
+        MEGATRON_MODEL_ACTIVE=true
     fi
-    [[ -f "$metadata" ]] || return 1
-    # Do not capture unrelated Megatron language-model checkpoints. The
-    # automatic converter is exclusively for the Duplex audio+Mamba wrapper.
-    grep -aq 'model.audio_encoder.' "$metadata" \
-        && grep -aq 'model.backbone.mamba_model.mamba_model.' "$metadata"
+}
+
+filter_unsupported_megatron_benchmarks() {
+    [[ "$MEGATRON_MODEL_ACTIVE" == "true" ]] || return 0
+    local benchmark filtered=""
+    if [[ -z "$SELECTED_BENCHMARKS" ]]; then
+        echo "Megatron compatibility: fdb_v3_chen_chen is excluded from the default suite because its native inference engine does not support the split converted checkpoint."
+    fi
+    for benchmark in $BENCHMARKS; do
+        if [[ "$benchmark" == "fdb_v3_chen_chen" ]]; then
+            echo "Skipping fdb_v3_chen_chen: its native inference engine does not support the split Megatron converted checkpoint."
+            echo "  Native-engine Megatron conversion is not implemented; use fdb_v3 or fdb_v3_official instead."
+            continue
+        fi
+        filtered="${filtered:+$filtered }$benchmark"
+    done
+    BENCHMARKS="$filtered"
 }
 
 prepare_megatron_model() {
     [[ -n "$MODEL_OVERRIDE" ]] || return 0
-    [[ -f "$MODEL_OVERRIDE/export_manifest.json" ]] && return 0
+    if [[ "$MEGATRON_MODEL_ACTIVE" == "true" && "$DECODING_MODE" == "offline" ]]; then
+        echo "ERROR: Megatron Duplex checkpoints currently require incremental (DRIRF hybrid-vLLM) decoding." >&2
+        exit 1
+    fi
+    is_megatron_export "$MODEL_OVERRIDE" && return 0
     if [[ "$MODEL_OVERRIDE" == /* && ! -e "$MODEL_OVERRIDE" ]]; then
         echo "ERROR: --model does not exist: $MODEL_OVERRIDE" >&2
         exit 1
     fi
-    is_megatron_dcp "$MODEL_OVERRIDE" || return 0
-    if [[ "$DECODING_MODE" == "offline" ]]; then
-        echo "ERROR: Megatron Duplex checkpoints currently require incremental (DRIRF hybrid-vLLM) decoding." >&2
-        exit 1
-    fi
-
+    [[ "$MEGATRON_MODEL_ACTIVE" == "true" ]] || return 0
     local source_model="$MODEL_OVERRIDE"
     local export_dir preferred_dir default_dir model_writable=false
-    local manager="${REPO_ROOT}/scripts/megatron/duplex_checkpoint_manager.py"
     local conversion_script="${REPO_ROOT}/scripts/megatron/duplex_convert_slurm.sh"
     echo "Detected Megatron Duplex Torch-DCP checkpoint: $source_model"
 
     preferred_dir="${source_model%/}/nemo_skills_converted"
-    if "$PYTHON" "$manager" probe-writable --directory "$source_model" --quiet; then
+    if "$PYTHON" "$MEGATRON_CHECKPOINT_MANAGER" probe-writable --directory "$source_model" --quiet; then
         model_writable=true
     fi
 
@@ -1100,7 +1110,7 @@ prepare_megatron_model() {
     export_dir=$(readlink -f "$export_dir")
     PROCESSED_CKPT_DIR="$export_dir"
 
-    if "$PYTHON" "$manager" validate-export \
+    if "$PYTHON" "$MEGATRON_CHECKPOINT_MANAGER" validate-export \
         --checkpoint "$source_model" --export-dir "$export_dir" --quiet; then
         echo "Using valid converted checkpoint: $export_dir"
         MODEL_OVERRIDE="$export_dir"
@@ -1598,6 +1608,12 @@ run_benchmark() {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+detect_megatron_model
+filter_unsupported_megatron_benchmarks
+if [[ -z "$BENCHMARKS" ]]; then
+    echo "No compatible benchmarks remain; no conversion or evaluation jobs were submitted."
+    exit 0
+fi
 prepare_megatron_model
 check_model
 validate_customized_configs

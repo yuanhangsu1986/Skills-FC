@@ -5,11 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import mmap
 import tempfile
 from pathlib import Path
 from typing import Any
 
-ARTIFACT_TYPE = "megatron_duplex_hybrid"
+try:
+    from scripts.megatron.duplex_export import ARTIFACT_TYPE, read_export_manifest
+except ModuleNotFoundError:  # Direct execution: sibling module is on sys.path.
+    from duplex_export import ARTIFACT_TYPE, read_export_manifest
 
 
 def resolve_iteration_dir(checkpoint: Path) -> Path:
@@ -35,6 +39,34 @@ def probe_directory_writable(directory: Path) -> tuple[bool, str | None]:
     except OSError as exc:
         return False, str(exc)
     return True, None
+
+
+def is_megatron_duplex_checkpoint(checkpoint: Path) -> bool:
+    """Identify the audio+Mamba Torch-DCP format handled by this integration."""
+
+    try:
+        metadata_path = resolve_iteration_dir(checkpoint) / ".metadata"
+        if metadata_path.stat().st_size == 0:
+            return False
+        with metadata_path.open("rb") as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as metadata:
+            return all(
+                metadata.find(marker) >= 0
+                for marker in (
+                    b"model.audio_encoder.",
+                    b"model.backbone.mamba_model.mamba_model.",
+                )
+            )
+    except (OSError, ValueError):
+        return False
+
+
+def is_megatron_duplex_export(export_dir: Path) -> bool:
+    """Identify an export by its explicit artifact marker."""
+
+    try:
+        return read_export_manifest(export_dir) is not None
+    except (OSError, ValueError):
+        return False
 
 
 def _load_manifest(export_dir: Path) -> tuple[dict[str, Any] | None, list[str]]:
@@ -145,6 +177,14 @@ def parse_args() -> argparse.Namespace:
     probe = subparsers.add_parser("probe-writable")
     probe.add_argument("--directory", type=Path, required=True)
     probe.add_argument("--quiet", action="store_true")
+
+    source = subparsers.add_parser("probe-source")
+    source.add_argument("--checkpoint", type=Path, required=True)
+    source.add_argument("--quiet", action="store_true")
+
+    export = subparsers.add_parser("probe-export")
+    export.add_argument("--export-dir", type=Path, required=True)
+    export.add_argument("--quiet", action="store_true")
     return parser.parse_args()
 
 
@@ -152,9 +192,13 @@ def main() -> None:
     args = parse_args()
     if args.command == "validate-export":
         report = validate_export(args.export_dir, args.checkpoint)
-    else:
+    elif args.command == "probe-writable":
         ok, error = probe_directory_writable(args.directory)
         report = {"ok": ok, "directory": str(args.directory.resolve()), "error": error}
+    elif args.command == "probe-source":
+        report = {"ok": is_megatron_duplex_checkpoint(args.checkpoint), "checkpoint": str(args.checkpoint.resolve())}
+    else:
+        report = {"ok": is_megatron_duplex_export(args.export_dir), "export_dir": str(args.export_dir.resolve())}
     if not args.quiet:
         print(json.dumps(report, indent=2))
     raise SystemExit(0 if report["ok"] else 1)
