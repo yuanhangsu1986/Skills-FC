@@ -354,8 +354,8 @@ def prepare_fdb_dir(
             else:
                 print(f"Warning: FDB data not found for {entry_id} (tried {vers}/{subtest}/{sample_id})")
 
-    if run_asr and asr_task and (fdb_repo / "get_transcript" / "asr.py").exists():
-        asr_script = fdb_repo / "get_transcript" / "asr.py"
+    if run_asr and asr_task and (Path(__file__).resolve().parent / "asr.py").exists():
+        asr_script = Path(__file__).resolve().parent / "asr.py"
         cmd = [sys.executable, str(asr_script), "--root_dir", str(fdb_prepared), "--task", asr_task]
         if stereo:
             cmd.append("--stereo")
@@ -367,7 +367,7 @@ def prepare_fdb_dir(
         )
         if _needs_inputs_asr:
             subprocess.run(
-                [sys.executable, str(asr_script), "--root_dir", str(fdb_prepared), "--task", "inputs_only"],
+                [sys.executable, str(asr_script), "--root_dir", str(fdb_prepared), "--task", "input_only"],
                 cwd=str(fdb_repo),
                 check=True,
             )
