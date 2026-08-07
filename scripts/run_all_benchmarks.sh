@@ -132,11 +132,9 @@ CUSTOM_TOP_P=""
 CUSTOM_REPETITION_PENALTY=""
 CUSTOM_TEMPERATURE=""
 
-# RNNT turn-taking toggle. Standalone (NOT part of the all-four decoding group)
-# because it selects a turn-taking mechanism rather than a sampling parameter,
-# and needs to be flippable on its own for A/B runs. Empty = leave the YAML
-# alone, which means the backend default (RNNT on) applies.
-CUSTOM_USE_RNNT_TT=""   # "true" or "false"
+# RNNT turn-taking is opt-in and independent of the all-four decoding group.
+# It can be enabled explicitly with --use_rnnt_turn_taking.
+USE_RNNT_TURN_TAKING=false   # "true" or "false"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -200,10 +198,8 @@ Options:
   RNNT turn-taking (standalone; may be used on its own, no --output_dir needed).
   --use_rnnt_turn_taking BOOL
                             "true"  -> RNNT blank/non-blank drives agent BOS/EOS
-                                       (this is the backend default)
-                            "false" -> revert to the legacy ASR-text-channel
-                                       heuristic
-                            Omitted -> leave the YAML untouched.
+                            "false" -> use the legacy ASR-text-channel heuristic
+                                       (default: false)
 
   --html_name         NAME  Base name for the scorecard HTML (default: scorecard).
   --max_jobs          N     Override SLURM job limit (auto-detected by default)
@@ -256,7 +252,7 @@ while [[ $# -gt 0 ]]; do
         --max_jobs)          MAX_JOBS_OVERRIDE="$2";     shift 2 ;;
         --poll_interval)     POLL_INTERVAL="$2";          shift 2 ;;
         --force_turn_taking) CUSTOM_FORCE_TURN_TAKING="$2"; shift 2 ;;
-        --use_rnnt_turn_taking) CUSTOM_USE_RNNT_TT="$2";  shift 2 ;;
+        --use_rnnt_turn_taking) USE_RNNT_TURN_TAKING="$2"; shift 2 ;;
         --top_p)             CUSTOM_TOP_P="$2";            shift 2 ;;
         --repetition_penalty) CUSTOM_REPETITION_PENALTY="$2"; shift 2 ;;
         --temperature)       CUSTOM_TEMPERATURE="$2";     shift 2 ;;
@@ -322,9 +318,8 @@ fi
 HAS_DECODING_OVERRIDES=$([[ "$_n_custom" -gt 0 ]] && echo "true" || echo "false")
 
 # Validated separately from the decoding group: it is independently optional.
-if [[ -n "$CUSTOM_USE_RNNT_TT" \
-      && "$CUSTOM_USE_RNNT_TT" != "true" && "$CUSTOM_USE_RNNT_TT" != "false" ]]; then
-    echo "ERROR: --use_rnnt_turn_taking must be 'true' or 'false', got: '$CUSTOM_USE_RNNT_TT'" >&2
+if [[ "$USE_RNNT_TURN_TAKING" != "true" && "$USE_RNNT_TURN_TAKING" != "false" ]]; then
+    echo "ERROR: --use_rnnt_turn_taking must be 'true' or 'false', got: '$USE_RNNT_TURN_TAKING'" >&2
     exit 1
 fi
 
@@ -1220,7 +1215,7 @@ make_patched_config() {
     PATCH_EXPNAME_SUFFIX="${_EXPNAME_SUFFIX:-}" \
     PATCH_HAS_DECODING_OVERRIDES="$HAS_DECODING_OVERRIDES" \
     PATCH_FORCE_TT="${CUSTOM_FORCE_TURN_TAKING:-}" \
-    PATCH_USE_RNNT_TT="${CUSTOM_USE_RNNT_TT:-}" \
+    PATCH_USE_RNNT_TT="$USE_RNNT_TURN_TAKING" \
     PATCH_TOP_P="${CUSTOM_TOP_P:-}" \
     PATCH_REP_PENALTY="${CUSTOM_REPETITION_PENALTY:-}" \
     PATCH_TEMP="${CUSTOM_TEMPERATURE:-}" \
@@ -1296,16 +1291,15 @@ if has_overrides:
 # RNNT turn-taking override. Deliberately outside the `has_overrides` block:
 # it is independently settable and does not require the decoding-param group.
 #
-# serve_unified exposes this as argparse.BooleanOptionalAction with default
-# True, so the pair --use_rnnt_turn_taking / --no_use_rnnt_turn_taking are both
-# valid and the LAST one wins. Strip both before appending so repeated patching
-# of an already-patched config stays idempotent.
+# RNNT is opt-in. Strip both the current positive flag and the retired negative
+# flag so repeated patching stays idempotent, then append only when enabled.
 if use_rnnt_tt in ('true', 'false'):
     if 'server_args' in cfg and cfg.get('server_args'):
         sa = cfg['server_args']
         sa = re.sub(r'\s*--(?:no_)?use_rnnt_turn_taking\b', '', sa)
-        flag = '--use_rnnt_turn_taking' if use_rnnt_tt == 'true' else '--no_use_rnnt_turn_taking'
-        cfg['server_args'] = sa.rstrip() + ' ' + flag
+        if use_rnnt_tt == 'true':
+            sa = sa.rstrip() + ' --use_rnnt_turn_taking'
+        cfg['server_args'] = sa
 
     # Top-level key form, for configs that surface it to the runner directly.
     # Only rewrite when already present, matching Strategy 3's convention of
@@ -1367,7 +1361,7 @@ print(json.dumps({
     'output_dir': "${OUTPUT_DIR_OVERRIDE}" or None,
     'decoding_mode': "${DECODING_MODE}",
     'force_turn_taking': "${CUSTOM_FORCE_TURN_TAKING}" or None,
-    'use_rnnt_turn_taking': "${CUSTOM_USE_RNNT_TT}" or None,
+    'use_rnnt_turn_taking': "$USE_RNNT_TURN_TAKING" == "true",
     'top_p': "${CUSTOM_TOP_P}" or None,
     'repetition_penalty': "${CUSTOM_REPETITION_PENALTY}" or None,
     'temperature': "${CUSTOM_TEMPERATURE}" or None,
@@ -1639,7 +1633,7 @@ if [[ "$HAS_DECODING_OVERRIDES" == "true" ]]; then
     echo "   temperature        : $CUSTOM_TEMPERATURE"
 fi
 # Separate from the decoding-overrides block: settable on its own.
-[[ -n "$CUSTOM_USE_RNNT_TT" ]] && echo " RNNT turn-taking: $CUSTOM_USE_RNNT_TT"
+echo " RNNT turn-taking: $USE_RNNT_TURN_TAKING"
 echo " HTML name    : ${HTML_NAME}.html"
 echo " Poll interval: ${POLL_INTERVAL}s"
 echo " Dry run      : $DRY_RUN"

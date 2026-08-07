@@ -129,15 +129,13 @@ def apply_safetensors_patch(hack_path: Optional[str]):
 def _resolve_turn_taking_source(args) -> str:
     """Collapse the turn-taking CLI flags into a single source string.
 
-    Precedence: explicit --turn_taking_source, then --no_use_rnnt_turn_taking,
-    then the default ("rnnt"). --use_rnnt_turn_taking is accepted for symmetry
-    and readability in configs, but it only restates the default.
+    Explicit --turn_taking_source takes precedence. Otherwise RNNT turn-taking
+    is opt-in via --use_rnnt_turn_taking; omitting it preserves the pre-RNNT
+    ASR-head behavior.
     """
     if args.turn_taking_source is not None:
         return args.turn_taking_source
-    if args.no_use_rnnt_turn_taking:
-        return "asr_head"
-    return "rnnt"
+    return "rnnt" if args.use_rnnt_turn_taking else "asr_head"
 
 
 def main():
@@ -435,20 +433,13 @@ def main():
     # --- RNNT turn-taking -------------------------------------------------
     # The RNNT joint's per-frame blank/non-blank decision is used as a speech
     # detector to trigger agent BOS (end of user turn) and EOS (barge-in).
-    # On by default; --no_use_rnnt_turn_taking falls back to the legacy
-    # ASR-text-channel heuristic.
-    # Paired store_true flags rather than BooleanOptionalAction: the latter
-    # generates "--no-use_rnnt_turn_taking" (hyphen), which breaks the
-    # underscore convention used everywhere else here (cf. --no_decode_audio).
+    # Opt-in so existing commands preserve the pre-RNNT ASR-text-channel
+    # behavior unless they explicitly request RNNT turn-taking.
     parser.add_argument(
         "--use_rnnt_turn_taking",
         action="store_true",
-        help="Use the RNNT blank/non-blank signal for turn-taking (this is the default)",
-    )
-    parser.add_argument(
-        "--no_use_rnnt_turn_taking",
-        action="store_true",
-        help="Disable RNNT turn-taking; revert to the legacy ASR-text-channel heuristic",
+        default=False,
+        help="Use the RNNT blank/non-blank signal for turn-taking (default: disabled)",
     )
     parser.add_argument(
         "--turn_taking_source",
@@ -752,9 +743,9 @@ def main():
         # Force turn-taking — landed on model.stt.model.force_turn_taking by the backend.
         if args.force_turn_taking:
             extra_config["force_turn_taking"] = True
-        # RNNT turn-taking. Explicit --turn_taking_source wins; otherwise derive
-        # it from --use_rnnt_turn_taking / --no_use_rnnt_turn_taking. Setting
-        # "asr_head" reproduces the pre-RNNT behaviour exactly.
+        # RNNT turn-taking. Explicit --turn_taking_source wins; otherwise RNNT
+        # is opt-in via --use_rnnt_turn_taking. The default "asr_head"
+        # reproduces the pre-RNNT behaviour.
         extra_config["turn_taking_source"] = _resolve_turn_taking_source(args)
         extra_config["rnnt_eou_frames"] = args.rnnt_eou_frames
         extra_config["rnnt_bou_frames"] = args.rnnt_bou_frames
@@ -862,8 +853,8 @@ def main():
         extra_config["force_turn_taking"] = args.force_turn_taking
         extra_config["force_turn_taking_threshold"] = args.force_turn_taking_threshold
         extra_config["force_turn_taking_pad_window"] = args.force_turn_taking_pad_window
-        # Explicit --turn_taking_source wins; otherwise derive it from the
-        # boolean flag. "asr_head" preserves the pre-RNNT behaviour exactly.
+        # Explicit --turn_taking_source wins; otherwise RNNT is opt-in via the
+        # boolean flag. "asr_head" preserves the pre-RNNT behaviour.
         extra_config["turn_taking_source"] = _resolve_turn_taking_source(args)
         extra_config["rnnt_eou_frames"] = args.rnnt_eou_frames
         extra_config["rnnt_bou_frames"] = args.rnnt_bou_frames

@@ -138,6 +138,15 @@ class S2SIncrementalV2Config(BackendConfig):
     force_turn_taking_threshold: int = 40
     force_turn_taking_pad_window: int = 25
 
+    # Keep the pre-RNNT behavior unless the caller explicitly opts in. These
+    # must be first-class fields so from_dict() does not strand them in
+    # extra_config before _build_wrapper_config() constructs the DRIRF config.
+    turn_taking_source: str = "asr_head"
+    rnnt_eou_frames: int = 15
+    rnnt_bou_frames: int = 4
+    rnnt_min_speech_frames: int = 3
+    rnnt_max_symbols: int = 10
+
     decode_audio: bool = True
     merge_user_channel: bool = False
     use_asr_as_response: bool = False
@@ -287,6 +296,11 @@ class S2SIncrementalBackendV2(InferenceBackend):
             "force_turn_taking": cfg.force_turn_taking,
             "force_turn_taking_threshold": cfg.force_turn_taking_threshold,
             "force_turn_taking_pad_window": cfg.force_turn_taking_pad_window,
+            "turn_taking_source": cfg.turn_taking_source,
+            "rnnt_eou_frames": cfg.rnnt_eou_frames,
+            "rnnt_bou_frames": cfg.rnnt_bou_frames,
+            "rnnt_min_speech_frames": cfg.rnnt_min_speech_frames,
+            "rnnt_max_symbols": cfg.rnnt_max_symbols,
             "inference_guidance_enabled": cfg.inference_guidance_enabled,
             "decode_function_channel": cfg.decode_function_channel,
         }
